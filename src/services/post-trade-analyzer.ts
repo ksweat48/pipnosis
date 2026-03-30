@@ -195,6 +195,14 @@ class PostTradeAnalyzer {
       // performance counters atomically.
       await this.updateStrategyMemory(fullTradeData, outcome, lessonLearned, whatWorked, mistakeIdentified);
 
+      // GOVERNANCE (2026-03-30): Close the regime calibration loop.
+      // Record the outcome against the regime that was active at trade entry so
+      // that regime_outcome_log can be used to compute per-regime win rates over time.
+      // This is fire-and-forget — a failure here must not block trade closure.
+      this.recordRegimeOutcome(fullTradeData, outcome, peakHitRatio).catch((err) => {
+        logger.warn('[Post-Trade Analyzer] Regime outcome recording failed (non-blocking)', { err });
+      });
+
       console.log(`[Post-Trade Analyzer] Analysis complete for ${tradeData.symbol}`);
     } catch (error) {
       console.error('[Post-Trade Analyzer] Error analyzing trade:', error);
@@ -365,11 +373,18 @@ class PostTradeAnalyzer {
     return parts.join(' — ');
   }
 
-  private async enrichTradeData(tradeData: TradeData): Promise<TradeData & { alphaReasoningSnapshot?: string | null; tp1ReasoningFromRecord?: string | null; tp2ReasoningFromRecord?: string | null }> {
+  private async enrichTradeData(tradeData: TradeData): Promise<TradeData & {
+    alphaReasoningSnapshot?: string | null;
+    tp1ReasoningFromRecord?: string | null;
+    tp2ReasoningFromRecord?: string | null;
+    microRegimeAtEntry?: string | null;
+    regimeConfidenceAtEntry?: number | null;
+    regimeUsedDynamicBaseline?: boolean | null;
+  }> {
     try {
       const { data: trade } = await supabase
         .from('goal_session_trades')
-        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe, alpha_reasoning_snapshot, tp1_reasoning, tp2_reasoning')
+        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe, alpha_reasoning_snapshot, tp1_reasoning, tp2_reasoning, micro_regime_at_entry, regime_confidence_at_entry, regime_used_dynamic_baseline')
         .eq('id', tradeData.id)
         .maybeSingle();
 
@@ -391,6 +406,11 @@ class PostTradeAnalyzer {
           alphaReasoningSnapshot: trade.alpha_reasoning_snapshot ?? null,
           tp1ReasoningFromRecord: trade.tp1_reasoning ?? null,
           tp2ReasoningFromRecord: trade.tp2_reasoning ?? null,
+          // GOVERNANCE (2026-03-30): Regime fields persisted at entry by alpha-trade-executor.
+          // These are read here to close the calibration loop in the post-trade pipeline.
+          microRegimeAtEntry: trade.micro_regime_at_entry ?? null,
+          regimeConfidenceAtEntry: trade.regime_confidence_at_entry ?? null,
+          regimeUsedDynamicBaseline: trade.regime_used_dynamic_baseline ?? null,
         };
       }
     } catch (error) {
@@ -1253,6 +1273,57 @@ class PostTradeAnalyzer {
     if (hour >= 8 && hour < 16) return 'London';
     if (hour >= 16 && hour < 24) return 'NewYork';
     return 'Unknown';
+  }
+
+  /**
+   * Record regime outcome to close the dynamic calibration loop.
+   *
+   * GOVERNANCE (2026-03-30): SSOT for linking trade outcomes back to the micro-regime
+   * that was active at entry. This populates regime_outcome_log so that per-regime win
+   * rates can be computed and fed back into Alpha's briefing over time.
+   *
+   * Calls the record_regime_outcome RPC which updates the log row inserted at entry.
+   * If no log row exists (legacy trade or cold start), this is a no-op.
+   */
+  private async recordRegimeOutcome(
+    tradeData: TradeData & { microRegimeAtEntry?: string | null; regimeConfidenceAtEntry?: number | null; regimeUsedDynamicBaseline?: boolean | null },
+    outcome: 'win' | 'loss' | 'breakeven',
+    peakHitRatio: number | null
+  ): Promise<void> {
+    if (!tradeData.microRegimeAtEntry) {
+      return;
+    }
+
+    try {
+      const pnlR = (() => {
+        if (!tradeData.entryPrice || !tradeData.stopLoss || tradeData.pnl === 0) return null;
+        const riskDist = Math.abs(tradeData.entryPrice - tradeData.stopLoss);
+        if (riskDist === 0) return null;
+        return parseFloat((tradeData.pnl / riskDist).toFixed(4));
+      })();
+
+      const { error } = await supabase.rpc('record_regime_outcome', {
+        p_trade_id:    tradeData.id,
+        p_outcome:     outcome,
+        p_close_reason: tradeData.closeReason ?? null,
+        p_pnl:         tradeData.pnl,
+        p_pnl_r:       pnlR,
+        p_exit_time:   tradeData.exitTime ? tradeData.exitTime.toISOString() : new Date().toISOString(),
+      });
+
+      if (error) {
+        logger.warn('[Post-Trade Analyzer] record_regime_outcome RPC error', { error, tradeId: tradeData.id });
+      } else {
+        logger.info('[Post-Trade Analyzer] Regime outcome recorded', {
+          tradeId: tradeData.id,
+          regime: tradeData.microRegimeAtEntry,
+          outcome,
+          pnlR,
+        });
+      }
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Exception in recordRegimeOutcome', { error });
+    }
   }
 
   /**

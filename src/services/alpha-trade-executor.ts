@@ -2179,6 +2179,12 @@ class AlphaTradeExecutor {
       alpha_watch_contract: alphaWatchContract,
       thesis_status: 'new',
       alpha_recheck_count: 0,
+      // GOVERNANCE (2026-03-30): Record the micro-regime that was active at entry.
+      // This is the SSOT for regime-to-outcome calibration. The post-trade-analyzer
+      // reads these fields to update regime_outcome_log after closure.
+      micro_regime_at_entry: (decision as any).microRegime?.regime ?? null,
+      regime_confidence_at_entry: (decision as any).microRegime?.confidence ?? null,
+      regime_used_dynamic_baseline: (decision as any).microRegime?.thresholds?.thresholdSource === 'dynamic',
     };
   }
 

@@ -1050,21 +1050,40 @@ The entry monitor is OFFLINE. Two choices are available:
           volume: c.volume || 0
         }));
 
-        microRegime = await microRegimeClassifier.classify(regimeCandles);
+        // GOVERNANCE (2026-03-30): Pass symbol and session so the classifier
+        // can fetch dynamic per-symbol per-session percentile thresholds from
+        // Supabase instead of using universal hardcoded values.
+        const regimeSessionCtx = calculateSessionContext();
+        const regimeSession = (['asian', 'london', 'ny', 'overlap', 'dead'] as const).includes(
+          regimeSessionCtx.currentSession as any
+        )
+          ? (regimeSessionCtx.currentSession as import('../services/micro-regime-classifier').RegimeSession)
+          : undefined;
+
+        microRegime = await microRegimeClassifier.classify(
+          regimeCandles,
+          marketContext.symbol,
+          regimeSession
+        );
 
         if (microRegime) {
-          console.log(`[Alpha Coordinator] 🎯 Micro-Regime: ${microRegime.regime} | Direction: ${microRegime.direction} | Classification Confidence: ${microRegime.confidence}%`);
+          const thresholdNote = microRegime.thresholds.thresholdSource === 'dynamic'
+            ? `calibrated on ${microRegime.thresholds.sampleCount} real ${marketContext.symbol} ${regimeSessionCtx.sessionName ?? ''} readings`
+            : `STATIC FALLBACK — fewer than 20 readings exist for ${marketContext.symbol} in this session; thresholds are universal defaults, not symbol-specific`;
 
-          microRegimeContext = `\n🎯 MICRO-REGIME CLASSIFICATION:\n`;
+          console.log(`[Alpha Coordinator] Micro-Regime: ${microRegime.regime} | Direction: ${microRegime.direction} | Classification Confidence: ${microRegime.confidence}% | Thresholds: ${microRegime.thresholds.thresholdSource}`);
+
+          microRegimeContext = `\nMICRO-REGIME CLASSIFICATION:\n`;
           microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
           microRegimeContext += `Regime: ${microRegime.regime.toUpperCase().replace(/_/g, ' ')} (${microRegime.confidence}% classification confidence)\n`;
-          microRegimeContext += `Direction: ${microRegime.direction.toUpperCase()}\n\n`;
-          microRegimeContext += `📈 Raw Sensor Readings:\n`;
-          microRegimeContext += `  • ATR Expansion: ${microRegime.indicators.atrExpansion.toFixed(2)}x vs 20-period avg\n`;
-          microRegimeContext += `  • EMA50 Displacement: ${microRegime.indicators.emaDisplacement.toFixed(2)}%\n`;
-          microRegimeContext += `  • RSI: ${microRegime.indicators.rsi.toFixed(0)}\n`;
-          microRegimeContext += `  • Volume Profile: ${microRegime.indicators.volumeProfile}\n`;
-          microRegimeContext += `  • Range Compression: ${microRegime.indicators.rangeCompression.toFixed(2)}x vs 20-period avg\n`;
+          microRegimeContext += `Direction: ${microRegime.direction.toUpperCase()}\n`;
+          microRegimeContext += `Threshold calibration: ${thresholdNote}\n\n`;
+          microRegimeContext += `Raw Sensor Readings vs this symbol+session baseline:\n`;
+          microRegimeContext += `  ATR Expansion: ${microRegime.indicators.atrExpansion.toFixed(2)}x (top-30%>${microRegime.thresholds.atrExpansionP70.toFixed(2)}, top-15%>${microRegime.thresholds.atrExpansionP85.toFixed(2)}, bottom-30%<${microRegime.thresholds.atrExpansionP30.toFixed(2)})\n`;
+          microRegimeContext += `  EMA50 Displacement: ${microRegime.indicators.emaDisplacement.toFixed(2)}% (p80=${microRegime.thresholds.emaDisplacementP80.toFixed(2)}, p90=${microRegime.thresholds.emaDisplacementP90.toFixed(2)}, p95=${microRegime.thresholds.emaDisplacementP95.toFixed(2)})\n`;
+          microRegimeContext += `  RSI: ${microRegime.indicators.rsi.toFixed(0)}\n`;
+          microRegimeContext += `  Volume Profile: ${microRegime.indicators.volumeProfile}\n`;
+          microRegimeContext += `  Range Compression: ${microRegime.indicators.rangeCompression.toFixed(2)}x (bottom-20%<${microRegime.thresholds.rangeCompressionP20.toFixed(2)}, bottom-35%<${microRegime.thresholds.rangeCompressionP35.toFixed(2)})\n`;
           microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         }
       } catch (error) {

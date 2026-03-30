@@ -1,28 +1,39 @@
 /**
- * Micro-Regime Classifier - SSOT for 8-regime market classification
+ * Micro-Regime Classifier — Dynamic Baseline Edition
  *
- * Transforms basic trend/range/volatility detection into granular behavioral patterns.
- * Exposes raw sensor observations only — no confidence modifiers, trading advice,
- * or pre-synthesized behavioral expectations.
+ * SSOT / CCIP CONTRACT (2026-03-30):
+ * This service outputs RAW OBSERVATIONS ONLY. It does NOT compute confidence
+ * modifiers, trading adjustments, or behavioral guidance. Alpha is the sole
+ * authority for interpreting raw indicators into trading decisions.
  *
- * SSOT / CCIP CONTRACT (2026-02-24):
- * This service outputs RAW OBSERVATIONS ONLY.
- * It does NOT compute confidence modifiers, trading adjustments, or behavioral guidance.
- * Alpha is the sole authority for interpreting raw indicators into trading decisions.
+ * GOVERNANCE CHANGE (2026-03-30):
+ * All classification thresholds are now DYNAMIC — computed from a rolling
+ * 100-sample percentile baseline per symbol per session stored in Supabase.
+ * Static fallback thresholds are used only when <20 samples exist for a
+ * symbol+session pair (cold start). This eliminates hardcoded universal
+ * constants that were miscalibrated across different instruments and sessions.
+ *
+ * The classifier also writes raw indicator readings to the Supabase baseline
+ * table on every call so thresholds self-calibrate over time.
+ *
+ * Regime labels are accompanied by a `thresholdSource` field that tells Alpha
+ * whether the classification came from dynamic data or static fallback, so
+ * Alpha can weight the label accordingly.
  *
  * 8 Micro-Regimes:
- * 1. Trend Acceleration - Strong momentum with expanding ATR
- * 2. Trend Exhaustion - Weakening momentum with divergences
- * 3. Mean Reversion Pocket - Extreme stretch from value with reversal signals
- * 4. Liquidity Vacuum - Low volume compression before breakout
- * 5. Stop-Hunt Expansion - Post-sweep violent directional move
- * 6. Pre-Break Compression - Range tightening before structural break
- * 7. Post-Break Retest - Return to broken level for continuation
- * 8. Neutral Ranging - No clear pattern, balanced conditions
+ * 1. Trend Acceleration   — Strong momentum with expanding ATR
+ * 2. Trend Exhaustion     — Weakening momentum with divergences
+ * 3. Mean Reversion Pocket — Extreme stretch from value with reversal signals
+ * 4. Liquidity Vacuum     — Low volume compression before breakout
+ * 5. Stop-Hunt Expansion  — Post-sweep violent directional move
+ * 6. Pre-Break Compression — Range tightening before structural break
+ * 7. Post-Break Retest    — Return to broken level for continuation
+ * 8. Neutral Ranging      — No clear pattern, balanced conditions
  */
 
 import { calculateEMA } from '../strategies/indicators';
 import { calculateATR, calculateRSI } from '../utils/technicalIndicators';
+import { supabase } from '../lib/supabase';
 
 export type MicroRegime =
   | 'trend_acceleration'
@@ -34,6 +45,8 @@ export type MicroRegime =
   | 'post_break_retest'
   | 'neutral_ranging';
 
+export type RegimeSession = 'asian' | 'london' | 'ny' | 'overlap' | 'dead';
+
 export interface MicroRegimeCandle {
   time: number;
   open: number;
@@ -43,18 +56,51 @@ export interface MicroRegimeCandle {
   volume: number;
 }
 
+/**
+ * Threshold set used for regime classification.
+ * When thresholdSource = 'dynamic', these came from percentile analysis of
+ * real historical readings for this symbol+session.
+ * When thresholdSource = 'static_fallback', fewer than 20 samples exist and
+ * conservative universal defaults are being used.
+ */
+export interface RegimeThresholds {
+  atrExpansionP70: number;
+  atrExpansionP85: number;
+  atrExpansionP30: number;
+  emaDisplacementP80: number;
+  emaDisplacementP90: number;
+  emaDisplacementP95: number;
+  rangeCompressionP20: number;
+  rangeCompressionP35: number;
+  sampleCount: number;
+  thresholdSource: 'dynamic' | 'static_fallback';
+}
+
 export interface MicroRegimeClassification {
   regime: MicroRegime;
-  confidence: number; // 0-100 confidence in the regime classification itself
+  confidence: number;
   direction: 'bullish' | 'bearish' | 'neutral';
   indicators: {
-    atrExpansion: number; // ratio vs 20-period avg
-    emaDisplacement: number; // % distance from EMA50
+    atrExpansion: number;
+    emaDisplacement: number;
     rsi: number;
     volumeProfile: 'rising' | 'falling' | 'stable';
-    rangeCompression: number; // current range / 20-period avg
+    rangeCompression: number;
   };
+  thresholds: RegimeThresholds;
 }
+
+/** Static fallback thresholds — used when <20 samples exist for this symbol+session */
+const STATIC_FALLBACK_THRESHOLDS: Omit<RegimeThresholds, 'thresholdSource' | 'sampleCount'> = {
+  atrExpansionP70: 1.2,
+  atrExpansionP85: 1.4,
+  atrExpansionP30: 0.85,
+  emaDisplacementP80: 1.5,
+  emaDisplacementP90: 2.0,
+  emaDisplacementP95: 2.5,
+  rangeCompressionP20: 0.6,
+  rangeCompressionP35: 0.75,
+};
 
 export class MicroRegimeClassifier {
   private readonly EMA_PERIOD = 50;
@@ -62,15 +108,24 @@ export class MicroRegimeClassifier {
   private readonly LOOKBACK = 50;
 
   /**
-   * Classify current micro-regime
-   * SSOT for regime detection - always returns valid classification
+   * Classify current micro-regime with dynamic per-symbol per-session thresholds.
+   *
+   * SSOT: Always returns a valid classification. Falls back gracefully when
+   * baseline data is unavailable or Supabase is unreachable.
+   *
+   * @param candles  - M5 candles for the current symbol
+   * @param symbol   - Trading symbol (XAUUSD, EURUSD, etc.)
+   * @param session  - Current market session (asian, london, ny, overlap, dead)
    */
-  async classify(candles: MicroRegimeCandle[]): Promise<MicroRegimeClassification> {
+  async classify(
+    candles: MicroRegimeCandle[],
+    symbol?: string,
+    session?: RegimeSession
+  ): Promise<MicroRegimeClassification> {
     if (candles.length < this.LOOKBACK) {
       return this.fallbackRegime();
     }
 
-    // Calculate indicators
     const closes = candles.map(c => c.close);
     const volumes = candles.map(c => c.volume || 0);
 
@@ -91,249 +146,254 @@ export class MicroRegimeClassifier {
 
     const volumeProfile = this.analyzeVolumeProfile(volumes);
     const rangeCompression = this.calculateRangeCompression(candles);
+    const volumeRatio = this.calculateVolumeRatio(volumes);
 
     const indicators = {
       atrExpansion,
       emaDisplacement,
       rsi: currentRSI,
       volumeProfile,
-      rangeCompression
+      rangeCompression,
     };
 
-    // Detect sweeps for stop-hunt identification
-    const recentSweep = this.detectRecentSweep(candles);
+    // Fetch dynamic thresholds and update baseline in parallel (fire-and-forget for baseline update)
+    const thresholds = await this.fetchThresholds(
+      symbol,
+      session,
+      atrExpansion,
+      emaDisplacement,
+      rangeCompression,
+      volumeRatio
+    );
 
-    // Detect structural levels for retest identification
+    const recentSweep = this.detectRecentSweep(candles);
     const structuralRetest = this.detectStructuralRetest(candles);
 
-    // Classify regime based on indicators
-    const classification = this.classifyRegime(indicators, recentSweep, structuralRetest, candles);
-
-    return classification;
+    return this.classifyRegime(indicators, recentSweep, structuralRetest, thresholds);
   }
 
   /**
-   * Classify regime based on indicator readings
+   * Fetch calibrated thresholds from Supabase and trigger baseline update.
+   * Falls back to static thresholds if Supabase is unreachable.
+   */
+  private async fetchThresholds(
+    symbol?: string,
+    session?: RegimeSession,
+    atrExpansion?: number,
+    emaDisplacement?: number,
+    rangeCompression?: number,
+    volumeRatio?: number
+  ): Promise<RegimeThresholds> {
+    if (!symbol || !session) {
+      return { ...STATIC_FALLBACK_THRESHOLDS, sampleCount: 0, thresholdSource: 'static_fallback' };
+    }
+
+    try {
+      // Fire baseline update without awaiting — non-blocking
+      if (atrExpansion !== undefined) {
+        supabase.rpc('upsert_regime_baseline', {
+          p_symbol: symbol,
+          p_session_name: session,
+          p_atr_expansion: atrExpansion,
+          p_ema_displacement: Math.abs(emaDisplacement ?? 0),
+          p_range_compression: rangeCompression ?? 1.0,
+          p_volume_ratio: volumeRatio ?? 1.0,
+        }).then(({ error }) => {
+          if (error) {
+            console.warn('[Regime Classifier] Baseline upsert failed (non-blocking):', error.message);
+          }
+        });
+      }
+
+      // Fetch the current thresholds (fast read path)
+      const { data, error } = await supabase.rpc('get_regime_baselines', {
+        p_symbol: symbol,
+        p_session_name: session,
+      });
+
+      if (error || !data) {
+        return { ...STATIC_FALLBACK_THRESHOLDS, sampleCount: 0, thresholdSource: 'static_fallback' };
+      }
+
+      const isDynamic = (data.is_dynamic === true) && (data.sample_count >= 20);
+
+      return {
+        atrExpansionP70: Number(data.atr_expansion_p70) || STATIC_FALLBACK_THRESHOLDS.atrExpansionP70,
+        atrExpansionP85: Number(data.atr_expansion_p85) || STATIC_FALLBACK_THRESHOLDS.atrExpansionP85,
+        atrExpansionP30: Number(data.atr_expansion_p30) || STATIC_FALLBACK_THRESHOLDS.atrExpansionP30,
+        emaDisplacementP80: Number(data.ema_displacement_p80) || STATIC_FALLBACK_THRESHOLDS.emaDisplacementP80,
+        emaDisplacementP90: Number(data.ema_displacement_p90) || STATIC_FALLBACK_THRESHOLDS.emaDisplacementP90,
+        emaDisplacementP95: Number(data.ema_displacement_p95) || STATIC_FALLBACK_THRESHOLDS.emaDisplacementP95,
+        rangeCompressionP20: Number(data.range_compression_p20) || STATIC_FALLBACK_THRESHOLDS.rangeCompressionP20,
+        rangeCompressionP35: Number(data.range_compression_p35) || STATIC_FALLBACK_THRESHOLDS.rangeCompressionP35,
+        sampleCount: Number(data.sample_count) || 0,
+        thresholdSource: isDynamic ? 'dynamic' : 'static_fallback',
+      };
+    } catch {
+      return { ...STATIC_FALLBACK_THRESHOLDS, sampleCount: 0, thresholdSource: 'static_fallback' };
+    }
+  }
+
+  /**
+   * Classify regime using dynamic percentile thresholds.
+   * Every condition now asks "is this reading in the top/bottom N% for this symbol+session?"
+   * rather than "does this exceed a universal hardcoded number?"
    */
   private classifyRegime(
     indicators: MicroRegimeClassification['indicators'],
     recentSweep: { detected: boolean; direction: 'up' | 'down' | null; candlesAgo: number },
     structuralRetest: { detected: boolean; direction: 'up' | 'down' | null },
-    candles: MicroRegimeCandle[]
+    thresholds: RegimeThresholds
   ): MicroRegimeClassification {
     const { atrExpansion, emaDisplacement, rsi, volumeProfile, rangeCompression } = indicators;
+    const {
+      atrExpansionP70, atrExpansionP85, atrExpansionP30,
+      emaDisplacementP80, emaDisplacementP90, emaDisplacementP95,
+      rangeCompressionP20, rangeCompressionP35,
+    } = thresholds;
 
-    // 1. Stop-Hunt Expansion - Recent sweep + ATR expansion + strong directional close
-    if (recentSweep.detected && recentSweep.candlesAgo <= 3 && atrExpansion > 1.3) {
+    // 1. Stop-Hunt Expansion — Recent sweep + ATR in top 15% for this symbol+session
+    if (recentSweep.detected && recentSweep.candlesAgo <= 3 && atrExpansion > atrExpansionP85) {
       const direction = recentSweep.direction === 'up' ? 'bullish' : 'bearish';
-      return {
-        regime: 'stop_hunt_expansion',
-        confidence: 85,
-        direction,
-        indicators
-      };
+      return { regime: 'stop_hunt_expansion', confidence: 85, direction, indicators, thresholds };
     }
 
-    // 2. Trend Acceleration - ATR expanding + price far from EMA + momentum
-    if (atrExpansion > 1.2 && Math.abs(emaDisplacement) > 1.5 && volumeProfile === 'rising') {
+    // 2. Trend Acceleration — ATR above 70th percentile + displacement above 80th + rising volume
+    if (
+      atrExpansion > atrExpansionP70 &&
+      Math.abs(emaDisplacement) > emaDisplacementP80 &&
+      volumeProfile === 'rising'
+    ) {
       const direction = emaDisplacement > 0 ? 'bullish' : 'bearish';
       const rsiConfirmation = direction === 'bullish' ? rsi > 55 : rsi < 45;
-
       if (rsiConfirmation) {
-        return {
-          regime: 'trend_acceleration',
-          confidence: 80,
-          direction,
-          indicators
-        };
+        return { regime: 'trend_acceleration', confidence: 80, direction, indicators, thresholds };
       }
     }
 
-    // 3. Trend Exhaustion - Extended move + RSI divergence + volume declining
-    if (Math.abs(emaDisplacement) > 2.0 && volumeProfile === 'falling') {
-      const direction = emaDisplacement > 0 ? 'bearish' : 'bullish'; // Reversal expected
+    // 3. Trend Exhaustion — Displacement above 90th percentile + falling volume + RSI extreme
+    if (Math.abs(emaDisplacement) > emaDisplacementP90 && volumeProfile === 'falling') {
+      const direction = emaDisplacement > 0 ? 'bearish' : 'bullish';
       const rsiExtreme = emaDisplacement > 0 ? rsi > 70 : rsi < 30;
-
       if (rsiExtreme) {
-        return {
-          regime: 'trend_exhaustion',
-          confidence: 70,
-          direction,
-          indicators
-        };
+        return { regime: 'trend_exhaustion', confidence: 70, direction, indicators, thresholds };
       }
     }
 
-    // 4. Mean Reversion Pocket - Extreme stretch + RSI extreme + no sweep
-    if (Math.abs(emaDisplacement) > 1.8 && !recentSweep.detected) {
-      const direction = emaDisplacement > 0 ? 'bearish' : 'bullish'; // Mean reversion
+    // 4. Mean Reversion Pocket — Displacement above 80th percentile + RSI extreme + no sweep
+    if (Math.abs(emaDisplacement) > emaDisplacementP80 && !recentSweep.detected) {
+      const direction = emaDisplacement > 0 ? 'bearish' : 'bullish';
       const rsiExtreme = (emaDisplacement > 0 && rsi > 75) || (emaDisplacement < 0 && rsi < 25);
-
       if (rsiExtreme) {
-        return {
-          regime: 'mean_reversion_pocket',
-          confidence: 75,
-          direction,
-          indicators
-        };
+        return { regime: 'mean_reversion_pocket', confidence: 75, direction, indicators, thresholds };
       }
     }
 
-    // 5. Liquidity Vacuum - Range compression + low volume + pre-breakout
-    if (rangeCompression < 0.6 && volumeProfile === 'stable' && atrExpansion < 0.9) {
-      return {
-        regime: 'liquidity_vacuum',
-        confidence: 65,
-        direction: 'neutral',
-        indicators
-      };
+    // 5. Liquidity Vacuum — Range in bottom 20% + stable volume + ATR in bottom 30%
+    if (
+      rangeCompression < rangeCompressionP20 &&
+      volumeProfile === 'stable' &&
+      atrExpansion < atrExpansionP30
+    ) {
+      return { regime: 'liquidity_vacuum', confidence: 65, direction: 'neutral', indicators, thresholds };
     }
 
-    // 6. Pre-Break Compression - Short-term compression vs long-term + at structure
-    if (rangeCompression < 0.75 && rangeCompression > 0.5 && Math.abs(emaDisplacement) < 0.5) {
-      return {
-        regime: 'pre_break_compression',
-        confidence: 70,
-        direction: 'neutral',
-        indicators
-      };
+    // 6. Pre-Break Compression — Range between P20 and P35 + near EMA (displacement below P80)
+    if (
+      rangeCompression < rangeCompressionP35 &&
+      rangeCompression > rangeCompressionP20 &&
+      Math.abs(emaDisplacement) < emaDisplacementP80
+    ) {
+      return { regime: 'pre_break_compression', confidence: 70, direction: 'neutral', indicators, thresholds };
     }
 
-    // 7. Post-Break Retest - Structural retest detected
+    // 7. Post-Break Retest — Structural retest detected
     if (structuralRetest.detected) {
-      const direction = structuralRetest.direction!;
+      const dir = structuralRetest.direction!;
       return {
         regime: 'post_break_retest',
         confidence: 80,
-        direction: direction === 'up' ? 'bullish' : 'bearish',
-        indicators
+        direction: dir === 'up' ? 'bullish' : 'bearish',
+        indicators,
+        thresholds,
       };
     }
 
-    // 8. Neutral Ranging - Default when no clear pattern
-    return {
-      regime: 'neutral_ranging',
-      confidence: 50,
-      direction: 'neutral',
-      indicators
-    };
+    // 8. Neutral Ranging — No clear pattern detected
+    return { regime: 'neutral_ranging', confidence: 50, direction: 'neutral', indicators, thresholds };
   }
 
-  /**
-   * Analyze volume profile trend
-   */
+  private calculateVolumeRatio(volumes: number[]): number {
+    if (volumes.length < 10) return 1.0;
+    const recent = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+    const prior = volumes.slice(-20, -5).reduce((a, b) => a + b, 0) / 15;
+    return prior > 0 ? recent / prior : 1.0;
+  }
+
   private analyzeVolumeProfile(volumes: number[]): 'rising' | 'falling' | 'stable' {
     if (volumes.length < 10) return 'stable';
-
-    const recent5 = volumes.slice(-5);
-    const previous5 = volumes.slice(-10, -5);
-
-    const avgRecent = recent5.reduce((a, b) => a + b, 0) / 5;
-    const avgPrevious = previous5.reduce((a, b) => a + b, 0) / 5;
-
-    const ratio = avgRecent / avgPrevious;
-
+    const avgRecent = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+    const avgPrevious = volumes.slice(-10, -5).reduce((a, b) => a + b, 0) / 5;
+    const ratio = avgPrevious > 0 ? avgRecent / avgPrevious : 1.0;
     if (ratio > 1.15) return 'rising';
     if (ratio < 0.85) return 'falling';
     return 'stable';
   }
 
-  /**
-   * Calculate range compression ratio
-   */
   private calculateRangeCompression(candles: MicroRegimeCandle[]): number {
     if (candles.length < 20) return 1.0;
-
     const recent = candles.slice(-5);
     const historical = candles.slice(-20, -5);
-
-    const recentAvgRange = recent.reduce((sum, c) => sum + (c.high - c.low), 0) / recent.length;
-    const historicalAvgRange = historical.reduce((sum, c) => sum + (c.high - c.low), 0) / historical.length;
-
-    return recentAvgRange / historicalAvgRange;
+    const recentAvg = recent.reduce((sum, c) => sum + (c.high - c.low), 0) / recent.length;
+    const historicalAvg = historical.reduce((sum, c) => sum + (c.high - c.low), 0) / historical.length;
+    return historicalAvg > 0 ? recentAvg / historicalAvg : 1.0;
   }
 
-  /**
-   * Detect recent sweep (within last 5 candles)
-   */
   private detectRecentSweep(candles: MicroRegimeCandle[]): {
     detected: boolean;
     direction: 'up' | 'down' | null;
     candlesAgo: number;
   } {
-    if (candles.length < 5) {
-      return { detected: false, direction: null, candlesAgo: 0 };
-    }
-
+    if (candles.length < 5) return { detected: false, direction: null, candlesAgo: 0 };
     const recent = candles.slice(-5);
-
     for (let i = recent.length - 1; i >= 1; i--) {
       const curr = recent[i];
       const prev = recent[i - 1];
-
       const wickTop = curr.high - Math.max(curr.open, curr.close);
       const wickBottom = Math.min(curr.open, curr.close) - curr.low;
       const bodySize = Math.abs(curr.close - curr.open);
-
-      // Bullish sweep (sweep low, close up)
       if (curr.low < prev.low && wickBottom > bodySize * 1.5 && curr.close > curr.open) {
-        const candlesAgo = recent.length - 1 - i;
-        return { detected: true, direction: 'up', candlesAgo };
+        return { detected: true, direction: 'up', candlesAgo: recent.length - 1 - i };
       }
-
-      // Bearish sweep (sweep high, close down)
       if (curr.high > prev.high && wickTop > bodySize * 1.5 && curr.close < curr.open) {
-        const candlesAgo = recent.length - 1 - i;
-        return { detected: true, direction: 'down', candlesAgo };
+        return { detected: true, direction: 'down', candlesAgo: recent.length - 1 - i };
       }
     }
-
     return { detected: false, direction: null, candlesAgo: 0 };
   }
 
-  /**
-   * Detect structural retest (return to recently broken level)
-   */
   private detectStructuralRetest(candles: MicroRegimeCandle[]): {
     detected: boolean;
     direction: 'up' | 'down' | null;
   } {
-    if (candles.length < 20) {
-      return { detected: false, direction: null };
-    }
-
+    if (candles.length < 20) return { detected: false, direction: null };
     const recent = candles.slice(-10);
     const historical = candles.slice(-20, -10);
-
-    // Find significant high in historical period
     const historicalHigh = Math.max(...historical.map(c => c.high));
     const historicalLow = Math.min(...historical.map(c => c.low));
-
     const currentPrice = recent[recent.length - 1].close;
-    const tolerance = (historicalHigh - historicalLow) * 0.02; // 2% tolerance
-
-    // Check if we broke above historical high and are now retesting
+    const tolerance = (historicalHigh - historicalLow) * 0.02;
     const brokeAbove = recent.slice(0, -3).some(c => c.close > historicalHigh);
-    const nearHistoricalHigh = Math.abs(currentPrice - historicalHigh) < tolerance;
-
-    if (brokeAbove && nearHistoricalHigh && currentPrice >= historicalHigh * 0.998) {
+    if (brokeAbove && Math.abs(currentPrice - historicalHigh) < tolerance && currentPrice >= historicalHigh * 0.998) {
       return { detected: true, direction: 'up' };
     }
-
-    // Check if we broke below historical low and are now retesting
     const brokeBelow = recent.slice(0, -3).some(c => c.close < historicalLow);
-    const nearHistoricalLow = Math.abs(currentPrice - historicalLow) < tolerance;
-
-    if (brokeBelow && nearHistoricalLow && currentPrice <= historicalLow * 1.002) {
+    if (brokeBelow && Math.abs(currentPrice - historicalLow) < tolerance && currentPrice <= historicalLow * 1.002) {
       return { detected: true, direction: 'down' };
     }
-
     return { detected: false, direction: null };
   }
 
-  /**
-   * Fallback when insufficient data
-   */
   private fallbackRegime(): MicroRegimeClassification {
     return {
       regime: 'neutral_ranging',
@@ -344,8 +404,9 @@ export class MicroRegimeClassifier {
         emaDisplacement: 0,
         rsi: 50,
         volumeProfile: 'stable',
-        rangeCompression: 1.0
-      }
+        rangeCompression: 1.0,
+      },
+      thresholds: { ...STATIC_FALLBACK_THRESHOLDS, sampleCount: 0, thresholdSource: 'static_fallback' },
     };
   }
 }
