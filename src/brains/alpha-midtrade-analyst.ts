@@ -21,6 +21,7 @@
 import { openAIClient } from '../services/openai-client';
 import { llmTokenTracker } from '../services/llm-token-tracker';
 import type { MidTradePlan } from '../services/mid-trade-plan-engine';
+import { getPairCharacterContext } from '../config/pair-personalities';
 
 export type AlphaRecheckVerdict = 'HOLD' | 'CLOSE_NOW' | 'TAKE_PARTIAL' | 'TRAIL_SL';
 export type ThesisStatus = 'INTACT' | 'WEAKENING' | 'INVALIDATED';
@@ -147,6 +148,8 @@ function buildPrompt(input: AlphaRecheckInput): string {
 
   const lines: string[] = [];
 
+  lines.push(getPairCharacterContext(input.symbol));
+  lines.push('');
   lines.push(`TRIGGER FIRED: ${input.triggerType.toUpperCase()}`);
   lines.push(`What happened: ${triggerDesc}`);
   lines.push('');

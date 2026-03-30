@@ -107,6 +107,7 @@ import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/en
 import { ALPHA_IDENTITY, getAlphaSystemPromptForStyle, getEntryMode } from '../config/alpha-identity';
 import { getDisplayNameFromStyle } from '../config/trade-styles';
 import { getStylePromptContext } from '../config/style-personalities';
+import { getPairPersonalityContext } from '../config/pair-personalities';
 import { microRegimeClassifier, type MicroRegimeClassification, type MicroRegimeCandle } from '../services/micro-regime-classifier';
 import { liquidityIntentAnalyzer, type LiquiditySweepFacts } from '../services/liquidity-intent-analyzer';
 import { narrativeCoherenceValidator, type NarrativeValidation } from '../services/narrative-coherence-validator';
@@ -3465,7 +3466,16 @@ Use the ACTIVE ATR value above for all move stage calculations in this scan cycl
     // SSOT: System prompt (alpha-identity.ts) carries Alpha's identity and reasoning framework.
     // This section provides per-scan context: streak, advisory designations, hard block list,
     // confidence bands, and the active-scan mandate.
+
+    // CCIP-2026-0330-PAIR-PERSONALITY: Instrument awareness injection (LAYER 1).
+    // Placed before macro intelligence so Alpha reads the pair's behavioral character
+    // before interpreting any candle data. This is not a rule or gate — it is the
+    // professional trader's internalized knowledge of the instrument they are analyzing.
+    // SSOT: src/config/pair-personalities.ts
+    const pairPersonalityContext = getPairPersonalityContext(marketContext.symbol, tradeStyle);
+
     const prompt = `${styleIdentityPrompt}
+${pairPersonalityContext}
 ${cachedThesisPrompt}
 ${atrLegendPrompt}
 SCAN CONTEXT
