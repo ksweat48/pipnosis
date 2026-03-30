@@ -3757,7 +3757,7 @@ This learning will carry forward to improve future sessions!
       } else if (lowAtrCount >= Math.ceil(confidenceCount * 0.6)) {
         parts.push(`Low volatility environment detected across ${lowAtrCount}/${confidenceCount} pairs. Alpha requires sufficient ATR to place valid SL/TP levels. Setups typically emerge during session opens or volatility spikes.`);
       } else if (weakConsensusCount >= Math.ceil(confidenceCount * 0.5)) {
-        parts.push(`Omega Council shows divided signals on most pairs (${weakConsensusCount}/${confidenceCount} with split direction votes). Alpha declines to trade without directional clarity. Market may be in a consolidation phase.`);
+        parts.push(`Mixed Omega sensor readings on ${weakConsensusCount}/${confidenceCount} pairs. Alpha evaluated all signals and found confidence below the execution floor. Average confidence: ${avgConf}%. Continuing to monitor for clearer directional structure.`);
       } else if (isAsianSession && !isPreLondon) {
         parts.push(`Asian session is typically range-bound with lower follow-through. Average confidence this cycle: ${avgConf}%. London open (08:00 UTC) often produces the clearest structural setups.`);
       } else if (avgConf > 0 && avgConf < 50) {
@@ -3836,7 +3836,7 @@ This learning will carry forward to improve future sessions!
     }
 
     if (weakConsensusCount >= Math.ceil(confidenceCount * 0.5)) {
-      return `Omega Council shows split signals on ${weakConsensusCount}/${totalPairs} pairs — no directional consensus. Alpha declines to act without conviction. The market may be in a consolidation or indecision phase.${bestCandidateSuffix}`;
+      return `Mixed Omega sensor readings on ${weakConsensusCount}/${totalPairs} pairs. Alpha evaluated all signals — split votes are inputs, not a veto. Alpha found confidence below the execution floor (${getMinConfidenceThreshold()}%) on all evaluated pairs.${bestCandidateSuffix}`;
     }
 
     if (isAsianSession && !isPreLondon) {

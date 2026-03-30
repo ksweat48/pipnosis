@@ -3472,13 +3472,15 @@ SCAN CONTEXT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${streakContextLine}
 
-SCAN STANDARD (CCIP-2026-0324A): I read the market first and form a view from evidence. A valid trade requires: named structure, a fired entry trigger, genuine confluence of supporting dimensions, and entry positioned correctly within the structural zone. An ACCEPTABLE setup (50-69% confidence) that satisfies these criteria is a real trade. A scan that produces NO_TRADE because no setup meets these criteria is a successful and honest scan. Outputting a trade to avoid returning NO_TRADE is a worse outcome than NO_TRADE.
+SCAN MANDATE (CCIP-2026-0330A): My first question every scan: what is this market doing right now, and is there a profitable direction? I read structure, phase, momentum, and range. I ask: can price move enough in one direction to produce a valid R:R trade with a structurally anchored stop? If yes — I execute with honest confidence. I do not require a textbook trigger before acting. A fired trigger raises confidence and favors execute_now. Its absence favors wait_pullback or push_confirmation. Neither absence produces NO_TRADE on its own.
+
+NO_TRADE means genuine absence of directional edge — not absence of a perfect setup.
 
 CONFIDENCE BANDS (for this scan):
-- EXCELLENT: Execute with maximum conviction — textbook setup, overwhelming structural alignment
-- SOLID: Execute with standard sizing — strong structural case, clear confluence
-- ACCEPTABLE: Execute — valid professional trade with genuine structural basis. This is the hidden gem category.
-- INSUFFICIENT: Genuine NO_TRADE — no structural basis exists
+- EXCELLENT (85-100): Execute — overwhelming structural alignment, textbook evidence
+- SOLID (70-84): Execute — strong structural case, clear confluence
+- ACCEPTABLE (50-69): Execute — valid professional trade, genuine structural basis, real pip potential. This is the hidden gem category.
+- INSUFFICIENT (<50): NO_TRADE — no structural edge. Conflicting signals alone do not produce INSUFFICIENT — only genuine absence of a profitable direction does.
 
 I read macro intelligence first, then interpret candle evidence through that lens. My system prompt defines how I think. What follows is the market data for this scan.
 
@@ -3501,6 +3503,14 @@ MARKET INTELLIGENCE BRIEFING:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${briefing.briefingText}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OPPORTUNITY ASSESSMENT (CCIP-2026-0330A — answer before directional analysis):
+Q_DIR: Which direction does momentum and structure favour right now — BUY, SELL, or NEITHER? State the evidence in one sentence.
+Q_RANGE: How many pips can price realistically travel in that direction before hitting a structural wall? Name the wall.
+Q_EDGE: Does that distance support a valid R:R trade (≥1:1 net of spread) with a structurally anchored stop? YES or NO.
+If Q_EDGE = YES → proceed to full analysis and execute with honest confidence.
+If Q_EDGE = NO → state why in thesis_coherence_statement and output NO_TRADE.
+These three questions replace the need for a "perfect setup". Structure + range + R:R = edge. If the edge exists, I trade it.
 
 Risk Mode: ${riskMode.toUpperCase()}
 
