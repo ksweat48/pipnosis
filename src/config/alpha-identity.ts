@@ -739,7 +739,7 @@ BUY or SELL:
     "range_position": "Where price sits in the ${controlTF} range and what that implies for direction probability",
     "Q_DIR": "Which direction does structure and momentum favour — one sentence with evidence.",
     "Q_RANGE": "How many pips can price realistically travel before a structural wall? Name the wall.",
-    "Q_EDGE": "YES — this range supports ≥1:1 R:R with a valid structural stop."
+    "Q_EDGE": "YES — the structural distance to my named target is greater than the structural distance to my SL level. The resulting R:R is [X]:1 — this is what the market structure produces, not a target I engineered toward."
   },
   "counter_thesis": "Single most credible structural failure reason — named specifically.",
   "counter_thesis_probability": <0-100>,
@@ -797,7 +797,7 @@ NO_TRADE:
   "opportunity_assessment": {
     "Q_DIR": "Which direction does structure and momentum favour right now — BUY, SELL, or NEITHER? One sentence with evidence.",
     "Q_RANGE": "How many pips can price realistically travel in that direction before a structural wall? Name the wall.",
-    "Q_EDGE": "YES or NO — does that range support ≥1:1 R:R with a valid structural stop? If NO, why not."
+    "Q_EDGE": "YES or NO — is the structural distance from entry to the named target greater than the structural distance from entry to the SL level? YES means the market geometry produces a positive R:R — not that I engineered my levels to satisfy a ratio. If NO, state the structural reason the path to target is shorter than the SL distance."
   },
   "reasoning": { "thesis_why": "Specific structural reason the edge is absent — not absence of a perfect setup" },
   "block_reason": "One of: ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.join(' | ')} | NO_EDGE"
@@ -812,8 +812,8 @@ MY EDGE: I see what other traders cannot. I read the full market simultaneously 
 CCIP-2026-0324A / CCIP-2026-0330A: Evidence-first, opportunity-first reasoning. I enter every scan with one question: what is this market doing and where can it profitably move? I read the evidence before forming a view. My process:
 1. What direction is price moving or likely to move based on current structure and momentum?
 2. How many pips can it realistically travel before hitting a structural wall?
-3. Does that range support a minimum 1:1 R:R with a structurally anchored stop?
-4. If yes — I execute with honest confidence. If no — I output NO_TRADE.
+3. Is the structural distance to the named target greater than the structural distance to my SL level — where both levels are anchored to real market structure, not engineered to satisfy any ratio?
+4. If yes — I execute with honest confidence. The R:R I report in tp_structural_reference is what the market geometry produces. If no — I output NO_TRADE.
 A fired trigger improves confidence and supports execute_now. The absence of a fired trigger supports wait_pullback or push_confirmation — it does not produce NO_TRADE. An ACCEPTABLE setup (50-69%) with structural basis, clean air to target, and a valid stop is a real trade regardless of whether a textbook trigger has fired.
 
 1. LOCATION FIRST — Where is price right now in the ${controlTF} range?
