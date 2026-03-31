@@ -709,6 +709,26 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *   All three additions are audit observations only. Zero execution gates. Zero confidence
  *   formula changes. Zero coordinator/executor changes.
  *   SSOT: All additions in this function only.
+ * - CCIP-2026-0331B: push_confirmation Teaching Upgrade + M5 Gate Removal.
+ *   Root cause: Audit showed Alpha rarely chose push_confirmation because the prompt gave
+ *   him no scenario language for when to choose it vs wait_pullback. Both were defined as
+ *   "deferred entry" without distinguishing the market condition that triggers each.
+ *   Changes:
+ *   (1) ENTRY_MODE block in professionalReasoningProcess upgraded: push_confirmation now
+ *       explains the market-direction distinction — wait_pullback = price retracing toward
+ *       the zone; push_confirmation = price pushing forward into the zone. Alpha owns this
+ *       judgment. No hardcoded trigger or confirmation requirement is prescribed.
+ *   (2) M5 candle close gate removed from autonomous-entry-monitor.ts. The gate was
+ *       architecturally incorrect: it imposed a hardcoded confirmation requirement that
+ *       belongs to Alpha's judgment (stated in wait_condition.wait_reasoning), not to the
+ *       execution layer. push_confirmation now executes identically to wait_pullback at
+ *       the monitor level — when price enters Alpha's stated zone, the trade executes.
+ *       Alpha's reasoning about what he was waiting to see is preserved in the audit trail.
+ *   (3) requires_m5_candle_close and m5_candle_close_confirmed columns deprecated in
+ *       entry_intents table. Dead code removed.
+ *   SSOT: Prompt change in this function. Monitor change in autonomous-entry-monitor.ts.
+ *   Executor change in alpha-trade-executor.ts createMonitored(). DB migration applied.
+ *   Zero coordinator-alpha.ts changes — routing is unchanged.
  */
 export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isMicro = style === 'MICRO_INTRADAY';
@@ -968,11 +988,11 @@ Q10 MANAGEMENT: TP1 percentage, breakeven trigger, trail method, structural leve
 Q11 ZONE ENTRY QUALITY (${isMicro ? 'MICRO_INTRADAY' : 'INTRADAY'} ONLY): Where am I entering in the ${isMicro ? 'M15' : 'H1'} zone? PRECISE (near edge, best RR) | MID_ZONE (mid-zone, SL/RR reflect compressed edge) | DEEP_ZONE (far edge near invalidation, recorded in audit). Audit observation only.` : ''}${isScalp ? `
 Q10 ENTRY CONVICTION (SCALP ONLY): Entry timing quality — SNIPER (structural anchor + trigger fired) | ACCEPTABLE (valid, name compromise in trader_statement) | FORCED (suboptimal, recorded in audit). Audit observation only — does not determine entry_mode.` : ''}
 
-ENTRY_MODE (my professional judgment — CCIP-2026-0327D):
-- execute_now: trigger fired, at structural zone, right moment — reasoning stated in Q6
-- wait_pullback: thesis valid, price extended — name structural return level in wait_condition
-- push_confirmation: want candle close or specific event before entering — name it in wait_condition
-Recorded in audit alongside Q6/Q10/Q11. I decide.
+ENTRY_MODE (my professional judgment — CCIP-2026-0331A):
+- execute_now: trigger has already fired, price is at or inside the structural zone, this is the right moment. Reasoning stated in Q6.
+- wait_pullback: thesis is valid but price has moved away from the zone I want to enter at. I name the structural level I want price to return to inside wait_condition. I use this when chasing the current price would compromise my risk geometry.
+- push_confirmation: I want to see price push into and hold inside the zone before I commit — not a retrace back to me, a push forward into the zone. I choose this when the zone needs to prove itself before I have conviction. I name the zone and my reasoning in wait_condition.wait_reasoning. The key distinction: wait_pullback waits for price to retrace toward my zone; push_confirmation waits for price to push into the zone with intent. Both are deferred entries — my choice reflects market direction relative to the zone.
+Recorded in audit alongside Q6/Q10/Q11. I decide — no external system overrides this judgment.
 
 ALPHA ENTRY AUTONOMY — CCIP-ALPHA-GOV-ENTRY: My entry timing, confirmation requirements, and trigger selection are entirely my professional judgment. No session, phase, or trade style prescribes when I enter or what I must see before I enter. The entry_mode I select is my own decision in every scan. I know how to trade.`;
 

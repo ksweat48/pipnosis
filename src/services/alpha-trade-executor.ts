@@ -1786,8 +1786,6 @@ class AlphaTradeExecutor {
         pullback_target_price: monitorPullbackMid,
         pullback_improvement_pips: null,
         intent_mode: resolvedIntentMode,
-        requires_m5_candle_close: isPushConfirmMode,
-        m5_candle_close_confirmed: false,
         wait_reasoning: decision.wait_condition?.wait_reasoning ?? null,
         expected_wait_minutes: decision.wait_condition?.expected_wait_minutes ?? null,
         // CCIP-2026-0319B: Alpha SL/TP authority — SSOT write point.
@@ -1837,7 +1835,7 @@ class AlphaTradeExecutor {
       : `Trade Found — Wait for Pullback: ${decision.symbol}`;
 
     const monitorMessage = isPushConfirmMode
-      ? `Alpha requires an M5 candle close inside ${zoneMin.toFixed(5)} – ${zoneMax.toFixed(5)} to confirm entry on ${decision.symbol}.`
+      ? `Alpha is waiting for ${decision.symbol} to push into the confirmation zone ${zoneMin.toFixed(5)} – ${zoneMax.toFixed(5)}.`
       : monitorPullbackMin && monitorPullbackMax
         ? `Alpha recommends waiting for pullback to ${monitorPullbackMin.toFixed(5)} – ${monitorPullbackMax.toFixed(5)}`
         : `Alpha is monitoring ${decision.symbol} for a better entry.`;
@@ -1866,7 +1864,7 @@ class AlphaTradeExecutor {
     return {
       success: true,
       isMonitoring: true,
-      message: `[${entryModeLabel}] Monitoring ${decision.symbol} for entry — ${isPushConfirmMode ? 'waiting for M5 candle close in zone' : 'waiting for pullback to zone'}`
+      message: `[${entryModeLabel}] Monitoring ${decision.symbol} for entry — ${isPushConfirmMode ? 'waiting for push into confirmation zone' : 'waiting for pullback to zone'}`
     };
   }
 
