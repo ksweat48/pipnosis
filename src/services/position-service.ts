@@ -46,33 +46,7 @@ export interface ClosePositionResult {
   pnl?: number;
 }
 
-function deriveSessionName(entryTime: Date): string {
-  const hour = entryTime.getUTCHours();
-  if (hour >= 0 && hour < 8) return 'Tokyo';
-  if (hour >= 8 && hour < 16) return 'London';
-  return 'New York';
-}
 
-function buildFallbackReasoning(params: OpenPositionParams): string {
-  const session = deriveSessionName(new Date());
-  const pattern = params.patternIdentified || params.strategy || 'goal session setup';
-  const conviction = params.confidence ? ` (${params.confidence}% conviction)` : '';
-  return `${params.direction.toUpperCase()} ${params.symbol} — ${pattern}${conviction} during the ${session} session.`;
-}
-
-function buildFallbackMarketRead(params: OpenPositionParams): string {
-  const session = deriveSessionName(new Date());
-  const priceStr = params.entryPrice.toFixed(params.symbol.includes('JPY') ? 3 : 5);
-  return `${params.symbol} entered at ${priceStr} during the ${session} session. Stop at ${params.stopLoss.toFixed(params.symbol.includes('JPY') ? 3 : 5)}, target at ${params.takeProfit.toFixed(params.symbol.includes('JPY') ? 3 : 5)}.`;
-}
-
-function buildFallbackExpectedOutcome(params: OpenPositionParams): string {
-  const pipValue = params.symbol.includes('JPY') ? 0.01 : 0.0001;
-  const slPips = Math.round(Math.abs(params.entryPrice - params.stopLoss) / pipValue);
-  const tpPips = Math.round(Math.abs(params.takeProfit - params.entryPrice) / pipValue);
-  const rr = slPips > 0 ? (tpPips / slPips).toFixed(1) : 'N/A';
-  return `Target: ${tpPips} pips (${params.direction === 'buy' ? '+' : ''}${params.takeProfit.toFixed(params.symbol.includes('JPY') ? 3 : 5)}). Stop: ${slPips} pips risk. R:R = 1:${rr}.`;
-}
 
 class PositionService {
   /**
@@ -152,11 +126,11 @@ class PositionService {
         entryPrice: params.entryPrice,
         stopLoss: params.stopLoss,
         takeProfit: params.takeProfit,
-        llmReasoning: params.reasoning || buildFallbackReasoning(params),
-        marketRead: params.marketAnalysis || buildFallbackMarketRead(params),
-        expectedOutcome: params.expectedOutcome || buildFallbackExpectedOutcome(params),
-        patternIdentified: params.patternIdentified || params.strategy || 'Manual Entry',
-        convictionLevel: params.confidence || 70,
+        llmReasoning: params.reasoning || null,
+        marketRead: params.marketAnalysis || null,
+        expectedOutcome: params.expectedOutcome || null,
+        patternIdentified: params.patternIdentified || params.strategy || null,
+        convictionLevel: params.confidence || null,
         rankAtTime: 'Active Trader'
       });
 

@@ -760,6 +760,40 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *   SSOT: All prompt changes in this function only. Parse-layer enforcement in
  *   coordinator-alpha.ts (CCIP-2026-0330-NO_TRADE-GOVERNANCE block). No confidence
  *   engine changes, no executor changes, no threshold changes.
+ * - CCIP-2026-0333: NO_FALLBACK_MANDATE — Remove All Alpha Decision Pipeline Fallbacks.
+ *   Principle: Alpha's output is the sole authority. If Alpha does not produce a required
+ *   field, the system must fail loudly and block — never substitute, synthesize, or guess.
+ *   Changes:
+ *   (1) Removed [GENERATED_FALLBACK] block in coordinator-alpha.ts. no_trade_statement
+ *       from NO_TRADE responses now persists NULL if Alpha omits it. No synthesis.
+ *   (2) Removed synthesiseFallbackAnchor() function and all 3 callers (SCALP,
+ *       MICRO_INTRADAY, INTRADAY structural anchor blocks). Replaced with logViolation()
+ *       + console.warn() — no mutation of parsed object.
+ *   (3) Removed entry_mode ?? 'execute_now' default. Missing entry_mode on BUY/SELL is
+ *       now a governance block: logViolation() + return NO_TRADE with GOVERNANCE_BLOCK
+ *       reasoning.
+ *   (4) Fixed alpha-trade-executor.ts: entry_mode logging fallback → 'MISSING' (not
+ *       'wait_pullback'). DB/notification metadata fallback → null (not 'wait_pullback').
+ *   (5) Removed synthesized reasoning strings in alpha-trade-executor.ts:
+ *       'Alpha assessed good entry' → null.
+ *       'Alpha assessed this as a good entry point' → null.
+ *   (6) Removed buildFallbackReasoning(), buildFallbackMarketRead(),
+ *       buildFallbackExpectedOutcome(), deriveSessionName() from position-service.ts.
+ *       All three journal fields now persist null if Alpha omits them.
+ *   (7) Removed confidence ?? 70 default in alpha-midtrade-analyst.ts. AlphaRecheckResult
+ *       confidence type changed to number | null. Persists null with violation log if
+ *       Alpha omits confidence from mid-trade reanalysis response.
+ *   (8) Removed entry ?? currentPrice substitution in coordinator-alpha.ts. Missing entry
+ *       on BUY/SELL is now a governance block: MISSING_ENTRY_PRICE logViolation() +
+ *       return NO_TRADE with GOVERNANCE_BLOCK reasoning.
+ *   (9) action fallback in coordinator-alpha.ts: missing or invalid action from a valid
+ *       LLM JSON response now throws loudly (prompt compliance failure). UI/logging
+ *       fallbacks in goal-session-live-engine.ts changed from 'WAIT' → 'UNKNOWN' with
+ *       console.warn().
+ *   (10) Confirmed: no_trade_statement in alpha-learning-tracker.ts already persists
+ *       (decision as any).no_trade_statement ?? null — no synthesis. Correct as-is.
+ *   SSOT: Fail-loud mandate enforced across the entire Alpha decision pipeline.
+ *   All required fields must come from Alpha — never synthesized by downstream code.
  */
 export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isMicro = style === 'MICRO_INTRADAY';

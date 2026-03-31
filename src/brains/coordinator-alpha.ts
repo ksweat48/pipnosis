@@ -4125,13 +4125,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
       console.log('[Alpha Coordinator] Reasoning:', decision.reasoning);
       console.log('[Alpha Coordinator] Omega Summary:', decision.omega_summary);
 
-      // CCIP-2026-0330-NO_TRADE-GOVERNANCE + CCIP-2026-0332A: Enforce meaningful no_trade_statement.
-      // A NO_TRADE without a substantive structural explanation is a governance violation.
-      // CCIP-2026-0332A upgrade: NULL no_trade_statement is no longer allowed to propagate to
-      // the database. When Alpha returns a missing or generic statement (caused by compressed
-      // responses from the schema anchor bug), the parse layer constructs a fallback from
-      // available reasoning fields. The fallback is tagged [GENERATED_FALLBACK] for audit
-      // traceability so governance can identify and track LLM schema compliance over time.
+      // CCIP-2026-0333: Fail-loud governance for missing/generic no_trade_statement.
+      // Alpha's output is the sole authority. If Alpha did not produce a substantive
+      // no_trade_statement, the audit trail persists NULL — the system never invents text.
       if (decision.action === 'NO_TRADE') {
         const noTradeStatement: string = (decision as any).no_trade_statement || '';
         const isGenericPhrase = !noTradeStatement ||
@@ -4139,17 +4135,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
           /^(ranging|no clear|low volatility|uncertain|choppy|unclear|sideways|no edge|insufficient)/i.test(noTradeStatement.trim());
 
         if (isGenericPhrase) {
-          // CCIP-2026-0332A: construct a fallback no_trade_statement from available fields
-          // rather than allowing NULL. Fallback priority: block_reason + reasoning.thesis_why.
-          const blockReason: string = (decision as any).block_reason || 'NO_EDGE';
-          const thesisWhy: string = (decision as any).reasoning?.thesis_why || '';
-          const fallback = `[GENERATED_FALLBACK] Alpha returned NO_TRADE (${marketContext.symbol}) ` +
-            `with block_reason: ${blockReason}. ` +
-            (thesisWhy ? `Structural reasoning: ${thesisWhy}. ` : '') +
-            `Full structural explanation was not returned in this scan cycle — ` +
-            `governance requires a minimum 60-word structural explanation naming specific ` +
-            `price levels and candle evidence.`;
-          (decision as any).no_trade_statement = fallback;
+          // CCIP-2026-0333: Do NOT synthesise a fallback. Persist NULL and log the violation.
+          // The audit trail must reflect Alpha's actual failure, not a system-invented substitute.
+          (decision as any).no_trade_statement = null;
 
           logViolation({
             violationType: 'NO_TRADE_STATEMENT_MISSING_OR_GENERIC',
@@ -4159,7 +4147,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
             blocked: false,
             errorDetails: {
               no_trade_statement_original: noTradeStatement || null,
-              no_trade_statement_fallback: fallback,
               confidence: decision.confidence,
               block_reason: (decision as any).block_reason || null,
               sessionId: goalContext?.sessionId || null,
@@ -4167,10 +4154,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
             }
           }).catch(() => {});
           console.warn(
-            `[Alpha Coordinator] CCIP-2026-0332A: NO_TRADE_STATEMENT_MISSING_OR_GENERIC — ` +
+            `[CCIP-2026-0333] NO_TRADE_STATEMENT_MISSING_OR_GENERIC — ` +
             `Alpha produced NO_TRADE without a substantive structural explanation. ` +
             `Symbol=${marketContext.symbol}, confidence=${decision.confidence}. ` +
-            `Fallback no_trade_statement generated. Governance violation logged.`
+            `Persisting NULL. Governance violation logged.`
           );
         }
       }
@@ -4394,61 +4381,81 @@ Return PURE JSON only — all required fields from the schema in my system promp
         throw parseError;
       }
 
-      // Validate and sanitize action
-      let action = parsed.action || 'NO_TRADE';
+      // CCIP-2026-0333: action is NON-NEGOTIABLE. Alpha must always return BUY, SELL, or NO_TRADE.
+      // A missing action is a prompt compliance failure — fail loudly.
+      if (!parsed.action) {
+        console.error(`[CCIP-2026-0333] MISSING_ACTION — Alpha returned a valid JSON response for ${marketContext?.symbol} but omitted the action field entirely. Prompt compliance failure.`);
+        throw new Error(`[CCIP-2026-0333] Alpha response missing required 'action' field. Prompt compliance failure.`);
+      }
+      let action = parsed.action;
       if (!['BUY', 'SELL', 'NO_TRADE'].includes(action)) {
-        console.warn(`[Alpha Coordinator] Invalid action "${action}" - converting to NO_TRADE`);
-        action = 'NO_TRADE';
+        console.error(`[CCIP-2026-0333] INVALID_ACTION "${action}" — Alpha returned an unrecognised action for ${marketContext?.symbol}. Expected BUY | SELL | NO_TRADE. Prompt compliance failure.`);
+        throw new Error(`[CCIP-2026-0333] Alpha returned invalid action "${action}". Expected BUY | SELL | NO_TRADE.`);
       }
 
       // Extract new Alpha output format fields
       const tradeConfidence = parsed.trade_confidence ?? parsed.confidence ?? 0;
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       // CCIP-2026-0319A (Fix 2): entry_mode is only valid for BUY/SELL decisions.
-      // For NO_TRADE, the LLM should never emit entry_mode — but if it does (hallucination),
-      // we strip it to undefined rather than defaulting to 'wait_pullback', which would
-      // wrongly route a NO_TRADE decision into the entry monitor gate downstream.
-      // For BUY/SELL: use 'execute_now' as the safe default (not 'wait_pullback') so that
-      // a missing entry_mode from the LLM results in immediate execution, not a silent
-      // monitored-wait that never resolves without a valid zone.
+      // CCIP-2026-0333: entry_mode is a routing decision (immediate vs. monitored).
+      // Alpha must explicitly declare execution intent for BUY/SELL.
+      // If Alpha omits entry_mode, this is a prompt compliance failure — block the trade.
+      // For NO_TRADE, strip any hallucinated entry_mode to undefined.
       // CCIP-2026-0323A: let (not const) — Q10 FORCED guard may correct execute_now → wait_pullback
-      let entryMode = action === 'NO_TRADE'
-        ? undefined
-        : (parsed.entry_mode ?? 'execute_now');
+      let entryMode: string | undefined;
+      if (action === 'NO_TRADE') {
+        entryMode = undefined;
+      } else if (!parsed.entry_mode) {
+        logViolation({
+          violationType: 'MISSING_ENTRY_MODE',
+          symbol: marketContext.symbol,
+          attemptedOperation: 'entry_mode_governance_check',
+          callLocation: 'coordinator-alpha.entry_mode_governance',
+          blocked: true,
+          errorDetails: {
+            action,
+            tradeStyle,
+            confidence: tradeConfidence,
+            sessionId: goalContext?.sessionId ?? null,
+            userId: userId ?? null,
+          }
+        }).catch(() => {});
+        console.error(
+          `[CCIP-2026-0333] MISSING_ENTRY_MODE — Alpha returned ${action} for ${marketContext.symbol} without entry_mode. ` +
+          `Trade BLOCKED. Alpha must explicitly declare execution intent.`
+        );
+        return {
+          action: 'NO_TRADE',
+          confidence: tradeConfidence,
+          reasoning: 'GOVERNANCE_BLOCK: Alpha omitted entry_mode — prompt compliance failure. Trade blocked.',
+          symbol: marketContext.symbol,
+          tradeStyle,
+        };
+      } else {
+        entryMode = parsed.entry_mode;
+      }
 
-      // Structural anchor validation — advisory only (no hard NO_TRADE override).
-      // The prompt already instructs Alpha to output NO_TRADE itself if it cannot name an anchor.
-      // When Alpha outputs BUY/SELL, it has structural conviction — the field may simply be omitted
-      // due to model JSON field omission (known gpt-4o-mini behavior), not missing reasoning.
-      // Fallback: synthesise the anchor from Q2_structure_level or sl_structural_reference when missing.
+      // CCIP-2026-0333: Structural anchor validation — fail-loud, no synthesis.
+      // If Alpha omits the anchor field, log a governance violation and preserve Alpha's
+      // output as-is. The system must never substitute a field Alpha did not provide.
       const isAnchorVague = (s: string | null | undefined): boolean =>
         !s || s.trim().length < 10 ||
         ['null', 'n/a', 'required', 'none'].some(bad => s.trim().toLowerCase().includes(bad));
-
-      const synthesiseFallbackAnchor = (label: string): string | null => {
-        const q2 = typeof parsed.Q2_structure_level === 'string' ? parsed.Q2_structure_level.trim() : null;
-        const slRef = typeof parsed.sl_structural_reference === 'string' ? parsed.sl_structural_reference.trim() : null;
-        const candidate = q2 || slRef;
-        if (candidate && candidate.length >= 10) {
-          console.warn(`[Alpha Coordinator] ${label}: field missing — using fallback anchor from Q2/SL reference: "${candidate}"`);
-          return candidate;
-        }
-        return null;
-      };
 
       if (action !== 'NO_TRADE' && tradeStyle === 'SCALP') {
         const raw = typeof parsed.scalp_structural_confirmation === 'string'
           ? parsed.scalp_structural_confirmation.trim()
           : null;
         if (isAnchorVague(raw)) {
-          const fallback = synthesiseFallbackAnchor('SCALP_NO_M5_ANCHOR');
-          if (fallback) {
-            parsed.scalp_structural_confirmation = fallback;
-          } else {
-            console.warn('[Alpha Coordinator] SCALP_NO_M5_ANCHOR: no anchor field and no fallback — trade proceeds on Alpha confidence');
-          }
-        } else {
-          console.log(`[Alpha Coordinator] SCALP M5 anchor confirmed: "${raw}"`);
+          logViolation({
+            violationType: 'MISSING_STRUCTURAL_ANCHOR',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'scalp_anchor_check',
+            callLocation: 'coordinator-alpha.scalp_anchor_governance',
+            blocked: false,
+            errorDetails: { style: 'SCALP', field: 'scalp_structural_confirmation', value: raw ?? null, sessionId: goalContext?.sessionId ?? null }
+          }).catch(() => {});
+          console.warn(`[CCIP-2026-0333] SCALP_NO_M5_ANCHOR: Alpha omitted scalp_structural_confirmation for ${marketContext.symbol}. Proceeding on Alpha confidence — violation logged.`);
         }
       }
 
@@ -4457,14 +4464,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
           ? parsed.m15_structural_confirmation.trim()
           : null;
         if (isAnchorVague(raw)) {
-          const fallback = synthesiseFallbackAnchor('MICRO_INTRADAY_NO_M15_ANCHOR');
-          if (fallback) {
-            parsed.m15_structural_confirmation = fallback;
-          } else {
-            console.warn('[Alpha Coordinator] MICRO_INTRADAY_NO_M15_ANCHOR: no anchor field and no fallback — trade proceeds on Alpha confidence');
-          }
-        } else {
-          console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 anchor confirmed: "${raw}"`);
+          logViolation({
+            violationType: 'MISSING_STRUCTURAL_ANCHOR',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'micro_intraday_anchor_check',
+            callLocation: 'coordinator-alpha.micro_intraday_anchor_governance',
+            blocked: false,
+            errorDetails: { style: 'MICRO_INTRADAY', field: 'm15_structural_confirmation', value: raw ?? null, sessionId: goalContext?.sessionId ?? null }
+          }).catch(() => {});
+          console.warn(`[CCIP-2026-0333] MICRO_INTRADAY_NO_M15_ANCHOR: Alpha omitted m15_structural_confirmation for ${marketContext.symbol}. Proceeding on Alpha confidence — violation logged.`);
         }
       }
 
@@ -4473,14 +4481,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
           ? parsed.h1_structural_confirmation.trim()
           : null;
         if (isAnchorVague(raw)) {
-          const fallback = synthesiseFallbackAnchor('INTRADAY_NO_H1_ANCHOR');
-          if (fallback) {
-            parsed.h1_structural_confirmation = fallback;
-          } else {
-            console.warn('[Alpha Coordinator] INTRADAY_NO_H1_ANCHOR: no anchor field and no fallback — trade proceeds on Alpha confidence');
-          }
-        } else {
-          console.log(`[Alpha Coordinator] INTRADAY H1 anchor confirmed: "${raw}"`);
+          logViolation({
+            violationType: 'MISSING_STRUCTURAL_ANCHOR',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'intraday_anchor_check',
+            callLocation: 'coordinator-alpha.intraday_anchor_governance',
+            blocked: false,
+            errorDetails: { style: 'INTRADAY', field: 'h1_structural_confirmation', value: raw ?? null, sessionId: goalContext?.sessionId ?? null }
+          }).catch(() => {});
+          console.warn(`[CCIP-2026-0333] INTRADAY_NO_H1_ANCHOR: Alpha omitted h1_structural_confirmation for ${marketContext.symbol}. Proceeding on Alpha confidence — violation logged.`);
         }
       }
 
@@ -4945,7 +4954,33 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // Alpha chooses entry, SL, and ALL take-profit levels. System never computes TP.
       // SCALP: Alpha returns "takeProfit" (single TP target)
       // MICRO_INTRADAY/INTRADAY: Alpha returns "tp1" (conservative) and "tp2" (full target)
-      let entry = (parsed.entry !== null && parsed.entry !== undefined) ? parsed.entry : currentPrice;
+      // CCIP-2026-0333: entry is NON-NEGOTIABLE for BUY/SELL. If Alpha omits it, block the trade.
+      // Alpha must always provide an explicit entry price — never substitute with currentPrice.
+      let entry: number;
+      if (parsed.entry === null || parsed.entry === undefined || typeof parsed.entry !== 'number' || isNaN(parsed.entry) || parsed.entry <= 0) {
+        logViolation({
+          violationType: 'MISSING_ENTRY_PRICE',
+          symbol,
+          tradeStyle,
+          details: `Alpha returned ${action} for ${symbol} without a valid entry price. entry=${parsed.entry} (type: ${typeof parsed.entry}). This violates the output contract.`,
+          severity: 'HIGH',
+          blocked: true,
+        }).catch(() => {});
+        console.error(`[CCIP-2026-0333] MISSING_ENTRY_PRICE — Alpha returned ${action} for ${symbol} without a valid entry. entry=${parsed.entry}. Trade BLOCKED.`);
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: currentPrice,
+          stopLoss: currentPrice,
+          takeProfit: currentPrice,
+          confidence: 0,
+          reasoning: `GOVERNANCE_BLOCK: Alpha returned ${action} without a valid entry price. Prompt compliance failure — Alpha must always provide entry for BUY/SELL.`,
+          omega_summary: '',
+          risk_pct: 0
+        };
+      } else {
+        entry = parsed.entry;
+      }
       let stopLoss = parsed.stopLoss;
       let takeProfit: number;
       const isBuy = action === 'BUY';

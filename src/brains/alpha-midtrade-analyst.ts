@@ -71,7 +71,7 @@ export interface AlphaRecheckInput {
 export interface AlphaRecheckResult {
   verdict: AlphaRecheckVerdict;
   thesisStatus: ThesisStatus;
-  confidence: number;
+  confidence: number | null;
   alphaReasoning: string;
   userMessage: string;
   modelUsed: string;
@@ -240,7 +240,13 @@ function parseResponse(raw: string, fallbackTrigger: string): AlphaRecheckResult
       ? parsed.thesis_status
       : 'INTACT';
 
-    const confidence = Math.min(100, Math.max(0, parsed.confidence ?? 70));
+    const rawConfidence = parsed.confidence;
+    if (rawConfidence === undefined || rawConfidence === null) {
+      console.warn(`[CCIP-2026-0333] MISSING_MID_TRADE_CONFIDENCE: Alpha mid-trade response omitted confidence field. Trigger=${fallbackTrigger}. Persisting null.`);
+    }
+    const confidence: number | null = (rawConfidence !== undefined && rawConfidence !== null)
+      ? Math.min(100, Math.max(0, rawConfidence))
+      : null;
 
     const urgency: AlphaRecheckResult['urgency'] =
       verdict === 'CLOSE_NOW' ? 'critical' :

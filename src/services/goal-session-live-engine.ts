@@ -1125,7 +1125,7 @@ class GoalSessionLiveEngine {
           return {
             symbol: snapshot.symbol,
             confidence: decision?.confidence || 0,
-            action: (decision?.action || 'WAIT') as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+            action: (decision?.action || (console.warn(`[CCIP-2026-0333] decision.action missing for ${snapshot.symbol} in thought-stream candidates`), 'UNKNOWN')) as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
             score: decision?.confidence || 0
           };
         });
@@ -1234,7 +1234,7 @@ class GoalSessionLiveEngine {
               symbol: evaluation.symbol,
               action: evaluation.omegaDecision?.action === 'WAIT'
                 ? 'WAIT'
-                : (evaluation.omegaDecision?.action || 'WAIT') as 'BUY' | 'SELL' | 'WAIT',
+                : (evaluation.omegaDecision?.action || (console.warn(`[CCIP-2026-0333] omegaDecision.action missing for ${evaluation.symbol} in allCandidates`), 'UNKNOWN')) as 'BUY' | 'SELL' | 'WAIT',
               confidence: evaluation.primaryScore || 0,
               score: evaluation.primaryScore || 0,
               reasoning: evaluation.reasoning?.join('. ') || '',
@@ -1296,7 +1296,7 @@ class GoalSessionLiveEngine {
                 activeSession,
                 config.userId,
                 sym,
-                dec.action || 'WAIT',
+                dec.action || (console.warn(`[CCIP-2026-0333] dec.action missing for ${sym} in emitSymbolReasoning`), 'UNKNOWN'),
                 dec.confidence || 0,
                 dec.reasoning
               );
@@ -1325,7 +1325,7 @@ class GoalSessionLiveEngine {
             );
           } else {
             const perSymbolSummary = Array.from(filteredDecisions.entries())
-              .map(([sym, dec]) => `${sym}: ${dec?.action || 'WAIT'} ${dec?.confidence || 0}% - ${dec?.reasoning || 'no reasoning'}`)
+              .map(([sym, dec]) => `${sym}: ${dec?.action || 'UNKNOWN'} ${dec?.confidence || 0}% - ${dec?.reasoning || 'no reasoning'}`)
               .join(' | ');
             await alphaThoughtStream.emitFinalDecision(
               activeSession,

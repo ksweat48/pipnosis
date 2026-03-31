@@ -1677,7 +1677,7 @@ class AlphaTradeExecutor {
       '[AlphaTradeExecutor] Alpha entry advisory applied (MONITORED mode)',
       {
         symbol: decision.symbol,
-        alphaEntryMode: decision.entry_mode || 'wait_pullback',
+        alphaEntryMode: decision.entry_mode || 'MISSING',
         runawayPolicy: decision.entry_spec?.runawayPolicy ?? 'RESCAN',
         verdict: monitorVerdict,
         alphaVerdict: monitorAdvisory?.verdict || 'GOOD_ENTRY (default)',
@@ -1850,7 +1850,7 @@ class AlphaTradeExecutor {
       metadata: {
         symbol: decision.symbol,
         direction: direction,
-        entry_mode: decision.entry_mode || 'wait_pullback',
+        entry_mode: decision.entry_mode || null,
         pullback_zone_min: monitorPullbackMin,
         pullback_zone_max: monitorPullbackMax,
         pullback_target_price: monitorPullbackMid,
@@ -2501,7 +2501,7 @@ class AlphaTradeExecutor {
           verdict: structuralVerdict,
           alphaVerdict: alphaAdvisory?.verdict || 'GOOD_ENTRY (default)',
           pullbackZone: pullbackZoneMin && pullbackZoneMax ? `${pullbackZoneMin}-${pullbackZoneMax}` : 'none',
-          reasoning: alphaAdvisory?.reasoning || 'Alpha assessed good entry'
+          reasoning: alphaAdvisory?.reasoning || null
         }
       );
 
@@ -2672,7 +2672,7 @@ class AlphaTradeExecutor {
         verdict: alphaAdvisory?.verdict || 'GOOD_ENTRY',
         pullback_zone_min: alphaAdvisory?.pullback_zone_min || null,
         pullback_zone_max: alphaAdvisory?.pullback_zone_max || null,
-        reasoning: alphaAdvisory?.reasoning || 'Alpha assessed this as a good entry point'
+        reasoning: alphaAdvisory?.reasoning || null
       }
     };
 
