@@ -1605,12 +1605,10 @@ The M5 candle context block below contains pre-computed M5 BOS and wick measurem
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are operating as an H1 INTRADAY trader. TP1 targets a conservative H1 structural level. TP2 targets an H4 structural level.
-Timeframe stack: H1 (primary) | M15 (precision entry layer) | H4 (campaign bias) | D1 (macro direction).
-You MUST name the specific H1 structural level you are trading from in h1_structural_confirmation.
-You MUST output h1_move_phase (fresh|developing|exhausted) and h1_atr_traveled in your JSON response.
-You MUST provide a trade_management object defining your TP1/TP2 handling and trailing method.
-The M15 precision entry block below shows whether a closed M15 body in your direction has formed at the H1 entry zone — document the current M15 confirmation state and your entry_mode choice with the structural reasoning behind it.
+My lens this scan is H1. H4 provides the campaign destination and macro bias. M15 gives me timing precision within the H1 structural picture. D1 orients the daily delivery narrative. TP1 is a named H1 structural level on the path. TP2 is the named H4 structural destination.
+Record h1_structural_confirmation (the named H1 anchor this campaign is built from), h1_move_phase, and h1_atr_traveled in the JSON response — these are audit fields that document my structural read for governance review regardless of action.
+The M15 candle context block below contains pre-computed M15 BOS and wick measurements for this scan window. I read that data and reach my own conclusions on timing and entry_mode.
+The trade_management object in my response documents my campaign plan for this trade — TP1 percentage, post-TP1 SL action, and trailing method. This is part of my honest account of the campaign, not a compliance requirement.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : '';
@@ -2671,29 +2669,24 @@ Document your entry_mode choice and reasoning given this data gap. Your convicti
           });
 
           const m15IEvidenceBlock = `
-M15 PRECISION ENTRY EVIDENCE (pre-computed for Alpha):
+M15 CANDLE CONTEXT — PRE-COMPUTED MEASUREMENTS:
 - M15 BOS BULL (last M15 close > prior M15 high): ${m15IBOSBull ? 'YES — bullish M15 break of structure confirmed' : 'NO'}
 - M15 BOS BEAR (last M15 close < prior M15 low): ${m15IBOSBear ? 'YES — bearish M15 break of structure confirmed' : 'NO'}
 - M15 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M15 candles): ${m15ISweepWickBull ? 'YES — bullish absorption signal on M15' : 'NO'}
 - M15 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M15 candles): ${m15ISweepWickBear ? 'YES — bearish absorption signal on M15' : 'NO'}
 
-M15 CONFIRMATION STANDARD: A confirmed M15 candle CLOSE in your intended direction at the H1 entry zone is the INTRADAY entry trigger standard.
-A wick, an open, or a partial move does not constitute a closed body confirmation — only a closed M15 body in your direction counts as a fired trigger.
-Document the current state of M15 confirmation from the pre-computed signals above: whether BOS or sweep wick has formed, which entry_mode you selected, and your structural reasoning for that choice.`;
+This is raw market measurement. I read what the M15 is showing and reach my own conclusions on timing, trigger state, and entry_mode.`;
 
           m5SubConfirmationPrompt += `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M15 PRECISION ENTRY (${marketContext.symbol}) — INTRADAY ENTRY TRIGGER TIMEFRAME
+M15 CANDLE CONTEXT — INTRADAY TIMING LAYER (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This is your ENTRY TRIGGER timeframe. H1 defines the structure and setup. M15 is where you pull the trigger.
-A confirmed M15 candle CLOSE in your intended direction at the H1 entry zone is the INTRADAY entry trigger standard.
-A wick touch, M15 open, or partial move does not constitute a closed body trigger — only a CLOSED M15 body in your direction counts.
-Document which entry_mode you selected and your structural reasoning for that choice given the current M15 state.
+H1 defines the campaign structure. M15 provides timing precision within the H1 structural picture. The measurements below are pre-computed — I read them and decide.
 
 ${m15IntradayLines.join('\n')}
 
-M15 PRECISION ENTRY SUMMARY:
+M15 CONTEXT SUMMARY:
 - M15 Range (last ${recentM15Intraday.length} candles): ${m15IRangePips.toFixed(1)} pips (High: ${m15IHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${m15ILow.toFixed(pipInfo.decimalPlaces)})
 - M15 Current directional bias: ${m15IntradayTrendDir}
 - Consecutive same-direction M15 candles: ${m15IConsecutive}
