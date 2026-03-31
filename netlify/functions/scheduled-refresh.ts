@@ -1,10 +1,8 @@
-import { Handler, schedule } from '@netlify/functions';
+import { schedule } from '@netlify/functions';
 
-const handler: Handler = async () => {
+export const handler = schedule('0 2 * * *', async () => {
   return {
     statusCode: 200,
-    body: JSON.stringify({ message: 'scheduled-refresh: no-op (refresh-service removed)' }),
+    body: JSON.stringify({ message: 'scheduled-refresh: no-op' }),
   };
-};
-
-export { handler };
+});
