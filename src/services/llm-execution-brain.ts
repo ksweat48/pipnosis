@@ -138,7 +138,7 @@ Max 150 tokens.`;
         stopLoss: parsed.stopLoss || 0,
         takeProfit: parsed.takeProfit || 0,
         risk_pct: Math.max(1, Math.min(5, parsed.risk_pct || 3)),
-        confidence: Math.max(0, Math.min(100, parsed.confidence || 70)),
+        confidence: parsed.confidence !== undefined && parsed.confidence !== null ? Math.max(0, Math.min(100, parsed.confidence)) : null,
         reasoning: parsed.reasoning || 'AI decision',
         strategyMode
       };

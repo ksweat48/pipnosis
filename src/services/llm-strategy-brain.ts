@@ -371,7 +371,7 @@ YOU MUST generate conditions appropriate for ${config.label} duration and risk p
         tp_calculation: parsed.tp_calculation || 'atr*2.5',
         risk_pct: parsed.risk_pct || 3,
         riskLevel: parsed.risk_pct || 3,
-        confidence: parsed.confidence || 70,
+        confidence: parsed.confidence ?? null,
         rationale: parsed.rationale || 'Default strategy',
         watch_indicators: parsed.watch_indicators || ['ema20', 'ema50', 'rsi']
       };
