@@ -13,7 +13,6 @@
  */
 
 import { supabase } from '../lib/supabase';
-import { prodLogger } from '../lib/production-logger';
 
 function deriveComponent(callLocation: string, violationType: string): string {
   if (callLocation.includes('alpha') || violationType.startsWith('ALPHA_')) return 'alpha-brain';
@@ -76,13 +75,7 @@ export async function logViolation(entry: ViolationLogEntry): Promise<void> {
       console.error('[SSOT Violation Logger] Failed to log violation:', error);
       // Don't throw - logging failures shouldn't block trades
     } else {
-      prodLogger.info(
-        `[SSOT Violation] ${entry.violationType} at ${entry.callLocation}: ${entry.symbol}`,
-        {
-          ...entry,
-          component: 'ssot-violation-logger'
-        }
-      );
+      if (import.meta.env?.DEV) console.log(`[SSOT Violation] ${entry.violationType} at ${entry.callLocation}: ${entry.symbol}`);
     }
   } catch (error) {
     console.error('[SSOT Violation Logger] Exception while logging:', error);
@@ -245,10 +238,7 @@ export async function cleanupOldViolations(daysToKeep: number = 30): Promise<num
     return 0;
   }
 
-  prodLogger.info(
-    `[SSOT Violation Logger] Cleaned up ${count || 0} violations older than ${daysToKeep} days`,
-    { component: 'ssot-violation-logger' }
-  );
+  if (import.meta.env?.DEV) console.log(`[SSOT Violation Logger] Cleaned up ${count || 0} violations older than ${daysToKeep} days`);
 
   return count || 0;
 }

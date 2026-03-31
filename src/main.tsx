@@ -18,8 +18,6 @@ if (!import.meta.env.PROD) {
     logger.setGlobalLevel(LogLevel.DEBUG);
   });
 
-  // Load debug utilities only in dev
-  import('./utils/scanner-test');
   import('@/lib/log-presets').then(({ logPresets }) => {
     console.log('\n%c💡 Logging System Available', 'color: #4CAF50; font-weight: bold; font-size: 14px');
     console.log('%cType logPresets.help() for quick log configuration', 'color: #2196F3; font-size: 12px');

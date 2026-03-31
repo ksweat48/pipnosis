@@ -1,17 +1,14 @@
 import React from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { Activity } from 'lucide-react';
 
 interface ChartLoadingOverlayProps {
   symbol: string;
   timeframe: string;
   loaded?: number;
   total?: number;
-  message?: string;
-  showRetry?: boolean;
-  onRetry?: () => void;
 }
 
-export function ChartLoadingOverlay({ symbol, timeframe, loaded, total, message, showRetry, onRetry }: ChartLoadingOverlayProps) {
+export function ChartLoadingOverlay({ symbol, timeframe, loaded, total }: ChartLoadingOverlayProps) {
   const progress = loaded && total ? (loaded / total) * 100 : 0;
   const showProgress = loaded !== undefined && total !== undefined && total > 0;
 
@@ -24,7 +21,7 @@ export function ChartLoadingOverlay({ symbol, timeframe, loaded, total, message,
         </div>
 
         <p className="text-white font-semibold text-lg mb-2">
-          {message || `Loading ${symbol} ${timeframe}`}
+          {`Loading ${symbol} ${timeframe}`}
         </p>
 
         {showProgress && (
@@ -41,20 +38,10 @@ export function ChartLoadingOverlay({ symbol, timeframe, loaded, total, message,
           </>
         )}
 
-        {!showProgress && !showRetry && (
+        {!showProgress && (
           <p className="text-white/60 text-sm">
             Fetching fresh market data...
           </p>
-        )}
-
-        {showRetry && onRetry && (
-          <button
-            onClick={onRetry}
-            className="mt-4 px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2 mx-auto"
-          >
-            <RefreshCw size={16} />
-            Retry Loading
-          </button>
         )}
       </div>
     </div>
@@ -67,8 +54,6 @@ interface BackgroundLoadingIndicatorProps {
   currentBatch?: string[];
 }
 
-export function BackgroundLoadingIndicator({ completed, total, currentBatch }: BackgroundLoadingIndicatorProps) {
-  const progress = total > 0 ? (completed / total) * 100 : 0;
-
+export function BackgroundLoadingIndicator(_props: BackgroundLoadingIndicatorProps) {
   return null;
 }

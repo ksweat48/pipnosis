@@ -4,7 +4,6 @@ import { globalPollingCoordinator } from './global-polling-coordinator';
 import { logger, LogCategory } from '@/lib/logger';
 import type { GoalSessionTrade } from '@/types/position';
 import { calculatePnL } from '@/types/position';
-import { prodLogger } from '@/lib/production-logger';
 import { midTradeTriggerDetector } from './mid-trade-trigger-detector';
 import type { MarketConditions } from './mid-trade-trigger-detector';
 import { tradeClosureCoordinator, type CloseReason } from './coordinators/trade-closure-coordinator';
@@ -1026,11 +1025,7 @@ class PositionMonitorService {
 
       if (result.success && result.pnl !== undefined) {
         const displayReason = reason === 'stop_loss' ? 'SL' : reason === 'take_profit' ? 'TP' : 'GOAL MET';
-        prodLogger.position(
-          `AUTO-CLOSED (${displayReason})`,
-          position.symbol,
-          result.pnl
-        );
+        logger.info(LogCategory.POSITION_MONITOR, `AUTO-CLOSED (${displayReason}) ${position.symbol} | P&L: $${result.pnl.toFixed(2)}`);
 
         // Insert AI conversation message for FloatingMessageCenter
         const conversationMessage = reason === 'stop_loss'

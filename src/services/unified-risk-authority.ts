@@ -34,7 +34,6 @@ import { progressiveRiskScaling } from './progressive-risk-scaling';
 import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 import { PCVL_CONFIG } from '../config/pcvl-config';
 import { logViolation } from './ssot-violation-logger';
-import { prodLogger } from '../lib/production-logger';
 
 export type URATradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
@@ -113,11 +112,7 @@ class UnifiedRiskAuthority {
 
     // GOVERNANCE: Input validation (fail loudly on bad data)
     if (currentBalance === undefined || currentBalance === null || isNaN(currentBalance)) {
-      prodLogger.error('UnifiedRiskAuthority: currentBalance is invalid', {
-        currentBalance,
-        userId,
-        symbol
-      });
+      console.error('[UnifiedRiskAuthority] currentBalance is invalid', { currentBalance, userId, symbol });
       return {
         approved: false,
         recommendedLotSize: 0.01,
@@ -141,11 +136,7 @@ class UnifiedRiskAuthority {
     }
 
     if (entryPrice === undefined || entryPrice === null || isNaN(entryPrice) || entryPrice <= 0) {
-      prodLogger.error('UnifiedRiskAuthority: entryPrice is invalid', {
-        entryPrice,
-        userId,
-        symbol
-      });
+      console.error('[UnifiedRiskAuthority] entryPrice is invalid', { entryPrice, userId, symbol });
       return {
         approved: false,
         recommendedLotSize: 0.01,
@@ -169,11 +160,7 @@ class UnifiedRiskAuthority {
     }
 
     if (stopLoss === undefined || stopLoss === null || isNaN(stopLoss) || stopLoss <= 0) {
-      prodLogger.error('UnifiedRiskAuthority: stopLoss is invalid', {
-        stopLoss,
-        userId,
-        symbol
-      });
+      console.error('[UnifiedRiskAuthority] stopLoss is invalid', { stopLoss, userId, symbol });
       return {
         approved: false,
         recommendedLotSize: 0.01,
@@ -197,11 +184,7 @@ class UnifiedRiskAuthority {
     }
 
     if (takeProfit === undefined || takeProfit === null || isNaN(takeProfit) || takeProfit <= 0) {
-      prodLogger.error('UnifiedRiskAuthority: takeProfit is invalid', {
-        takeProfit,
-        userId,
-        symbol
-      });
+      console.error('[UnifiedRiskAuthority] takeProfit is invalid', { takeProfit, userId, symbol });
       return {
         approved: false,
         recommendedLotSize: 0.01,
