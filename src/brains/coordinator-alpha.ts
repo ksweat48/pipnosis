@@ -1051,15 +1051,19 @@ The entry monitor is OFFLINE. Two choices are available:
           volume: c.volume || 0
         }));
 
-        // GOVERNANCE (2026-03-30): Pass symbol and session so the classifier
+        // GOVERNANCE (2026-03-30 / CCIP-2026-0331C): Pass symbol and session so the classifier
         // can fetch dynamic per-symbol per-session percentile thresholds from
         // Supabase instead of using universal hardcoded values.
+        // CCIP-2026-0331C: Map sydney/closed -> 'dead' so baselines accumulate for those sessions
+        // rather than being discarded as undefined (which silently skips all upserts).
         const regimeSessionCtx = calculateSessionContext();
-        const regimeSession = (['asian', 'london', 'ny', 'overlap', 'dead'] as const).includes(
-          regimeSessionCtx.currentSession as any
-        )
-          ? (regimeSessionCtx.currentSession as import('../services/micro-regime-classifier').RegimeSession)
-          : undefined;
+        const rawSession = regimeSessionCtx.currentSession;
+        const regimeSession: import('../services/micro-regime-classifier').RegimeSession =
+          rawSession === 'sydney' || rawSession === 'closed'
+            ? 'dead'
+            : (['asian', 'london', 'ny', 'overlap', 'dead'] as const).includes(rawSession as any)
+              ? (rawSession as import('../services/micro-regime-classifier').RegimeSession)
+              : 'dead';
 
         microRegime = await microRegimeClassifier.classify(
           regimeCandles,
@@ -1068,9 +1072,10 @@ The entry monitor is OFFLINE. Two choices are available:
         );
 
         if (microRegime) {
+          const sampleCount = microRegime.thresholds.sampleCount;
           const thresholdNote = microRegime.thresholds.thresholdSource === 'dynamic'
-            ? `calibrated on ${microRegime.thresholds.sampleCount} real ${marketContext.symbol} ${regimeSessionCtx.sessionName ?? ''} readings`
-            : `STATIC FALLBACK — fewer than 20 readings exist for ${marketContext.symbol} in this session; thresholds are universal defaults, not symbol-specific`;
+            ? `calibrated on ${sampleCount} real ${marketContext.symbol} ${regimeSessionCtx.sessionName ?? ''} readings`
+            : `instrument-class defaults (${sampleCount} readings accumulated so far — thresholds will self-calibrate)`;
 
           console.log(`[Alpha Coordinator] Micro-Regime: ${microRegime.regime} | Direction: ${microRegime.direction} | Classification Confidence: ${microRegime.confidence}% | Thresholds: ${microRegime.thresholds.thresholdSource}`);
 
