@@ -4125,10 +4125,13 @@ Return PURE JSON only — all required fields from the schema in my system promp
       console.log('[Alpha Coordinator] Reasoning:', decision.reasoning);
       console.log('[Alpha Coordinator] Omega Summary:', decision.omega_summary);
 
-      // CCIP-2026-0330-NO_TRADE-GOVERNANCE: Enforce meaningful no_trade_statement.
+      // CCIP-2026-0330-NO_TRADE-GOVERNANCE + CCIP-2026-0332A: Enforce meaningful no_trade_statement.
       // A NO_TRADE without a substantive structural explanation is a governance violation.
-      // This is a SOFT check — it does NOT block or alter the decision. It logs an auditable
-      // violation so governance can track Alpha's reasoning quality on NO_TRADE outputs.
+      // CCIP-2026-0332A upgrade: NULL no_trade_statement is no longer allowed to propagate to
+      // the database. When Alpha returns a missing or generic statement (caused by compressed
+      // responses from the schema anchor bug), the parse layer constructs a fallback from
+      // available reasoning fields. The fallback is tagged [GENERATED_FALLBACK] for audit
+      // traceability so governance can identify and track LLM schema compliance over time.
       if (decision.action === 'NO_TRADE') {
         const noTradeStatement: string = (decision as any).no_trade_statement || '';
         const isGenericPhrase = !noTradeStatement ||
@@ -4136,6 +4139,18 @@ Return PURE JSON only — all required fields from the schema in my system promp
           /^(ranging|no clear|low volatility|uncertain|choppy|unclear|sideways|no edge|insufficient)/i.test(noTradeStatement.trim());
 
         if (isGenericPhrase) {
+          // CCIP-2026-0332A: construct a fallback no_trade_statement from available fields
+          // rather than allowing NULL. Fallback priority: block_reason + reasoning.thesis_why.
+          const blockReason: string = (decision as any).block_reason || 'NO_EDGE';
+          const thesisWhy: string = (decision as any).reasoning?.thesis_why || '';
+          const fallback = `[GENERATED_FALLBACK] Alpha returned NO_TRADE (${marketContext.symbol}) ` +
+            `with block_reason: ${blockReason}. ` +
+            (thesisWhy ? `Structural reasoning: ${thesisWhy}. ` : '') +
+            `Full structural explanation was not returned in this scan cycle — ` +
+            `governance requires a minimum 60-word structural explanation naming specific ` +
+            `price levels and candle evidence.`;
+          (decision as any).no_trade_statement = fallback;
+
           logViolation({
             violationType: 'NO_TRADE_STATEMENT_MISSING_OR_GENERIC',
             symbol: marketContext.symbol,
@@ -4143,7 +4158,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
             callLocation: 'coordinator-alpha.no_trade_governance',
             blocked: false,
             errorDetails: {
-              no_trade_statement: noTradeStatement || null,
+              no_trade_statement_original: noTradeStatement || null,
+              no_trade_statement_fallback: fallback,
               confidence: decision.confidence,
               block_reason: (decision as any).block_reason || null,
               sessionId: goalContext?.sessionId || null,
@@ -4151,10 +4167,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
             }
           }).catch(() => {});
           console.warn(
-            `[Alpha Coordinator] CCIP-2026-0330: NO_TRADE_STATEMENT_MISSING_OR_GENERIC — ` +
+            `[Alpha Coordinator] CCIP-2026-0332A: NO_TRADE_STATEMENT_MISSING_OR_GENERIC — ` +
             `Alpha produced NO_TRADE without a substantive structural explanation. ` +
             `Symbol=${marketContext.symbol}, confidence=${decision.confidence}. ` +
-            `Governance violation logged (advisory — decision stands).`
+            `Fallback no_trade_statement generated. Governance violation logged.`
           );
         }
       }
@@ -4884,6 +4900,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const executionStatus: 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN' =
           reasonedConfidence >= 50 ? 'NO_TRADE_GENUINE' : 'NO_TRADE_LEAN';
 
+        // CCIP-2026-0332A: Include no_trade_statement in the returned decision object so
+        // downstream consumers (alpha-learning-tracker.ts logDecision) can persist it to
+        // alpha_decisions. Previously this was parsed but discarded — NULL was propagating
+        // to the database, a governance violation. The governance check below enforces non-null.
+        const noTradeStatementRaw: string = parsed.no_trade_statement || '';
+
         return {
           action,
           decision: action,
@@ -4909,6 +4931,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
           execution_status: executionStatus,
           directional_lean: directionalLean,
           lean_confidence: leanConfidence,
+          // CCIP-2026-0332A: Audit fields — governance check below enforces non-null
+          no_trade_statement: noTradeStatementRaw || undefined,
+          block_reason: parsed.block_reason || undefined,
         };
       }
 

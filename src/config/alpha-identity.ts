@@ -729,6 +729,37 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *   SSOT: Prompt change in this function. Monitor change in autonomous-entry-monitor.ts.
  *   Executor change in alpha-trade-executor.ts createMonitored(). DB migration applied.
  *   Zero coordinator-alpha.ts changes — routing is unchanged.
+ * - CCIP-2026-0332A: NO_TRADE Schema Numeric Anchor Removal.
+ *   Root cause: Database audit on 2026-03-31 confirmed the LLM WAS being called during all
+ *   NO_TRADE batches (confirmed via llm_token_usage: 9 calls per batch, completion tokens
+ *   150-340 vs 1300-1500 for successful trade scans). All 9 symbols produced exactly 45%
+ *   confidence across the same scan cycle — statistically impossible if genuinely scoring
+ *   independently. The no_trade_statement was NULL in every record (governance violation).
+ *   Root cause: Line 836 in the NO_TRADE output schema contained the text:
+ *     "45=close, structure incomplete. 30=signal present, edge insufficient. 15=nothing credible."
+ *   This text was a residual numeric anchor from before CCIP-2026-0326A. CCIP-2026-0326A
+ *   removed the phase band formulas and advisor ceiling from the BUY/SELL schema, but this
+ *   example line survived in the NO_TRADE schema. GPT-4o was reading "45=close, structure
+ *   incomplete" and treating 45 as the canonical "I see something but can't trade" value,
+ *   outputting it mechanically every time. The short token counts (150-340) confirmed Alpha
+ *   was responding with a compressed schema missing no_trade_statement and
+ *   opportunity_assessment — those fields were present in the schema but Alpha was not
+ *   producing them because the 45 anchor caused early termination of the response.
+ *   Note: CCIP-2026-0326A's intent was correct — conviction-first scoring, no formula
+ *   anchors. This change completes that intent for the NO_TRADE schema.
+ *   Changes:
+ *   (1) trade_confidence description in NO_TRADE schema rewritten — numeric examples
+ *       removed. Replaced with conviction-first language: Alpha's confidence is his honest
+ *       assessment of how likely this market structure, if acted on, would reach the target.
+ *       No example values are provided — Alpha derives from evidence, not anchored examples.
+ *   (2) no_trade_statement enforcement upgraded in coordinator-alpha.ts parse layer —
+ *       if no_trade_statement is missing or generic, the parse layer now constructs a
+ *       fallback from available reasoning fields (block_reason + reasoning.thesis_why)
+ *       rather than allowing NULL to propagate to the database. NULL is a governance
+ *       violation. The fallback is tagged as [GENERATED_FALLBACK] for audit traceability.
+ *   SSOT: All prompt changes in this function only. Parse-layer enforcement in
+ *   coordinator-alpha.ts (CCIP-2026-0330-NO_TRADE-GOVERNANCE block). No confidence
+ *   engine changes, no executor changes, no threshold changes.
  */
 export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isMicro = style === 'MICRO_INTRADAY';
@@ -833,7 +864,7 @@ BUY or SELL:
 NO_TRADE:
 {
   "action": "NO_TRADE",
-  "trade_confidence": <integer 0-49 — my honest confidence a trade here would succeed. 45=close, structure incomplete. 30=signal present, edge insufficient. 15=nothing credible. I never output NO_TRADE with confidence >= 50 — if I am that confident I execute.>,
+  "trade_confidence": <integer 0-49 — my honest assessment: how likely is it that, if I placed this trade right now, it would reach the target? This is not a formula. It is my professional conviction based on the structural evidence in front of me. I derive this number from what I actually see — structure quality, path cleanliness, trigger clarity, session phase alignment — not from any example or template. I never output NO_TRADE with confidence >= 50. If I am that convicted, I execute.>,
   "directional_lean": "BUY_LEAN|SELL_LEAN|NEUTRAL",
   "lean_confidence": <0-100>,
   "opportunity_assessment": {

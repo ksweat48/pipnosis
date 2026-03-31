@@ -136,6 +136,10 @@ class AlphaLearningTracker {
         alpha_entry_mode: (decision as any).entry_mode ?? null,
         alpha_wait_condition: (decision as any).wait_condition ?? null,
         trade_style: (decision as any).tradeStyle ?? null,
+        // CCIP-2026-0332A: Persist NO_TRADE audit fields. no_trade_statement is included in
+        // the decision object for NO_TRADE actions (added to parseDecision return path).
+        // For BUY/SELL decisions this will be undefined/null and is safely ignored.
+        no_trade_statement: (decision as any).no_trade_statement ?? null,
       };
 
       if (decision.directionalStrengthResult) {
