@@ -1595,11 +1595,9 @@ Include scalp_momentum_phase (starting|developing|exhausted) and scalp_atr_trave
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: MICRO_INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are operating as a M15 MICRO_INTRADAY trader. TP1 targets a conservative M15 structural level. TP2 targets an H1 structural level.
-Timeframe stack: M15 (primary) | M5 (entry trigger confirmation) | H1 (campaign bias) | D1 (macro direction).
-You MUST name the specific M15 structural level you are trading from in m15_structural_confirmation.
-You MUST output m15_move_phase (fresh|developing|exhausted) and m15_atr_traveled in your JSON response.
-The M5 sub-confirmation block below shows whether a closed M5 body in your direction has formed — document the current M5 confirmation state and your entry_mode choice with the structural reasoning behind it.
+My lens this scan is M15. H1 provides the broader structural context. M5 provides timing precision within the M15 picture. D1 orients the macro direction. TP1 is a named M15 structural level. TP2 is a named H1 structural level.
+Record m15_structural_confirmation (the named M15 anchor this trade is built from), m15_move_phase, and m15_atr_traveled in the JSON response — these are audit fields that document my structural read for governance review regardless of action.
+The M5 candle context block below contains pre-computed M5 BOS and wick measurements for this scan window. I read that data and reach my own conclusions.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : tradeStyle === 'INTRADAY'
@@ -2029,18 +2027,18 @@ Reason in Q9 and sl_structural_reference: does your chosen SL clear the nearest 
           }
 
           const phaseLabel = h1MovePhase === 'FRESH'
-            ? `FRESH — < 0.75x H1 ATR traveled (< ${freshCeiling} pips from swing origin). Full confidence range. Both continuation and pullback entries are valid.`
+            ? `FRESH — < 0.75x H1 ATR traveled (< ${freshCeiling} pips from swing origin). Full structural space available.`
             : h1MovePhase === 'DEVELOPING'
-              ? `DEVELOPING — 0.75–1.5x H1 ATR traveled (${freshCeiling}–${developingCeiling} pips from swing origin). Structural space to TP1 may be limited. Pullback re-entry is preferred. Continuation requires explicit justification that TP1 and TP2 remain achievable.`
-              : `EXHAUSTED — > 1.5x H1 ATR traveled (> ${developingCeiling} pips from swing origin). The H1 leg is extended — look for a structural reversal, retest, or sweep setup rather than a continuation entry. Exhausted H1 moves often produce the best reversal entries. Recalculate R:R from CURRENT price. Only NO_TRADE if recalculated TP1 R:R cannot reach 1.0:1 from a named re-entry zone.`;
+              ? `DEVELOPING — 0.75–1.5x H1 ATR traveled (${freshCeiling}–${developingCeiling} pips from swing origin). Structural space to TP1 may be narrowing — the remaining runway to the named TP levels is the key measurement.`
+              : `EXHAUSTED — > 1.5x H1 ATR traveled (> ${developingCeiling} pips from swing origin). The H1 leg is extended. Document the structural picture honestly and reflect it in the conviction score.`;
 
           const fakeoutBlock = fakeoutType
             ? `
 H1 FAKEOUT DETECTION:
-A ${fakeoutType} was detected ${fakeoutCandlesAgo} H1 candle(s) ago. A candle swept a recent H1 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmed ? 'YES — subsequent H1 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
+A ${fakeoutType} was detected ${fakeoutCandlesAgo} H1 candle(s) ago. A candle swept a recent H1 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmed ? 'YES — subsequent H1 candles have printed in the reversal direction' : 'NOT YET — subsequent H1 candles have not yet confirmed direction'}.
 ${fakeoutType === 'BEARISH_FAKEOUT'
-  ? 'BEARISH FAKEOUT: Price swept above a prior H1 high and rejected. This is a classic bull trap on the H1 chart. Entering LONG at current price carries fakeout-reversal risk — explicit structural justification required. A BUY entry must explain why the fakeout has been absorbed and the prior high has now become support.'
-  : 'BULLISH FAKEOUT: Price swept below a prior H1 low and rejected. This is a classic bear trap on the H1 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit structural justification required. A SELL entry must explain why the fakeout has been absorbed and the prior low has now become resistance.'}
+  ? 'BEARISH FAKEOUT: Price swept above a prior H1 high and rejected, closing back inside the prior range. This is raw structural data — a sweep of the high, a rejection, and a body close inside. What that means for the current thesis is my read.'
+  : 'BULLISH FAKEOUT: Price swept below a prior H1 low and rejected, closing back inside the prior range. This is raw structural data — a sweep of the low, a rejection, and a body close inside. What that means for the current thesis is my read.'}
 `
             : '';
 
@@ -2057,10 +2055,10 @@ H1 Move Phase: ${h1MovePhase}
 Assessment: ${phaseLabel}
 
 ${h1MovePhase === 'DEVELOPING'
-  ? `DEVELOPING STAGE — RUNWAY AUDIT: Document the remaining structural space from current price to your intended TP1 (H1 structural level) and TP2 (H4 structural level). State: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If the R:R to your named TP1 is below 1.0:1, document whether you can tighten to the next achievable H1 structure — and reflect your honest R:R assessment in your conviction score. Alpha decides the action.`
+  ? `DEVELOPING STAGE — RUNWAY AUDIT: Record the remaining structural space from current price to the named TP1 (H1 structural level) and TP2 (H4 structural level). "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." The R:R assessment belongs in the conviction score.`
   : h1MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The H1 leg has traveled > 1.5x ATR. Look for a structural reversal, retest, or sweep setup rather than a continuation entry — exhausted H1 moves often produce the best reversal entries. Recalculate R:R from CURRENT price and document the nearest structural re-entry zone and achievable R:R. If R:R is insufficient from the nearest named H1 re-entry zone, document that assessment and reflect it in your conviction score. Alpha decides the action.`
-    : `FRESH STAGE — Full confidence window. Structural space to TP1 and TP2 is available. Both continuation and pullback entries are valid.`
+    ? `EXHAUSTED STAGE — The H1 leg has traveled > 1.5x ATR. The structural picture at this extension is what it is — document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
+    : `FRESH STAGE — Full structural space to TP1 and TP2 is available.`
 }
 ${fakeoutBlock}
 MANDATORY JSON FIELD — Include in your response regardless of action:
@@ -2131,18 +2129,18 @@ MANDATORY JSON FIELD — Include in your response regardless of action:
           }
 
           const phaseLabelM15 = m15MovePhase === 'FRESH'
-            ? `FRESH — < 0.75x M15 ATR traveled (< ${freshCeilingM15} pips from swing origin). Full confidence range. Both continuation and pullback entries are valid.`
+            ? `FRESH — < 0.75x M15 ATR traveled (< ${freshCeilingM15} pips from swing origin). Full structural space available.`
             : m15MovePhase === 'DEVELOPING'
-              ? `DEVELOPING — 0.75–1.5x M15 ATR traveled (${freshCeilingM15}–${developingCeilingM15} pips from swing origin). Structural space to TP1 may be narrowing. Pullback re-entry preferred. Continuation requires explicit justification that TP1 and TP2 remain achievable.`
-              : `EXHAUSTED — > 1.5x M15 ATR traveled (> ${developingCeilingM15} pips from swing origin). The M15 leg is extended — look for a structural reversal, retest, or sweep setup rather than a continuation entry. Exhausted M15 moves often produce the best reversal entries. Document your structural assessment and reflect your conviction score honestly.`;
+              ? `DEVELOPING — 0.75–1.5x M15 ATR traveled (${freshCeilingM15}–${developingCeilingM15} pips from swing origin). Structural space to TP1 may be narrowing — the remaining runway to the named TP levels is the key measurement.`
+              : `EXHAUSTED — > 1.5x M15 ATR traveled (> ${developingCeilingM15} pips from swing origin). The M15 leg is extended. Document the structural picture honestly and reflect it in the conviction score.`;
 
           const fakeoutBlockM15 = fakeoutTypeM15
             ? `
 M15 FAKEOUT DETECTION:
-A ${fakeoutTypeM15} was detected ${fakeoutCandlesAgoM15} M15 candle(s) ago. A candle swept a recent M15 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM15 ? 'YES — subsequent M15 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
+A ${fakeoutTypeM15} was detected ${fakeoutCandlesAgoM15} M15 candle(s) ago. A candle swept a recent M15 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM15 ? 'YES — subsequent M15 candles have printed in the reversal direction' : 'NOT YET — subsequent M15 candles have not yet confirmed direction'}.
 ${fakeoutTypeM15 === 'BEARISH_FAKEOUT'
-  ? 'BEARISH FAKEOUT: Price swept above a prior M15 high and rejected. This is a classic bull trap on the M15 chart. Entering LONG at current price carries fakeout-reversal risk — explicit structural justification required. A BUY entry must explain why the fakeout has been absorbed and the prior high has now become support.'
-  : 'BULLISH FAKEOUT: Price swept below a prior M15 low and rejected. This is a classic bear trap on the M15 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit structural justification required. A SELL entry must explain why the fakeout has been absorbed and the prior low has now become resistance.'}
+  ? 'BEARISH FAKEOUT: Price swept above a prior M15 high and rejected, closing back inside the prior range. This is raw structural data — a sweep of the high, a rejection, and a body close inside. What that means for the current thesis is my read.'
+  : 'BULLISH FAKEOUT: Price swept below a prior M15 low and rejected, closing back inside the prior range. This is raw structural data — a sweep of the low, a rejection, and a body close inside. What that means for the current thesis is my read.'}
 `
             : '';
 
@@ -2159,10 +2157,10 @@ M15 Move Phase: ${m15MovePhase}
 Assessment: ${phaseLabelM15}
 
 ${m15MovePhase === 'DEVELOPING'
-  ? `DEVELOPING STAGE — RUNWAY AUDIT: Document the remaining structural space from current price to your intended TP1 (M15 structural level) and TP2 (H1 structural level). State: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If the R:R to your named TP1 is below 1.0:1, document whether you can tighten to the next achievable M15 structure — and reflect your honest R:R assessment in your conviction score. Alpha decides the action.`
+  ? `DEVELOPING STAGE — RUNWAY AUDIT: Record the remaining structural space from current price to the named TP1 (M15 structural level) and TP2 (H1 structural level). "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." The R:R assessment belongs in the conviction score.`
   : m15MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The M15 leg has traveled > 1.5x ATR. Look for a reversal, retest, or sweep setup rather than a continuation entry. Document the nearest structural re-entry zone and achievable R:R from current price. Reflect your honest assessment of the R:R and structural quality in your conviction score. Alpha decides the action.`
-    : `FRESH STAGE — Full confidence window. Structural space to TP1 and TP2 is available. Both continuation and pullback entries are valid.`
+    ? `EXHAUSTED STAGE — The M15 leg has traveled > 1.5x ATR. The structural picture at this extension is what it is — document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
+    : `FRESH STAGE — Full structural space to TP1 and TP2 is available.`
 }
 ${fakeoutBlockM15}MANDATORY JSON FIELD — Include in your response regardless of action:
   "m15_move_phase": "fresh|developing|exhausted"
@@ -2560,19 +2558,15 @@ M5 SUB-CONFIRMATION EVIDENCE (pre-computed for Alpha):
 - M5 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBull ? 'YES — bullish absorption signal on M5' : 'NO'}
 - M5 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBear ? 'YES — bearish absorption signal on M5' : 'NO'}
 
-M5 CONFIRMATION STANDARD: A confirmed M5 candle CLOSE in your intended direction at the entry zone is the MICRO_INTRADAY entry trigger standard.
-A wick, an open, or a partial move does not constitute a closed body confirmation — only a closed M5 body in your direction counts as a fired trigger.
-Document the current state of M5 confirmation from the pre-computed signals above: whether BOS or sweep wick has formed, which entry_mode you selected, and your structural reasoning for that choice.`;
+These are raw M5 measurements from the current scan window — pre-computed structural signals for Alpha to read and evaluate.`;
 
           m5SubConfirmationPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M5 SUB-CONFIRMATION (${marketContext.symbol}) — MICRO_INTRADAY ENTRY TRIGGER TIMEFRAME
+M5 CANDLE CONTEXT (${marketContext.symbol}) — MICRO_INTRADAY TIMING LAYER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This is your ENTRY TRIGGER timeframe. M15 defines the structure and setup. M5 is where you pull the trigger.
-A confirmed M5 candle CLOSE in your intended direction at the entry zone is the MICRO_INTRADAY entry trigger standard.
-A wick touch, M5 open, or partial move does not constitute a closed body trigger — only a CLOSED M5 body in your direction counts.
-Document which entry_mode you selected and your structural reasoning for that choice given the current M5 state.
+M5 data below is raw structural measurement from the current scan window. M15 defines the setup. M5 reveals the current micro-structure within that setup.
+Record entry_mode and the structural reasoning behind it in the JSON response — this is an audit field.
 
 ${m5SubLines.join('\n')}
 
