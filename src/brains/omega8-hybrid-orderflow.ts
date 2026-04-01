@@ -29,6 +29,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { logger } from '../lib/logger';
 import {
   VOLUME_THRESHOLDS,
   LIQUIDITY_ZONES,
@@ -438,7 +439,7 @@ export class Omega8HybridBrain {
       const sweepAnalysis = this.analyzeSweepWithBOS(candles, patterns);
 
       if (sweepAnalysis.has_bos) {
-        console.log(`[Omega-8] Stop-run ${sweepAnalysis.type} detected ${sweepAnalysis.candles_ago} candles ago WITH BOS. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
+        logger.debug(`[Omega-8] Stop-run ${sweepAnalysis.type} detected ${sweepAnalysis.candles_ago} candles ago WITH BOS. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
         return {
           bias: 'stoprun_entry',
           sweep_details: sweepAnalysis
@@ -446,7 +447,7 @@ export class Omega8HybridBrain {
       }
 
       if (sweepAnalysis.candles_ago <= 3 && !sweepAnalysis.has_bos) {
-        console.log(`[Omega-8] Recent stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) WITHOUT BOS. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
+        logger.debug(`[Omega-8] Recent stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) WITHOUT BOS. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
         return {
           bias: 'stoprun_risk',
           sweep_details: sweepAnalysis

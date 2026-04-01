@@ -208,7 +208,7 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
       ? ` ${intel.sessionMinutesRemaining}min${intel.sessionMinutesRemaining < 30 ? '[CLOSING]' : intel.sessionMinutesRemaining < 60 ? '[LATE]' : ''}`
       : '';
     const nextSess = intel.nextSessionName && intel.minutesUntilNextSession && intel.minutesUntilNextSession > 0
-      ? ` next:${intel.nextSessionName}in${intel.minutesUntilNextSession}min`
+      ? ` next:${intel.nextSessionName} in ${intel.minutesUntilNextSession}min`
       : '';
     const phaseConf = intel.marketPhaseConfidence !== undefined ? `(${intel.marketPhaseConfidence}%)` : '';
     const phaseStr = intel.marketPhase && intel.marketPhase !== 'UNKNOWN' ? ` | PHASE:${intel.marketPhase}${phaseConf}` : '';

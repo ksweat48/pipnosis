@@ -635,7 +635,8 @@ class MarketSnapshotCache {
 
     for (const candle of candles) {
       const typical = (candle.high + candle.low + candle.close) / 3;
-      const volume = candle.volume || 1000;
+      const volume = (candle.volume && candle.volume > 0) ? candle.volume : undefined;
+      if (!volume) continue;
       totalPV += typical * volume;
       totalVolume += volume;
     }
@@ -750,8 +751,8 @@ class MarketSnapshotCache {
 
     return {
       hh: secondHigh > firstHigh && secondLow > firstLow,
-      hl: secondHigh > firstHigh && secondLow > firstLow,
-      lh: secondHigh < firstHigh && secondLow < firstLow,
+      hl: secondHigh > firstHigh && secondLow < firstLow,
+      lh: secondHigh < firstHigh && secondLow > firstLow,
       ll: secondHigh < firstHigh && secondLow < firstLow
     };
   }
