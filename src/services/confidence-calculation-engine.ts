@@ -129,7 +129,7 @@ class ConfidenceCalculationEngine {
     if (!passesAdvisoryFloor) {
       console.log(
         `[ConfidenceEngine] ADVISORY: Alpha confidence=${finalConfidence} below adaptive floor=${executionThreshold}. ` +
-        `Trade proceeds — floor is advisory only per CCIP-2026-0328B. Hard gate is 50.`
+        `Trade proceeds — floor is advisory only per CCIP-2026-0328B. Hard gate is MINIMUM_TRADE_CONFIDENCE.`
       );
     } else {
       console.log(
@@ -164,7 +164,7 @@ class ConfidenceCalculationEngine {
         execution_decision: result.base_confidence >= 50 ? 'EXECUTE' : 'WAIT',
         governance_compliant: true,
         ccip_phase: 'alpha_sovereignty_ccip_2026_0328b',
-        audit_notes: 'No penalties. Floor is advisory only. Hard gate is confidence >= 50.',
+        audit_notes: 'No penalties. Floor is advisory only. Hard gate is MINIMUM_TRADE_CONFIDENCE.',
         user_id: input.user_id
       });
     } catch {

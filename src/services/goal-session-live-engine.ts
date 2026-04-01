@@ -3757,11 +3757,11 @@ This learning will carry forward to improve future sessions!
       } else if (lowAtrCount >= Math.ceil(confidenceCount * 0.6)) {
         parts.push(`Low volatility environment detected across ${lowAtrCount}/${confidenceCount} pairs. Alpha requires sufficient ATR to place valid SL/TP levels. Setups typically emerge during session opens or volatility spikes.`);
       } else if (weakConsensusCount >= Math.ceil(confidenceCount * 0.5)) {
-        parts.push(`Mixed Omega sensor readings on ${weakConsensusCount}/${confidenceCount} pairs. Alpha evaluated all signals and found confidence below the execution floor. Average confidence: ${avgConf}%. Continuing to monitor for clearer directional structure.`);
+        parts.push(`Mixed Omega sensor readings on ${weakConsensusCount}/${confidenceCount} pairs. Alpha evaluated all signals — split votes are inputs, not a veto. No pair produced sufficient structural conviction for execution. Continuing to monitor for clearer directional structure.`);
       } else if (isAsianSession && !isPreLondon) {
-        parts.push(`Asian session is typically range-bound with lower follow-through. Average confidence this cycle: ${avgConf}%. London open (08:00 UTC) often produces the clearest structural setups.`);
+        parts.push(`Asian session is typically range-bound with lower follow-through. London open (08:00 UTC) often produces the clearest structural setups.`);
       } else if (avgConf > 0 && avgConf < 50) {
-        parts.push(`Average Alpha confidence across all pairs: ${avgConf}% — below execution threshold. No single pair showed sufficient directional conviction. Continuing to monitor for setup development.`);
+        parts.push(`No pair produced structural conviction sufficient for execution this cycle. Continuing to monitor for setup development.`);
       } else {
         parts.push('No high-quality setups found across all pairs. System will scan again next cycle.');
       }
@@ -3824,7 +3824,7 @@ This learning will carry forward to improve future sessions!
     const isAsianSession = currentHour >= 0 && currentHour < 8;
     const isPreLondon = currentHour >= 6 && currentHour < 8;
     const bestCandidateSuffix = bestSymbol && bestConfidence > 0
-      ? ` Alpha was most confident in ${bestSymbol} at ${bestConfidence}% — not enough to execute (floor: ${getMinConfidenceThreshold()}%).`
+      ? ` Alpha was most structurally convicted in ${bestSymbol} — structural edge was insufficient for execution this cycle.`
       : '';
 
     if (blockedCount === totalPairs) {
@@ -3836,15 +3836,15 @@ This learning will carry forward to improve future sessions!
     }
 
     if (weakConsensusCount >= Math.ceil(confidenceCount * 0.5)) {
-      return `Mixed Omega sensor readings on ${weakConsensusCount}/${totalPairs} pairs. Alpha evaluated all signals — split votes are inputs, not a veto. Alpha found confidence below the execution floor (${getMinConfidenceThreshold()}%) on all evaluated pairs.${bestCandidateSuffix}`;
+      return `Mixed Omega sensor readings on ${weakConsensusCount}/${totalPairs} pairs. Alpha evaluated all signals — split votes are inputs, not a veto. No pair produced sufficient structural conviction for execution this cycle.${bestCandidateSuffix}`;
     }
 
     if (isAsianSession && !isPreLondon) {
-      return `Asian session is typically range-bound with lower follow-through. Average Alpha confidence this cycle: ${avgConf}%. London open (08:00 UTC) often produces the clearest structural setups.${bestCandidateSuffix}`;
+      return `Asian session is typically range-bound with lower follow-through. London open (08:00 UTC) often produces the clearest structural setups.${bestCandidateSuffix}`;
     }
 
     if (avgConf > 0 && avgConf < getMinConfidenceThreshold()) {
-      return `Alpha's average trade confidence was ${avgConf}% across ${totalPairs} pairs — below the ${getMinConfidenceThreshold()}% execution floor. No pair produced a setup Alpha was confident enough to take this cycle.`;
+      return `Alpha scanned all ${totalPairs} pairs and found no qualifying structural setups this cycle. No pair produced an edge Alpha was confident enough to take.`;
     }
 
     return `Alpha scanned ${totalPairs} pairs and found no qualifying setups this cycle. Market structure did not meet execution criteria.${bestCandidateSuffix}`;

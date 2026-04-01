@@ -381,13 +381,12 @@ class AlphaThoughtStream {
 
     let message: string;
     if (actionLabel === 'NO_TRADE') {
-      message = `${symbol}: I am only ${confidence}% confident in a trade here. Not enough to execute.`;
+      message = `${symbol}: Structural edge insufficient for execution. No trade.`;
     } else {
-      // BUY or SELL — Alpha called a direction with sufficient confidence
       if (confidence < MINIMUM_TRADE_CONFIDENCE) {
-        message = `${symbol}: I am only ${confidence}% confident in this ${actionLabel}. Below execution floor.`;
+        message = `${symbol}: ${actionLabel} — structural conviction did not reach execution quality.`;
       } else {
-        message = `${symbol}: I am ${confidence}% confident in this ${actionLabel}.`;
+        message = `${symbol}: ${actionLabel} — structural conviction confirmed.`;
       }
     }
 
@@ -427,11 +426,8 @@ class AlphaThoughtStream {
     if (!result.selected || !result.symbol) {
       message = `I scanned all pairs. I did not find a trade I was confident enough to take. Waiting for the next cycle.`;
     } else {
-      const conf = result.confidence ?? 0;
-      const isLowConviction = conf < MINIMUM_TRADE_CONFIDENCE;
-      const onlyStr = isLowConviction ? 'only ' : '';
       const actionStr = result.action === 'BUY' || result.action === 'SELL' ? result.action : 'trade';
-      message = `I am ${onlyStr}${conf}% confident in ${result.symbol} ${actionStr}. Executing now.`;
+      message = `Structural conviction confirmed on ${result.symbol} ${actionStr}. Executing now.`;
     }
 
     await this.emitThought(sessionId, userId, 'final_decision', message, {

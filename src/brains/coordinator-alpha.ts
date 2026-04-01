@@ -3464,8 +3464,8 @@ Use the ACTIVE ATR value above for all move stage calculations in this scan cycl
 
     // CCIP-2026-0318A-ADVISORY: Opportunity-Seeker Mandate — replaces CCIP-2026-0317A "capital
     // preservation" philosophy. Alpha's standard is finding and executing the best available
-    // opportunity every scan cycle. An ACCEPTABLE setup (50-69% confidence) with structural
-    // basis and correct RR is a valid trade. NOT executing on a valid setup is a scan failure.
+    // opportunity every scan cycle. An ACCEPTABLE setup with structural basis and correct RR
+    // is a valid trade. NOT executing on a valid setup is a scan failure.
     // SSOT: System prompt (alpha-identity.ts) carries Alpha's identity and reasoning framework.
     // This section provides per-scan context: streak, advisory designations, hard block list,
     // confidence bands, and the active-scan mandate.
