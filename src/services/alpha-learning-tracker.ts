@@ -6,6 +6,11 @@
  * - When overrides work vs when they fail
  * - Which market conditions favor Alpha's judgment
  * - How Alpha's confidence correlates with actual outcomes
+ *
+ * CCIP-2026-04-01: Removed buy_votes, sell_votes from AlphaDecisionLog interface
+ * and all computation logic that read OmegaVote.vote (undefined since CCIP-2026-02-24).
+ * These fields were always written as 0, corrupting the alpha_decisions learning table.
+ * Rows written with these false zeros are flagged via data_integrity_compromised column.
  */
 
 import { supabase } from '../lib/supabase';
@@ -26,8 +31,6 @@ export interface AlphaDecisionLog {
     total_votes: number;
   };
   omega_votes: OmegaCouncilVotes;
-  buy_votes: number;
-  sell_votes: number;
   omega_votes_count: number;
   omega_vote_details: Record<string, any>;
   vote_weights: Record<string, number>;
@@ -95,16 +98,16 @@ class AlphaLearningTracker {
         omegaVotes.omega8
       ].filter(Boolean);
 
-      const buyVotes = votesList.filter((v: any) => v?.vote === 'BUY').length;
-      const sellVotes = votesList.filter((v: any) => v?.vote === 'SELL').length;
-
+      // CCIP-2026-04-01: OmegaVote.vote and OmegaVote.confidence removed in CCIP-2026-02-24.
+      // buy_votes / sell_votes are not computable — omitted from insert to prevent false-zero
+      // corruption. omega_vote_details logs reasoning+keyFactors only (actual available data).
       const voteDetails: Record<string, any> = {};
       const voteWeights: Record<string, number> = {};
       const specialists = ['trend', 'scalper', 'confirmation', 'reversal', 'volatility', 'risk', 'omega8'] as const;
       for (const name of specialists) {
         const v = omegaVotes[name];
         if (v) {
-          voteDetails[name] = { vote: v.vote, confidence: v.confidence, reasoning: v.reasoning };
+          voteDetails[name] = { reasoning: v.reasoning, keyFactors: v.keyFactors };
           voteWeights[name] = 1.0;
         }
       }
@@ -117,8 +120,6 @@ class AlphaLearningTracker {
         confidence: decision.confidence,
         omega_consensus: omegaConsensus,
         omega_votes: omegaVotes,
-        buy_votes: buyVotes,
-        sell_votes: sellVotes,
         omega_votes_count: votesList.length,
         omega_vote_details: voteDetails,
         vote_weights: voteWeights,

@@ -3,6 +3,13 @@
  *
  * Logs all Omega votes, Alpha decisions, and mid-trade interventions
  * to the database for performance tracking and learning.
+ *
+ * CCIP-2026-04-01: Removed all reads of OmegaVote.vote and OmegaVote.confidence.
+ * These fields were removed from the OmegaVote interface in CCIP-2026-02-24 when
+ * Omegas were refactored from directional voters to intelligence providers.
+ * Any code reading .vote or .confidence from an OmegaVote returns undefined,
+ * causing buy_votes and sell_votes to always be written as 0 — corrupting the
+ * learning dataset. SSOT: OmegaVote only has { reasoning, evidence?, keyFactors? }.
  */
 
 import { supabase } from '../lib/supabase';
@@ -70,9 +77,8 @@ class OmegaAlphaLogger {
           session_id: context.sessionId || null,
           trade_id: context.tradeId || null,
           omega_specialist: specialist.name,
-          vote: specialist.vote.vote,
-          confidence: specialist.vote.confidence,
           reasoning: specialist.vote.reasoning,
+          key_factors: specialist.vote.keyFactors ?? null,
           symbol: context.symbol,
           price: context.price,
           market_regime: context.marketRegime,
@@ -121,8 +127,13 @@ class OmegaAlphaLogger {
       votes.omega8
     ].filter(v => v !== null) as OmegaVote[];
 
-    const buyVotes = votesList.filter(v => v.vote === 'BUY').length;
-    const sellVotes = votesList.filter(v => v.vote === 'SELL').length;
+    // CCIP-2026-04-01: buy_votes and sell_votes are not computable under the current
+    // intelligence-provider architecture. OmegaVote has no .vote or .confidence fields
+    // (removed CCIP-2026-02-24). Writing null prevents false-zero corruption in the
+    // learning dataset. Any historical rows with buy_votes=0, sell_votes=0 and
+    // omega_votes_count>=1 are flagged via the data_integrity_compromised column.
+    const buyVotes: null = null;
+    const sellVotes: null = null;
 
     const voteDetails = {
       trend: votes.trend ? { reasoning: votes.trend.reasoning, keyFactors: votes.trend.keyFactors } : null,

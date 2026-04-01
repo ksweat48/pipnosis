@@ -188,25 +188,53 @@ export class Omega8HybridBrain {
     return lows.length;
   }
 
+  /**
+   * CCIP-2026-04-01: detectSweeps() — Structural Swing Reference Fix
+   *
+   * ROOT CAUSE OF PRIOR BUG: The previous implementation compared each candle only
+   * against the immediately preceding candle (prev.high / prev.low). This single-candle
+   * reference window missed real institutional sweeps because:
+   *   - A 200-point drop can occur over multiple candles, none of which exceed the prior
+   *     single candle's high/low by enough to trigger the check.
+   *   - Single-candle reference is not a structural level — it has no liquidity significance.
+   *
+   * CORRECT LOGIC: A sweep is defined against a STRUCTURAL swing — the highest high or
+   * lowest low over the prior N candles (SWEEP_LOOKBACK = 5). This is where stop clusters
+   * and liquidity pools actually form.
+   *
+   * FOR A HIGH SWEEP: wick pierces above the 5-candle swing high AND candle closes back below it.
+   * FOR A LOW SWEEP:  wick pierces below the 5-candle swing low  AND candle closes back above it.
+   *
+   * The wick must be dominant (> 1.5x body) to confirm the sweep character.
+   */
+  private static readonly SWEEP_LOOKBACK = 5;
+
   private detectSweeps(candles: Omega8Candle[], tolerance: number): { highSweeps: number; lowSweeps: number } {
-    if (candles.length < 3) return { highSweeps: 0, lowSweeps: 0 };
+    const lookback = Omega8HybridBrain.SWEEP_LOOKBACK;
+    if (candles.length < lookback + 1) return { highSweeps: 0, lowSweeps: 0 };
 
     let highSweeps = 0;
     let lowSweeps = 0;
 
-    for (let i = 1; i < candles.length - 1; i++) {
-      const prev = candles[i - 1];
+    for (let i = lookback; i < candles.length; i++) {
       const curr = candles[i];
+      const window = candles.slice(i - lookback, i);
+
+      const swingHigh = Math.max(...window.map(c => c.high));
+      const swingLow = Math.min(...window.map(c => c.low));
 
       const wickTop = curr.high - Math.max(curr.open, curr.close);
       const wickBottom = Math.min(curr.open, curr.close) - curr.low;
-      const bodySize = Math.abs(curr.close - curr.open);
+      const bodySize = Math.abs(curr.close - curr.open) || (tolerance * 0.1);
 
-      if (curr.high > prev.high && wickTop > bodySize * 1.5 && curr.close < curr.open) {
+      const isWickDominantTop = wickTop > bodySize * 1.5;
+      const isWickDominantBottom = wickBottom > bodySize * 1.5;
+
+      if (curr.high > swingHigh + tolerance && isWickDominantTop && curr.close <= swingHigh) {
         highSweeps++;
       }
 
-      if (curr.low < prev.low && wickBottom > bodySize * 1.5 && curr.close > curr.open) {
+      if (curr.low < swingLow - tolerance && isWickDominantBottom && curr.close >= swingLow) {
         lowSweeps++;
       }
     }
@@ -214,23 +242,74 @@ export class Omega8HybridBrain {
     return { highSweeps, lowSweeps };
   }
 
+  /**
+   * CCIP-2026-04-01: detectFVG() — Mitigation and Staleness Filter
+   *
+   * ROOT CAUSE OF PRIOR BUG: The previous implementation counted every three-candle gap
+   * regardless of whether price had already traded back through it (mitigation) or how
+   * old it was. This caused:
+   *   - Bearish FVGs formed above price 30+ candles ago counted as active supply.
+   *   - Bullish FVGs already fully mitigated by a return to the zone still counted.
+   *   - Alpha received stale gap counts that misrepresented current orderflow context.
+   *
+   * CORRECT LOGIC:
+   *   1. FRESH: Only count FVGs formed within the last FVG_FRESH_WINDOW candles.
+   *   2. UNMITIGATED: A bullish FVG is mitigated if price has since traded below c1.high.
+   *                   A bearish FVG is mitigated if price has since traded above c1.low.
+   *   3. RELEVANT: Bullish FVGs must be at or below current price (demand below price).
+   *                Bearish FVGs must be at or above current price (supply above price).
+   *
+   * This ensures fvgBullish/fvgBearish counts represent structurally relevant, unmitigated
+   * imbalance zones that actually influence the current price action.
+   */
+  private static readonly FVG_FRESH_WINDOW = 10;
+
   private detectFVG(candles: Omega8Candle[]): { bullish: number; bearish: number } {
     if (candles.length < 3) return { bullish: 0, bearish: 0 };
 
+    const freshWindow = Omega8HybridBrain.FVG_FRESH_WINDOW;
+    const currentPrice = candles[candles.length - 1].close;
     let bullish = 0;
     let bearish = 0;
 
-    for (let i = 0; i < candles.length - 2; i++) {
+    const startIdx = Math.max(0, candles.length - freshWindow - 2);
+
+    for (let i = startIdx; i < candles.length - 2; i++) {
       const c1 = candles[i];
       const c3 = candles[i + 2];
+      const formationAge = candles.length - 1 - (i + 2);
+
+      if (formationAge > freshWindow) continue;
 
       const gapUp = c3.low - c1.high;
       const gapDown = c1.low - c3.high;
 
       if (gapUp > 0) {
-        bullish++;
+        const zoneTop = c3.low;
+        const zoneBottom = c1.high;
+        let mitigated = false;
+        for (let k = i + 3; k < candles.length; k++) {
+          if (candles[k].low <= zoneBottom) {
+            mitigated = true;
+            break;
+          }
+        }
+        if (!mitigated && currentPrice >= zoneBottom) {
+          bullish++;
+        }
       } else if (gapDown > 0) {
-        bearish++;
+        const zoneTop = c1.low;
+        const zoneBottom = c3.high;
+        let mitigated = false;
+        for (let k = i + 3; k < candles.length; k++) {
+          if (candles[k].high >= zoneTop) {
+            mitigated = true;
+            break;
+          }
+        }
+        if (!mitigated && currentPrice <= zoneTop) {
+          bearish++;
+        }
       }
     }
 
@@ -390,11 +469,43 @@ export class Omega8HybridBrain {
     return { bias: 'clean' };
   }
 
+  /**
+   * CCIP-2026-04-01: analyzeSweepWithBOS() — Structural BOS Reference Fix
+   *
+   * ROOT CAUSE OF PRIOR BUG (two compounding errors):
+   *
+   * 1. LOOKBACK TOO NARROW: slice(-10) meant sweeps older than 10 candles were
+   *    invisible, and BOS confirmation candles beyond that window were missed entirely.
+   *    Expanded to BOS_LOOKBACK = 20.
+   *
+   * 2. WRONG BOS REFERENCE: BOS was checked against the sweep CANDLE's own body:
+   *      afterCandle.close < sweepCandle.low  (high sweep)
+   *      afterCandle.close > sweepCandle.high (low sweep)
+   *    This is incorrect. The sweep candle itself often has extreme wicks and an
+   *    anomalous body — its low/high is not a structural level.
+   *
+   *    CORRECT BOS REFERENCE: The structural swing that was swept.
+   *      For a HIGH sweep: BOS = subsequent candle closes BELOW the pre-sweep swing low
+   *                        (confirms institutional selling after liquidity grab above highs)
+   *      For a LOW sweep:  BOS = subsequent candle closes ABOVE the pre-sweep swing high
+   *                        (confirms institutional buying after liquidity grab below lows)
+   *
+   *    The pre-sweep swing is computed from the SWEEP_LOOKBACK candles immediately
+   *    BEFORE the sweep candle — this is the structural level that defines BOS.
+   *
+   * Also: sweep detection uses the same SWEEP_LOOKBACK structural reference
+   * as detectSweeps() to guarantee consistency between the two methods.
+   */
+  private static readonly BOS_LOOKBACK = 20;
+
   private analyzeSweepWithBOS(
     candles: Omega8Candle[],
     patterns: Omega8Patterns
   ): { type: 'high' | 'low' | 'none'; candles_ago: number; has_bos: boolean; sweep_extreme_price?: number; nearest_cluster_price?: number } {
-    if (candles.length < 5) {
+    const bosLookback = Omega8HybridBrain.BOS_LOOKBACK;
+    const swingLookback = Omega8HybridBrain.SWEEP_LOOKBACK;
+
+    if (candles.length < swingLookback + 1) {
       return { type: 'none', candles_ago: 0, has_bos: false };
     }
 
@@ -405,51 +516,61 @@ export class Omega8HybridBrain {
       return { type: 'none', candles_ago: 0, has_bos: false };
     }
 
-    let sweepCandleIdx = -1;
-    const recentCandles = candles.slice(-10);
+    const recentCandles = candles.slice(-bosLookback);
 
-    for (let i = recentCandles.length - 1; i >= 1; i--) {
+    let sweepCandleIdx = -1;
+    let preSwingHigh = -Infinity;
+    let preSwingLow = Infinity;
+
+    for (let i = recentCandles.length - 1; i >= swingLookback; i--) {
       const curr = recentCandles[i];
-      const prev = recentCandles[i - 1];
+      const window = recentCandles.slice(i - swingLookback, i);
+      const windowSwingHigh = Math.max(...window.map(c => c.high));
+      const windowSwingLow = Math.min(...window.map(c => c.low));
+
       const wickTop = curr.high - Math.max(curr.open, curr.close);
       const wickBottom = Math.min(curr.open, curr.close) - curr.low;
-      const bodySize = Math.abs(curr.close - curr.open);
+      const bodySize = Math.abs(curr.close - curr.open) || 0.00001;
 
-      if (isHighSweep && curr.high > prev.high && wickTop > bodySize * 1.5 && curr.close < curr.open) {
+      const isWickDominantTop = wickTop > bodySize * 1.5;
+      const isWickDominantBottom = wickBottom > bodySize * 1.5;
+
+      if (isHighSweep && curr.high > windowSwingHigh && isWickDominantTop && curr.close <= windowSwingHigh) {
         sweepCandleIdx = i;
+        preSwingHigh = windowSwingHigh;
+        preSwingLow = windowSwingLow;
         break;
       }
 
-      if (isLowSweep && curr.low < prev.low && wickBottom > bodySize * 1.5 && curr.close > curr.open) {
+      if (isLowSweep && curr.low < windowSwingLow && isWickDominantBottom && curr.close >= windowSwingLow) {
         sweepCandleIdx = i;
+        preSwingHigh = windowSwingHigh;
+        preSwingLow = windowSwingLow;
         break;
       }
     }
 
     if (sweepCandleIdx === -1) {
-      return { type: isHighSweep ? 'high' : 'low', candles_ago: 10, has_bos: false };
+      return { type: isHighSweep ? 'high' : 'low', candles_ago: bosLookback, has_bos: false };
     }
 
     const sweepCandle = recentCandles[sweepCandleIdx];
     const candles_ago = recentCandles.length - 1 - sweepCandleIdx;
 
-    // SSOT: Exact price of the sweep wick extreme.
-    // For low sweeps: wick low = liquidity pool price — SL must clear below it.
-    // For high sweeps: wick high = liquidity pool price — SL must clear above it.
     const sweep_extreme_price = isLowSweep ? sweepCandle.low : sweepCandle.high;
 
-    const tolerance = (recentCandles[recentCandles.length - 1].high - recentCandles[recentCandles.length - 1].low) * 2;
+    const clusterTolerance = (sweepCandle.high - sweepCandle.low) * 2;
     let nearest_cluster_price: number | undefined;
     if (isLowSweep) {
       const nearLows = recentCandles
-        .filter(c => Math.abs(c.low - sweep_extreme_price) <= tolerance && c !== sweepCandle)
+        .filter(c => Math.abs(c.low - sweep_extreme_price) <= clusterTolerance && c !== sweepCandle)
         .map(c => c.low);
       if (nearLows.length > 0) {
         nearest_cluster_price = Math.min(...nearLows);
       }
     } else {
       const nearHighs = recentCandles
-        .filter(c => Math.abs(c.high - sweep_extreme_price) <= tolerance && c !== sweepCandle)
+        .filter(c => Math.abs(c.high - sweep_extreme_price) <= clusterTolerance && c !== sweepCandle)
         .map(c => c.high);
       if (nearHighs.length > 0) {
         nearest_cluster_price = Math.max(...nearHighs);
@@ -463,14 +584,14 @@ export class Omega8HybridBrain {
         const afterCandle = recentCandles[i];
 
         if (isHighSweep) {
-          if (afterCandle.close < sweepCandle.low) {
+          if (afterCandle.close < preSwingLow) {
             has_bos = true;
             break;
           }
         }
 
         if (isLowSweep) {
-          if (afterCandle.close > sweepCandle.high) {
+          if (afterCandle.close > preSwingHigh) {
             has_bos = true;
             break;
           }
