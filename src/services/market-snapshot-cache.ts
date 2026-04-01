@@ -487,9 +487,34 @@ class MarketSnapshotCache {
     return 100 - (100 / (1 + rs));
   }
 
-  private calculateStochRSI(prices: number[], period: number = 14): number {
-    const rsi = this.calculateRSI(prices, period);
-    return rsi;
+  private calculateStochRSI(prices: number[], period: number = 14, lookback: number = 14): number {
+    if (prices.length < period + lookback + 1) {
+      throw new Error(
+        `[SnapshotCache] StochRSI: Insufficient prices — need ${period + lookback + 1}, got ${prices.length}. Cannot produce valid StochRSI.`
+      );
+    }
+
+    const rsiSeries: number[] = [];
+    for (let i = period; i <= prices.length - 1; i++) {
+      rsiSeries.push(this.calculateRSI(prices.slice(0, i + 1), period));
+    }
+
+    if (rsiSeries.length < lookback) {
+      throw new Error(
+        `[SnapshotCache] StochRSI: Insufficient RSI history — need ${lookback} RSI readings, got ${rsiSeries.length}.`
+      );
+    }
+
+    const window = rsiSeries.slice(-lookback);
+    const minRSI = Math.min(...window);
+    const maxRSI = Math.max(...window);
+    const currentRSI = rsiSeries[rsiSeries.length - 1];
+
+    if (maxRSI === minRSI) {
+      return 0.5;
+    }
+
+    return (currentRSI - minRSI) / (maxRSI - minRSI);
   }
 
   /**
@@ -499,12 +524,9 @@ class MarketSnapshotCache {
    */
   private calculateATR(candles: Candle[]): number {
     if (candles.length < 14) {
-      logger.warn('[SnapshotCache] ATR: Insufficient candles', {
-        candleCount: candles.length,
-        requiredMinimum: 14,
-        returnedFallback: 0.001
-      });
-      return 0.001;
+      throw new Error(
+        `[SnapshotCache] ATR: Insufficient candles — need 14, got ${candles.length}. Snapshot aborted to prevent corrupt ATR flowing to Alpha.`
+      );
     }
 
     const trs: number[] = [];
@@ -536,13 +558,9 @@ class MarketSnapshotCache {
     });
 
     if (trs.length < TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_ATR) {
-      logger.warn('[SnapshotCache] ATR: Insufficient valid ranges', {
-        validRanges: trs.length,
-        requiredMinimum: TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_ATR,
-        zeroRangeCandles: zeroRangeCount,
-        returnedFallback: 0.001
-      });
-      return 0.001;
+      throw new Error(
+        `[SnapshotCache] ATR: Insufficient valid price ranges — need ${TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_ATR} non-zero ranges, got ${trs.length} (${zeroRangeCount} zero-range candles). Snapshot aborted to prevent corrupt ATR flowing to Alpha.`
+      );
     }
 
     const validTRs = trs.slice(-14);
@@ -626,10 +644,30 @@ class MarketSnapshotCache {
   }
 
   private calculateMACD(prices: number[]): { macd: number; signal: number } {
-    const ema12 = this.calculateEMA(prices, 12);
-    const ema26 = this.calculateEMA(prices, 26);
-    const macd = ema12 - ema26;
-    const signal = macd;
+    const signalPeriod = 9;
+    const minRequired = 26 + signalPeriod;
+
+    if (prices.length < minRequired) {
+      throw new Error(
+        `[SnapshotCache] MACD: Insufficient prices — need ${minRequired}, got ${prices.length}. Cannot produce valid MACD signal line.`
+      );
+    }
+
+    const macdSeries: number[] = [];
+    for (let i = 26; i <= prices.length; i++) {
+      const slice = prices.slice(0, i);
+      const ema12 = this.calculateEMA(slice, 12);
+      const ema26 = this.calculateEMA(slice, 26);
+      macdSeries.push(ema12 - ema26);
+    }
+
+    const macd = macdSeries[macdSeries.length - 1];
+
+    const signalMultiplier = 2 / (signalPeriod + 1);
+    let signal = macdSeries.slice(0, signalPeriod).reduce((sum, v) => sum + v, 0) / signalPeriod;
+    for (let i = signalPeriod; i < macdSeries.length; i++) {
+      signal = (macdSeries[i] - signal) * signalMultiplier + signal;
+    }
 
     return { macd, signal };
   }

@@ -474,7 +474,7 @@ class AlphaOmegaOrchestrator {
       momentum: snapshot.momentum,
       stochastic: snapshot.stochRsi,
       macd: snapshot.omegaSensors.mdif,
-      macdSignal: 0,
+      macdSignal: snapshot.macdSignal,
       vwap: snapshot.vwap,
       atr: snapshot.atr.value,
       support: snapshot.support,
