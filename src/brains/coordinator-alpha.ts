@@ -3000,7 +3000,7 @@ Previous Week Low (PWL): ${pwlValue.toFixed(pipInfo.decimalPlaces)} — ${distTo
         // For FX pairs: major round = 00-pip (X.XX00), minor round = 50-pip (X.XX50).
         // For indices/metals: nearest 100 and 50 levels.
         // For crypto: nearest 100 and 50 levels (prices >> 1000).
-        const isIndexOrMetal = ['US30', 'NAS100', 'SP500', 'XAUUSD', 'XAGUSD'].includes(marketContext.symbol);
+        const isIndexOrMetal = ['US30', 'NAS100', 'SP500', 'SPX500', 'XAUUSD', 'XAGUSD'].includes(marketContext.symbol);
         const isCrypto = ['BTCUSD', 'ETHUSD'].includes(marketContext.symbol);
         let roundStep: number;
         let minorStep: number;
