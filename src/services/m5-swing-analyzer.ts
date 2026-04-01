@@ -31,55 +31,86 @@ class M5SwingAnalyzer {
     symbol: UnifiedSymbol,
     lookbackCandles: number = 50
   ): Promise<M5SwingContext> {
-    try {
-      const candles = await this.fetchM5Candles(symbol, lookbackCandles);
+    const candles = await this.fetchM5Candles(symbol, lookbackCandles);
 
-      if (candles.length < 20) {
-        return this.getDefaultContext(symbol);
-      }
-
-      const pipValue = getCurrencyPipInfo(symbol).pipValue;
-      const swings = this.detectSwings(candles, pipValue);
-      const avgSwing = this.calculateAverageSwing(swings);
-      const m5ATR = this.calculateM5ATR(candles, 14, pipValue);
-      const currentProgress = this.estimateCurrentSwingProgress(candles, avgSwing, pipValue);
-      const session = this.detectSession();
-      const sessionRange = this.getSessionTypicalRange(session, avgSwing);
-
-      return {
-        avgSwingPips: Math.round(avgSwing),
-        recentSwings: swings.slice(-5).map(s => Math.round(s)),
-        currentSwingProgress: Math.min(currentProgress, 1.0),
-        m5ATR: Math.round(m5ATR),
-        session,
-        sessionTypicalRange: sessionRange,
-        suggestedTPRange: this.calculateTPRange(avgSwing, session),
-        suggestedSLRange: this.calculateSLRange(m5ATR)
-      };
-    } catch (error) {
-      console.warn('[M5SwingAnalyzer] Error fetching M5 context:', error);
-      return this.getDefaultContext(symbol);
+    if (candles.length < 20) {
+      throw new Error(
+        `[M5SwingAnalyzer] LIVE DATA FAILURE: only ${candles.length} M5 candles returned for ${symbol} (need 20+). ` +
+        `Candle pipeline is broken — check forex_candles_best table, data source, and backfill status. ` +
+        `Refusing to fall back to static defaults as Alpha requires live market data.`
+      );
     }
+
+    const pipValue = getCurrencyPipInfo(symbol).pipValue;
+    const swings = this.detectSwings(candles, pipValue);
+    const avgSwing = this.calculateAverageSwing(swings);
+    const m5ATR = this.calculateM5ATR(candles, 14, pipValue);
+    const currentProgress = this.estimateCurrentSwingProgress(candles, avgSwing, pipValue);
+    const session = this.detectSession();
+    const sessionRange = this.getSessionTypicalRange(session, avgSwing);
+
+    return {
+      avgSwingPips: Math.round(avgSwing),
+      recentSwings: swings.slice(-5).map(s => Math.round(s)),
+      currentSwingProgress: Math.min(currentProgress, 1.0),
+      m5ATR: Math.round(m5ATR),
+      session,
+      sessionTypicalRange: sessionRange,
+      suggestedTPRange: this.calculateTPRange(avgSwing, session),
+      suggestedSLRange: this.calculateSLRange(m5ATR)
+    };
   }
 
   private async fetchM5Candles(symbol: UnifiedSymbol, limit: number) {
     const { data, error } = await supabase
       .from('forex_candles_best')
-      .select('timestamp, open, high, low, close')
+      .select('open_time, open, high, low, close')
       .eq('symbol', symbol)
       .eq('timeframe', 'M5' as Timeframe)
-      .order('timestamp', { ascending: false })
+      .order('open_time', { ascending: false })
       .limit(limit);
 
-    if (error) throw error;
-    return (data || []).reverse();
+    if (error) {
+      throw new Error(
+        `[M5SwingAnalyzer] LIVE DATA FAILURE: Database query failed for ${symbol} M5 candles. ` +
+        `Error: ${error.message} (code: ${error.code}). ` +
+        `Alpha cannot operate without live candle data.`
+      );
+    }
+
+    if (!data || data.length === 0) {
+      throw new Error(
+        `[M5SwingAnalyzer] LIVE DATA FAILURE: Zero M5 candles returned for ${symbol}. ` +
+        `Table forex_candles_best may be empty or the symbol is not being collected. ` +
+        `Check the candle aggregation pipeline.`
+      );
+    }
+
+    const validCandles = data.filter(c =>
+      c.open_time !== null &&
+      c.high !== null &&
+      c.low !== null &&
+      c.close !== null &&
+      c.high > 0 &&
+      c.low > 0 &&
+      c.close > 0 &&
+      c.high >= c.low
+    );
+
+    if (validCandles.length < data.length * 0.8) {
+      throw new Error(
+        `[M5SwingAnalyzer] LIVE DATA INTEGRITY FAILURE: ${data.length - validCandles.length} of ${data.length} M5 candles for ${symbol} have null/invalid OHLC values. ` +
+        `Data pipeline is producing corrupted candles. Alpha refuses to calculate ATR from corrupt data.`
+      );
+    }
+
+    return validCandles.reverse();
   }
 
   private detectSwings(candles: any[], pipValue: number): number[] {
     const swings: number[] = [];
     let lastPivotHigh = candles[0].high;
     let lastPivotLow = candles[0].low;
-    let currentSwingStart = 0;
 
     for (let i = 2; i < candles.length - 2; i++) {
       const candle = candles[i];
@@ -102,7 +133,6 @@ class M5SwingAnalyzer {
           swings.push(swingSize / pipValue);
         }
         lastPivotHigh = candle.high;
-        currentSwingStart = i;
       }
 
       if (isLocalLow && candle.low < lastPivotLow * 0.999) {
@@ -111,7 +141,6 @@ class M5SwingAnalyzer {
           swings.push(swingSize / pipValue);
         }
         lastPivotLow = candle.low;
-        currentSwingStart = i;
       }
     }
 
@@ -124,13 +153,18 @@ class M5SwingAnalyzer {
   }
 
   private calculateM5ATR(candles: any[], period: number = 14, pipValue: number = 0.0001): number {
-    if (candles.length < period) return 15;
+    if (candles.length < period) {
+      throw new Error(
+        `[M5SwingAnalyzer] ATR CALCULATION FAILURE: Need ${period} candles but only have ${candles.length}. ` +
+        `Cannot compute live ATR. This should have been caught at the candle count check.`
+      );
+    }
 
     const trueRanges = [];
     for (let i = 1; i < candles.length; i++) {
-      const high = candles[i].high;
-      const low = candles[i].low;
-      const prevClose = candles[i - 1].close;
+      const high = Number(candles[i].high);
+      const low = Number(candles[i].low);
+      const prevClose = Number(candles[i - 1].close);
 
       const tr = Math.max(
         high - low,
@@ -200,19 +234,6 @@ class M5SwingAnalyzer {
     const maxSL = m5ATR * 1.5;
 
     return [Math.round(minSL), Math.round(maxSL)];
-  }
-
-  private getDefaultContext(symbol: UnifiedSymbol): M5SwingContext {
-    return {
-      avgSwingPips: 35,
-      recentSwings: [28, 42, 31, 38, 35],
-      currentSwingProgress: 0.5,
-      m5ATR: 15,
-      session: 'Unknown',
-      sessionTypicalRange: '30-45 pips',
-      suggestedTPRange: [20, 50],
-      suggestedSLRange: [10, 18]
-    };
   }
 }
 

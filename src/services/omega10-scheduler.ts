@@ -154,7 +154,7 @@ class Omega10Scheduler {
         .from('alpha_decisions')
         .select('*')
         .eq('user_id', userId)
-        .order('timestamp', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(20);
 
       if (error) throw error;
@@ -164,7 +164,7 @@ class Omega10Scheduler {
         confidence: d.confidence,
         reasoning: d.reasoning || '',
         symbol: d.symbol,
-        timestamp: new Date(d.timestamp)
+        timestamp: new Date(d.created_at)
       }));
     } catch (error) {
       console.error('[Omega-10 Scheduler] Error fetching Alpha decisions:', error);

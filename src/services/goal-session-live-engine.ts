@@ -3334,7 +3334,7 @@ Your decision keeps you in control of your risk and prevents runaway trading.
             .from('realtime_prices')
             .select('bid')
             .eq('symbol', dbTrade.symbol)
-            .order('timestamp', { ascending: false })
+            .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
 

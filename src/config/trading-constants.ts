@@ -81,7 +81,18 @@ export const TRADING_CONSTANTS = {
     USDCAD: 0.00015,  // 1.5 pips
 
     // Metals
-    XAUUSD: 0.20,     // Gold: $0.20 minimum
+    XAUUSD: 0.20,     // Gold: $0.20 minimum (~2 pips)
+
+    // Indices (in price-unit points — 1 point = 1 pip for these instruments)
+    // CCIP-2026-04-01: Added after audit confirmed SPX500/US30/NAS100 were missing,
+    // causing the DEFAULT_PERCENT fallback (0.02% of price = 1.3 pts for SPX500) to pass
+    // corrupted near-zero ATR values through to Alpha unchallenged.
+    // Derived from live forex_candles_best data: SPX500 M5 ATR = 5.96 pts (min TR = 2.0, max TR = 13.25).
+    // Floors set at ~50% of observed live ATR to catch data corruption while not blocking real low-vol periods.
+    SPX500: 1.5,      // S&P 500: 1.5 points minimum (~50% of live min TR of 2.0)
+    US30: 5.0,        // Dow Jones: 5 points minimum
+    NAS100: 3.0,      // Nasdaq 100: 3 points minimum
+
     // Crypto
     BTCUSD: 20.0,     // Bitcoin: $20 minimum
     ETHUSD: 1.0,      // Ethereum: $1 minimum
