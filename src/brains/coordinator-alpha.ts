@@ -786,6 +786,7 @@ class AlphaCoordinatorBrain {
         .select('outcome, pnl, exit_reason, direction, key_learnings, mistakes_identified, what_worked, what_failed, entry_confidence, entry_time')
         .eq('user_id', userId)
         .eq('symbol', marketContext.symbol)
+        .gte('entry_time', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString())
         .order('entry_time', { ascending: false })
         .limit(20)
         .then(({ data }) => data)
@@ -953,45 +954,38 @@ The entry monitor is OFFLINE. Two choices are available:
         if (tradeCount >= 5) {
           const losses = symbolTrades!.filter(t => t.outcome === 'loss' || (t.pnl !== null && t.pnl < 0));
           const wins = symbolTrades!.filter(t => t.outcome === 'win' || (t.pnl !== null && t.pnl > 0));
-          const recentLosses = losses.slice(0, 5);
-          const recentWins = wins.slice(0, 5);
+          const recentLosses = losses.slice(0, 3);
+          const recentWins = wins.slice(0, 3);
 
           recentTradesContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          recentTradesContext += `YOUR TRADE HISTORY ON ${symbol} (${tradeCount} trades analyzed)\n`;
+          recentTradesContext += `RECENT TRADE CALIBRATION ON ${symbol} (last 14 days, ${tradeCount} trades)\n`;
           recentTradesContext += `Record: ${wins.length} wins / ${losses.length} losses (win rate: ${Math.round((wins.length / tradeCount) * 100)}%)\n`;
           recentTradesContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          recentTradesContext += `This is calibration data only. Each session starts fresh. Prior losses do not reduce my conviction on a current structural setup.\n`;
 
           if (recentLosses.length > 0) {
-            recentTradesContext += `\nRECENT LOSSES ON ${symbol} — KNOWN FAILURE PATTERNS:\n`;
+            recentTradesContext += `\nRecent losses on ${symbol}:\n`;
             recentLosses.forEach((trade, idx) => {
               recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → LOSS ($${Number(trade.pnl || 0).toFixed(2)}) | Exit: ${trade.exit_reason || 'unknown'}\n`;
               if (Array.isArray(trade.mistakes_identified) && trade.mistakes_identified.length > 0) {
-                recentTradesContext += `   Mistake: ${trade.mistakes_identified.slice(0, 2).join(', ')}\n`;
-              }
-              if (trade.what_failed) {
-                recentTradesContext += `   What failed: ${trade.what_failed}\n`;
+                recentTradesContext += `   Note: ${trade.mistakes_identified.slice(0, 1).join(', ')}\n`;
               }
             });
           }
 
           if (recentWins.length > 0) {
-            recentTradesContext += `\nRECENT WINS ON ${symbol} — KNOWN SUCCESS FACTORS:\n`;
+            recentTradesContext += `\nRecent wins on ${symbol}:\n`;
             recentWins.forEach((trade, idx) => {
               recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → WIN ($${Number(trade.pnl || 0).toFixed(2)}) | Exit: ${trade.exit_reason || 'unknown'}\n`;
               if (trade.what_worked) {
                 recentTradesContext += `   What worked: ${trade.what_worked}\n`;
               }
-              if (Array.isArray(trade.key_learnings) && trade.key_learnings.length > 0) {
-                recentTradesContext += `   Key factor: ${trade.key_learnings.slice(0, 1).join(', ')}\n`;
-              }
             });
           }
 
-          recentTradesContext += `\nLEARNING OBLIGATION: You must address the above history in your reasoning. If this setup matches a known failure pattern, explicitly state why it is different this time. If it matches a known winning pattern, confirm the conditions are present. Do not ignore this data.\n`;
           recentTradesContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         } else if (tradeCount > 0) {
-          // Under minimum sample — show basic recent summary only, no obligation
-          recentTradesContext = `\nRECENT TRADES ON ${symbol} (${tradeCount} trades — insufficient history for diagnostics):\n`;
+          recentTradesContext = `\nRecent trades on ${symbol} (${tradeCount} trades, last 14 days — calibration only):\n`;
           symbolTrades!.slice(0, 3).forEach((trade, idx) => {
             const result = trade.outcome === 'win' ? 'WIN' : trade.outcome === 'loss' ? 'LOSS' : (Number(trade.pnl || 0) > 0 ? 'WIN' : 'LOSS');
             recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → ${result} ($${Number(trade.pnl || 0).toFixed(2)}) | ${trade.exit_reason || 'unknown'}\n`;
