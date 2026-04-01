@@ -320,31 +320,38 @@ class AlphaAdaptiveFloorService {
       const suggestedThreshold = evaluation.new_floor;
 
       // Build per-bucket breakdown — each line shows actual WR, expected WR, and calibration error
-      const bucketLines = sufficientBuckets
-        .sort((a, b) => a.confidence_bucket - b.confidence_bucket)
-        .map(b => {
+      const sorted = sufficientBuckets.slice().sort((a, b) => a.confidence_bucket - b.confidence_bucket);
+      const total = sorted.length;
+      const bucketLines = sorted
+        .map((b, idx) => {
+          const tier = idx < Math.floor(total / 3)
+            ? 'LOW_CONVICTION'
+            : idx < Math.floor(total * 2 / 3)
+              ? 'MID_CONVICTION'
+              : 'HIGH_CONVICTION';
           const errorSign = b.calibration_error >= 0 ? '+' : '';
           const calibNote = Math.abs(b.calibration_error) >= ADAPTIVE_FLOOR_RAILS.CALIBRATION_ERROR_THRESHOLD
             ? ` [${errorSign}${b.calibration_error.toFixed(1)}pp vs predicted]`
             : '';
-          return `  ${b.confidence_bucket}%: ${b.actual_win_rate.toFixed(1)}% WR (n=${b.sample_size})${calibNote}`;
+          return `  ${tier}: ${b.actual_win_rate.toFixed(1)}% WR (n=${b.sample_size})${calibNote}`;
         })
         .join('\n');
 
-      // Describe floor movement direction and trigger
-      let floorNote = `Suggested quality reference: ${suggestedThreshold}% (advisory, never a gate).`;
+      // Describe floor movement direction and trigger — numeric threshold intentionally omitted to prevent anchoring
+      let floorNote = `Quality reference: stable (advisory, never a gate — your conviction comes from structural evidence).`;
       if (evaluation.direction !== 'none' && evaluation.trigger_bucket != null) {
         const dirWord = evaluation.direction === 'up' ? 'raised' : 'relaxed';
-        floorNote = `Suggested quality reference: ${suggestedThreshold}% (${dirWord} — ${evaluation.reason}).`;
+        floorNote = `Quality reference: ${dirWord} (${evaluation.reason} — advisory, never a gate).`;
       }
+      void suggestedThreshold;
 
       return [
-        `ALPHA SELF-CALIBRATION (advisory only — your minimum structural floor remains 50%):`,
+        `ALPHA SELF-CALIBRATION (advisory context — your confidence is always derived from structural evidence, not from this data):`,
         `Total completed trades: ${totalTrades}`,
-        `Win rate by confidence band:`,
+        `Win rate by conviction tier (LOW=weaker structural reads, MID=standard, HIGH=strong structural confluence):`,
         bucketLines,
         floorNote,
-        `An ACCEPTABLE setup (50-69%) with named structure and correct RR is always a valid trade.`
+        `A setup with named structure, clean path, and correct RR geometry is always a valid trade regardless of its conviction tier.`
       ].join('\n');
     } catch {
       return null;

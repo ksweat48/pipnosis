@@ -3489,11 +3489,12 @@ SCAN MANDATE (CCIP-2026-0330A): My first question every scan: what is this marke
 
 NO_TRADE means genuine absence of directional edge — not absence of a perfect setup.
 
-CONFIDENCE BANDS (for this scan):
-- EXCELLENT (85-100): Execute — overwhelming structural alignment, textbook evidence
-- SOLID (70-84): Execute — strong structural case, clear confluence
-- ACCEPTABLE (50-69): Execute — valid professional trade, genuine structural basis, real pip potential. This is the hidden gem category.
-- INSUFFICIENT (<50): NO_TRADE — no structural edge. Conflicting signals alone do not produce INSUFFICIENT — only genuine absence of a profitable direction does.
+CONVICTION STANDARD (for this scan):
+- EXCELLENT: Execute — overwhelming structural alignment, textbook evidence across all dimensions
+- SOLID: Execute — strong structural case, clear confluence on primary and secondary dimensions
+- ACCEPTABLE: Execute — valid professional trade with genuine structural basis and real pip potential. Named structure, clean path, correct RR. This is the hidden gem category.
+- INSUFFICIENT: NO_TRADE — genuine absence of directional edge. Conflicting signals alone do not produce INSUFFICIENT — only genuine absence of a profitable direction does.
+My confidence is my honest read of which conviction tier my structural evidence places me in. I do not anchor to any number. I derive my conviction from what the candles, structure, and session phase actually show.
 
 I read macro intelligence first, then interpret candle evidence through that lens. My system prompt defines how I think. What follows is the market data for this scan.
 
@@ -5466,19 +5467,27 @@ Return PURE JSON only — all required fields from the schema in my system promp
     const calibrationKeys = Object.keys(intelligence.calibrationData);
     if (calibrationKeys.length > 0) {
       const calibLines: string[] = [];
-      for (const [bucketStr, data] of Object.entries(intelligence.calibrationData)) {
-        if (data.sampleSize >= 10) {
-          calibLines.push(`${bucketStr}%: win_rate=${data.actualWinRate.toFixed(0)}% (n=${data.sampleSize})`);
-        }
+      const bucketEntries = Object.entries(intelligence.calibrationData)
+        .filter(([, data]) => data.sampleSize >= 10)
+        .sort(([a], [b]) => Number(a) - Number(b));
+      const totalBuckets = bucketEntries.length;
+      for (let i = 0; i < totalBuckets; i++) {
+        const [, data] = bucketEntries[i];
+        const tier = i < Math.floor(totalBuckets / 3)
+          ? 'LOW_CONVICTION'
+          : i < Math.floor(totalBuckets * 2 / 3)
+            ? 'MID_CONVICTION'
+            : 'HIGH_CONVICTION';
+        calibLines.push(`${tier}: win_rate=${data.actualWinRate.toFixed(0)}% (n=${data.sampleSize})`);
       }
-      if (calibLines.length > 0) parts.push(`confidence_cal: ${calibLines.join(', ')}`);
+      if (calibLines.length > 0) parts.push(`conviction_performance: ${calibLines.join(', ')}`);
     }
 
     if (intelligence.metaInsights.length > 0) {
       const validated = intelligence.metaInsights.slice(0, 3).filter(i => i.validated);
       if (validated.length > 0) {
         parts.push('meta_insights:');
-        validated.forEach(insight => parts.push(`  [${insight.confidence}%] ${insight.type}: ${insight.description}`));
+        validated.forEach(insight => parts.push(`  [validated] ${insight.type}: ${insight.description}`));
       }
     }
 
@@ -5524,7 +5533,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       parts.push('validated_insights:');
       intelligence.validatedInsights.slice(0, 3).forEach(insight => {
         const winStr = insight.winRate > 0 && insight.sampleSize >= 5 ? ` w=${Math.round(insight.winRate * insight.sampleSize / 100)}/${insight.sampleSize}` : '';
-        parts.push(`  [${insight.confidence.toFixed(0)}%,n=${insight.sampleSize}${winStr}] ${insight.title}: ${insight.description}`);
+        parts.push(`  [n=${insight.sampleSize}${winStr}] ${insight.title}: ${insight.description}`);
       });
     }
 
