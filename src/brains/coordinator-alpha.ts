@@ -108,7 +108,7 @@ import { ALPHA_IDENTITY, getAlphaSystemPromptForStyle, getEntryMode } from '../c
 import { getDisplayNameFromStyle } from '../config/trade-styles';
 import { getStylePromptContext } from '../config/style-personalities';
 import { getPairPersonalityContext } from '../config/pair-personalities';
-import { microRegimeClassifier, type MicroRegimeClassification, type MicroRegimeCandle } from '../services/micro-regime-classifier';
+import { microRegimeClassifier, type MicroRegimeResult, type MicroRegimeCandle } from '../services/micro-regime-classifier';
 import { liquidityIntentAnalyzer, type LiquiditySweepFacts } from '../services/liquidity-intent-analyzer';
 import { narrativeCoherenceValidator, type NarrativeValidation } from '../services/narrative-coherence-validator';
 import { logViolation } from '../services/ssot-violation-logger';
@@ -300,7 +300,7 @@ export interface AlphaDecision {
     reason: string;
   }>;
   // Phase 1-4 Upgrades: Micro-regime, Liquidity Sweep Facts, Narrative Coherence
-  microRegime?: MicroRegimeClassification;
+  microRegime?: MicroRegimeResult;
   sweepFacts?: LiquiditySweepFacts;
   narrativeValidation?: NarrativeValidation;
   // Phase 5: Multi-Timeframe Pattern Intelligence
@@ -1024,9 +1024,20 @@ The entry monitor is OFFLINE. Two choices are available:
 
     // ═══════════════════════════════════════════════════════════════════
     // PHASE 1: MICRO-REGIME CLASSIFICATION
+    //
+    // CCIP-2026-0401-REGIME-SSOT:
+    // The classifier returns one of two result types:
+    //   'classified'  — dynamic Supabase baseline >=20 samples; full regime
+    //                   label + direction is injected into the Alpha prompt.
+    //   'live_only'   — no baseline yet; raw computed indicators only.
+    //                   No regime label, no direction verdict is injected.
+    //                   Alpha reads the live numbers directly.
+    //
+    // ELIMINATION OF FALLBACK: static_fallback thresholds are gone. No
+    // neutral_ranging label will ever be synthetically injected into a prompt.
     // ═══════════════════════════════════════════════════════════════════
-    let microRegime: MicroRegimeClassification | null = null;
     let microRegimeContext = '';
+    let regimeResult: MicroRegimeResult | null = null;
 
     if (fullCandles && fullCandles.length >= 50) {
       if (sessionId && userId) {
@@ -1035,7 +1046,6 @@ The entry monitor is OFFLINE. Two choices are available:
         });
       }
       try {
-        // Convert candles to format expected by classifier
         const regimeCandles: MicroRegimeCandle[] = fullCandles.map(c => ({
           time: new Date(c.open_time).getTime(),
           open: c.open,
@@ -1045,11 +1055,8 @@ The entry monitor is OFFLINE. Two choices are available:
           volume: c.volume || 0
         }));
 
-        // GOVERNANCE (2026-03-30 / CCIP-2026-0331C): Pass symbol and session so the classifier
-        // can fetch dynamic per-symbol per-session percentile thresholds from
-        // Supabase instead of using universal hardcoded values.
-        // CCIP-2026-0331C: Map sydney/closed -> 'dead' so baselines accumulate for those sessions
-        // rather than being discarded as undefined (which silently skips all upserts).
+        // CCIP-2026-0331C: Map sydney/closed -> 'dead' so baselines accumulate
+        // for those sessions rather than being discarded as undefined.
         const regimeSessionCtx = calculateSessionContext();
         const rawSession = regimeSessionCtx.currentSession;
         const regimeSession: import('../services/micro-regime-classifier').RegimeSession =
@@ -1059,32 +1066,42 @@ The entry monitor is OFFLINE. Two choices are available:
               ? (rawSession as import('../services/micro-regime-classifier').RegimeSession)
               : 'dead';
 
-        microRegime = await microRegimeClassifier.classify(
+        regimeResult = await microRegimeClassifier.classify(
           regimeCandles,
           marketContext.symbol,
           regimeSession
         );
 
-        if (microRegime) {
-          const sampleCount = microRegime.thresholds.sampleCount;
-          const thresholdNote = microRegime.thresholds.thresholdSource === 'dynamic'
-            ? `calibrated on ${sampleCount} real ${marketContext.symbol} ${regimeSessionCtx.sessionName ?? ''} readings`
-            : `instrument-class defaults (${sampleCount} readings accumulated so far — thresholds will self-calibrate)`;
+        if (regimeResult) {
+          if (regimeResult.type === 'classified') {
+            // Dynamic baseline confirmed — full regime classification is reliable.
+            console.log(`[Alpha Coordinator] Micro-Regime: ${regimeResult.regime} | Direction: ${regimeResult.direction} | Confidence: ${regimeResult.confidence}% | Samples: ${regimeResult.thresholds.sampleCount}`);
 
-          console.log(`[Alpha Coordinator] Micro-Regime: ${microRegime.regime} | Direction: ${microRegime.direction} | Classification Confidence: ${microRegime.confidence}% | Thresholds: ${microRegime.thresholds.thresholdSource}`);
+            microRegimeContext = `\nMICRO-REGIME CLASSIFICATION (dynamic baseline — ${regimeResult.thresholds.sampleCount} real ${marketContext.symbol} ${regimeSessionCtx.sessionName ?? ''} readings):\n`;
+            microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            microRegimeContext += `Regime: ${regimeResult.regime.toUpperCase().replace(/_/g, ' ')} (${regimeResult.confidence}% classification confidence)\n`;
+            microRegimeContext += `Direction: ${regimeResult.direction.toUpperCase()}\n\n`;
+            microRegimeContext += `Raw Sensor Readings vs this symbol+session baseline:\n`;
+            microRegimeContext += `  ATR Expansion: ${regimeResult.indicators.atrExpansion.toFixed(2)}x (top-30%>${regimeResult.thresholds.atrExpansionP70.toFixed(2)}, top-15%>${regimeResult.thresholds.atrExpansionP85.toFixed(2)}, bottom-30%<${regimeResult.thresholds.atrExpansionP30.toFixed(2)})\n`;
+            microRegimeContext += `  EMA50 Displacement: ${regimeResult.indicators.emaDisplacement.toFixed(2)}% (p80=${regimeResult.thresholds.emaDisplacementP80.toFixed(2)}, p90=${regimeResult.thresholds.emaDisplacementP90.toFixed(2)}, p95=${regimeResult.thresholds.emaDisplacementP95.toFixed(2)})\n`;
+            microRegimeContext += `  RSI: ${regimeResult.indicators.rsi.toFixed(0)}\n`;
+            microRegimeContext += `  Volume Profile: ${regimeResult.indicators.volumeProfile}\n`;
+            microRegimeContext += `  Range Compression: ${regimeResult.indicators.rangeCompression.toFixed(2)}x (bottom-20%<${regimeResult.thresholds.rangeCompressionP20.toFixed(2)}, bottom-35%<${regimeResult.thresholds.rangeCompressionP35.toFixed(2)})\n`;
+            microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          } else {
+            // live_only — no dynamic baseline. Inject raw computed indicator
+            // values from live candles. No regime label. No direction verdict.
+            console.log(`[Alpha Coordinator] Micro-Regime: live_only (no baseline yet — ${regimeResult.sampleCount} samples) | ATR:${regimeResult.indicators.atrExpansion.toFixed(2)}x EMA:${regimeResult.indicators.emaDisplacement.toFixed(2)}% RSI:${regimeResult.indicators.rsi.toFixed(0)}`);
 
-          microRegimeContext = `\nMICRO-REGIME CLASSIFICATION:\n`;
-          microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          microRegimeContext += `Regime: ${microRegime.regime.toUpperCase().replace(/_/g, ' ')} (${microRegime.confidence}% classification confidence)\n`;
-          microRegimeContext += `Direction: ${microRegime.direction.toUpperCase()}\n`;
-          microRegimeContext += `Threshold calibration: ${thresholdNote}\n\n`;
-          microRegimeContext += `Raw Sensor Readings vs this symbol+session baseline:\n`;
-          microRegimeContext += `  ATR Expansion: ${microRegime.indicators.atrExpansion.toFixed(2)}x (top-30%>${microRegime.thresholds.atrExpansionP70.toFixed(2)}, top-15%>${microRegime.thresholds.atrExpansionP85.toFixed(2)}, bottom-30%<${microRegime.thresholds.atrExpansionP30.toFixed(2)})\n`;
-          microRegimeContext += `  EMA50 Displacement: ${microRegime.indicators.emaDisplacement.toFixed(2)}% (p80=${microRegime.thresholds.emaDisplacementP80.toFixed(2)}, p90=${microRegime.thresholds.emaDisplacementP90.toFixed(2)}, p95=${microRegime.thresholds.emaDisplacementP95.toFixed(2)})\n`;
-          microRegimeContext += `  RSI: ${microRegime.indicators.rsi.toFixed(0)}\n`;
-          microRegimeContext += `  Volume Profile: ${microRegime.indicators.volumeProfile}\n`;
-          microRegimeContext += `  Range Compression: ${microRegime.indicators.rangeCompression.toFixed(2)}x (bottom-20%<${microRegime.thresholds.rangeCompressionP20.toFixed(2)}, bottom-35%<${microRegime.thresholds.rangeCompressionP35.toFixed(2)})\n`;
-          microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            microRegimeContext = `\nLIVE MARKET INDICATORS (computed from current candle data — no prior baseline for this symbol+session yet):\n`;
+            microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            microRegimeContext += `  ATR Expansion ratio (current ATR vs 20-period average): ${regimeResult.indicators.atrExpansion.toFixed(2)}x\n`;
+            microRegimeContext += `  EMA50 Displacement (price distance from EMA50 as % of EMA): ${regimeResult.indicators.emaDisplacement.toFixed(2)}%\n`;
+            microRegimeContext += `  RSI(14): ${regimeResult.indicators.rsi.toFixed(0)}\n`;
+            microRegimeContext += `  Volume Profile (recent 5 vs prior 5 candles): ${regimeResult.indicators.volumeProfile}\n`;
+            microRegimeContext += `  Range Compression (recent 5-candle avg range vs prior 15): ${regimeResult.indicators.rangeCompression.toFixed(2)}x\n`;
+            microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          }
         }
       } catch (error) {
         console.error('[Alpha Coordinator] Failed to classify micro-regime:', error);
@@ -3894,8 +3911,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
       decision.timestamp = new Date();
 
       // Add Phase 1-4 upgrades to decision
-      if (microRegime) {
-        decision.microRegime = microRegime;
+      if (regimeResult) {
+        decision.microRegime = regimeResult;
       }
       if (sweepFacts && sweepFacts.sweep_detected) {
         decision.sweepFacts = sweepFacts;
@@ -4206,7 +4223,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             marketContext,
             votes,
             vwap,
-            microRegime?.regime
+            regimeResult?.type === 'classified' ? regimeResult.regime : undefined
           );
 
           if (entryIntent) {

@@ -1,40 +1,48 @@
 /**
- * Micro-Regime Classifier — Dynamic Baseline Edition
+ * Micro-Regime Classifier — CCIP-2026-0401-REGIME-SSOT
  *
- * SSOT / CCIP CONTRACT (2026-03-30):
- * This service outputs RAW OBSERVATIONS ONLY. It does NOT compute confidence
- * modifiers, trading adjustments, or behavioral guidance. Alpha is the sole
- * authority for interpreting raw indicators into trading decisions.
+ * SSOT / CCIP CONTRACT:
+ * This service outputs RAW OBSERVATIONS ONLY. It does NOT produce verdicts,
+ * confidence modifiers, or behavioral guidance. Alpha is the sole authority
+ * for interpreting raw indicators into trading decisions.
  *
- * GOVERNANCE CHANGE (2026-03-30):
- * All classification thresholds are now DYNAMIC — computed from a rolling
- * 100-sample percentile baseline per symbol per session stored in Supabase.
- * Static fallback thresholds are used only when <20 samples exist for a
- * symbol+session pair (cold start). This eliminates hardcoded universal
- * constants that were miscalibrated across different instruments and sessions.
+ * GOVERNANCE CHANGE (CCIP-2026-0401):
+ * FALLBACK CLASSIFICATION ELIMINATED. The classifier NEVER returns a regime
+ * label or direction verdict unless a dynamic Supabase baseline with >=20
+ * real samples exists for the exact symbol+session pair.
  *
- * The classifier also writes raw indicator readings to the Supabase baseline
- * table on every call so thresholds self-calibrate over time.
+ * When no dynamic baseline exists, the classifier returns live-computed
+ * indicator values (ATR expansion, EMA displacement, RSI, volume profile,
+ * range compression) with thresholdSource 'live_only'. The coordinator
+ * presents these as raw sensor data for Alpha to read directly.
  *
- * Regime labels are accompanied by a `thresholdSource` field that tells Alpha
- * whether the classification came from dynamic data or static fallback, so
- * Alpha can weight the label accordingly.
+ * This eliminates the root cause: static_fallback thresholds producing
+ * near-universal 'neutral_ranging' labels that contaminate Alpha's judgment
+ * and suppress legitimate trade execution.
  *
- * 8 Micro-Regimes:
- * 1. Trend Acceleration   — Strong momentum with expanding ATR
- * 2. Trend Exhaustion     — Weakening momentum with divergences
+ * Baseline data self-accumulates from every scan call. Once >=20 samples
+ * exist for a symbol+session pair, full dynamic classification activates.
+ *
+ * 7 Classified Micro-Regimes (only emitted with dynamic baseline):
+ * 1. Trend Acceleration    — Strong momentum with expanding ATR
+ * 2. Trend Exhaustion      — Weakening momentum with divergences
  * 3. Mean Reversion Pocket — Extreme stretch from value with reversal signals
- * 4. Liquidity Vacuum     — Low volume compression before breakout
- * 5. Stop-Hunt Expansion  — Post-sweep violent directional move
+ * 4. Liquidity Vacuum      — Low volume compression before breakout
+ * 5. Stop-Hunt Expansion   — Post-sweep violent directional move
  * 6. Pre-Break Compression — Range tightening before structural break
- * 7. Post-Break Retest    — Return to broken level for continuation
- * 8. Neutral Ranging      — No clear pattern, balanced conditions
+ * 7. Post-Break Retest     — Return to broken level for continuation
  */
 
 import { calculateEMA } from '../strategies/indicators';
 import { calculateATR, calculateRSI } from '../utils/technicalIndicators';
 import { supabase } from '../lib/supabase';
 
+/**
+ * CCIP-2026-0401: 'neutral_ranging' removed from the classified regime union.
+ * A neutral_ranging verdict was always the product of static fallback thresholds
+ * that could not distinguish anything. Alpha reads live indicators directly when
+ * no dynamic baseline is available.
+ */
 export type MicroRegime =
   | 'trend_acceleration'
   | 'trend_exhaustion'
@@ -42,8 +50,7 @@ export type MicroRegime =
   | 'liquidity_vacuum'
   | 'stop_hunt_expansion'
   | 'pre_break_compression'
-  | 'post_break_retest'
-  | 'neutral_ranging';
+  | 'post_break_retest';
 
 export type RegimeSession = 'asian' | 'london' | 'ny' | 'overlap' | 'dead';
 
@@ -56,12 +63,18 @@ export interface MicroRegimeCandle {
   volume: number;
 }
 
+export interface MicroRegimeIndicators {
+  atrExpansion: number;
+  emaDisplacement: number;
+  rsi: number;
+  volumeProfile: 'rising' | 'falling' | 'stable';
+  rangeCompression: number;
+}
+
 /**
- * Threshold set used for regime classification.
- * When thresholdSource = 'dynamic', these came from percentile analysis of
- * real historical readings for this symbol+session.
- * When thresholdSource = 'static_fallback', fewer than 20 samples exist and
- * conservative universal defaults are being used.
+ * Threshold set — only populated when thresholdSource is 'dynamic'.
+ * CCIP-2026-0401: 'static_fallback' removed. Thresholds are either real
+ * dynamic data from Supabase or absent entirely (live_only path).
  */
 export interface RegimeThresholds {
   atrExpansionP70: number;
@@ -73,95 +86,41 @@ export interface RegimeThresholds {
   rangeCompressionP20: number;
   rangeCompressionP35: number;
   sampleCount: number;
-  thresholdSource: 'dynamic' | 'static_fallback';
+  thresholdSource: 'dynamic';
 }
 
+/**
+ * CCIP-2026-0401 Discriminated union result from classify():
+ *
+ * classified — dynamic baseline >=20 samples; full regime label + direction emitted.
+ * live_only  — no baseline yet; raw computed indicators from live candles only.
+ *              No regime label, no direction verdict. Alpha reads the numbers.
+ */
+export type MicroRegimeResult =
+  | {
+      type: 'classified';
+      regime: MicroRegime;
+      confidence: number;
+      direction: 'bullish' | 'bearish' | 'neutral';
+      indicators: MicroRegimeIndicators;
+      thresholds: RegimeThresholds;
+    }
+  | {
+      type: 'live_only';
+      indicators: MicroRegimeIndicators;
+      sampleCount: number;
+    };
+
+/**
+ * @deprecated Use MicroRegimeResult. Kept for any external callers that destructure
+ * the old shape — will be removed after full migration.
+ */
 export interface MicroRegimeClassification {
   regime: MicroRegime;
   confidence: number;
   direction: 'bullish' | 'bearish' | 'neutral';
-  indicators: {
-    atrExpansion: number;
-    emaDisplacement: number;
-    rsi: number;
-    volumeProfile: 'rising' | 'falling' | 'stable';
-    rangeCompression: number;
-  };
+  indicators: MicroRegimeIndicators;
   thresholds: RegimeThresholds;
-}
-
-/**
- * Instrument-class static fallback thresholds — CCIP-2026-0330-RC2
- *
- * Used during cold-start (<20 samples) for each symbol+session pair.
- * Different asset classes have fundamentally different ATR expansion and
- * EMA displacement profiles. Using forex-calibrated defaults for indices
- * and commodities produces near-universal neutral_ranging classification
- * because the static thresholds are never exceeded (indices) or always
- * exceeded (crypto), causing the entire regime system to fail.
- *
- * Long-term: dynamic baselines self-calibrate from real readings.
- * Short-term: instrument-class defaults allow correct cold-start classification.
- */
-type InstrumentClass = 'forex' | 'commodity' | 'index' | 'crypto';
-
-function getInstrumentClass(symbol: string): InstrumentClass {
-  const s = symbol.toUpperCase();
-  if (s.includes('BTC') || s.includes('ETH') || s.includes('XRP') || s.includes('LTC')) return 'crypto';
-  if (s.includes('XAU') || s.includes('XAG') || s.includes('OIL') || s.includes('WTI')) return 'commodity';
-  if (s.includes('US30') || s.includes('NAS') || s.includes('SPX') || s.includes('UK100') ||
-      s.includes('DAX') || s.includes('FTSE') || s.includes('JP225') || s.includes('AUS200')) return 'index';
-  return 'forex';
-}
-
-type StaticThresholdSet = Omit<RegimeThresholds, 'thresholdSource' | 'sampleCount'>;
-
-const STATIC_FALLBACK_BY_CLASS: Record<InstrumentClass, StaticThresholdSet> = {
-  forex: {
-    atrExpansionP70: 1.15,
-    atrExpansionP85: 1.30,
-    atrExpansionP30: 0.85,
-    emaDisplacementP80: 0.12,
-    emaDisplacementP90: 0.18,
-    emaDisplacementP95: 0.25,
-    rangeCompressionP20: 0.60,
-    rangeCompressionP35: 0.78,
-  },
-  commodity: {
-    atrExpansionP70: 1.10,
-    atrExpansionP85: 1.25,
-    atrExpansionP30: 0.82,
-    emaDisplacementP80: 0.30,
-    emaDisplacementP90: 0.45,
-    emaDisplacementP95: 0.60,
-    rangeCompressionP20: 0.60,
-    rangeCompressionP35: 0.78,
-  },
-  index: {
-    atrExpansionP70: 1.12,
-    atrExpansionP85: 1.28,
-    atrExpansionP30: 0.80,
-    emaDisplacementP80: 0.20,
-    emaDisplacementP90: 0.30,
-    emaDisplacementP95: 0.45,
-    rangeCompressionP20: 0.60,
-    rangeCompressionP35: 0.78,
-  },
-  crypto: {
-    atrExpansionP70: 1.10,
-    atrExpansionP85: 1.22,
-    atrExpansionP30: 0.78,
-    emaDisplacementP80: 0.50,
-    emaDisplacementP90: 0.80,
-    emaDisplacementP95: 1.20,
-    rangeCompressionP20: 0.60,
-    rangeCompressionP35: 0.78,
-  },
-};
-
-function getStaticFallback(symbol?: string): StaticThresholdSet {
-  const cls = getInstrumentClass(symbol ?? '');
-  return STATIC_FALLBACK_BY_CLASS[cls];
 }
 
 export class MicroRegimeClassifier {
@@ -170,12 +129,19 @@ export class MicroRegimeClassifier {
   private readonly LOOKBACK = 50;
 
   /**
-   * Classify current micro-regime with dynamic per-symbol per-session thresholds.
+   * CCIP-2026-0401-REGIME-SSOT: Classify current micro-regime.
    *
-   * SSOT: Always returns a valid classification. Falls back gracefully when
-   * baseline data is unavailable or Supabase is unreachable.
+   * AUTHORITY CONTRACT:
+   * - Raw indicators are ALWAYS computed from live candle data. No synthetic values.
+   * - A regime label and direction are ONLY emitted when a dynamic Supabase
+   *   baseline with >=20 real samples exists for this symbol+session pair.
+   * - When no dynamic baseline exists, returns type:'live_only' with raw computed
+   *   indicators. The coordinator presents these as raw sensor data. Alpha reads
+   *   the numbers directly — no regime label, no direction verdict is injected.
+   * - Static fallback thresholds are ELIMINATED. No hardcoded constants classify
+   *   this market under any circumstances.
    *
-   * @param candles  - M5 candles for the current symbol
+   * @param candles  - M5 candles for the current symbol (minimum 50 required)
    * @param symbol   - Trading symbol (XAUUSD, EURUSD, etc.)
    * @param session  - Current market session (asian, london, ny, overlap, dead)
    */
@@ -183,9 +149,9 @@ export class MicroRegimeClassifier {
     candles: MicroRegimeCandle[],
     symbol?: string,
     session?: RegimeSession
-  ): Promise<MicroRegimeClassification> {
+  ): Promise<MicroRegimeResult | null> {
     if (candles.length < this.LOOKBACK) {
-      return this.fallbackRegime();
+      return null;
     }
 
     const closes = candles.map(c => c.close);
@@ -210,7 +176,7 @@ export class MicroRegimeClassifier {
     const rangeCompression = this.calculateRangeCompression(candles);
     const volumeRatio = this.calculateVolumeRatio(volumes);
 
-    const indicators = {
+    const indicators: MicroRegimeIndicators = {
       atrExpansion,
       emaDisplacement,
       rsi: currentRSI,
@@ -218,8 +184,7 @@ export class MicroRegimeClassifier {
       rangeCompression,
     };
 
-    // Fetch dynamic thresholds and update baseline in parallel (fire-and-forget for baseline update)
-    const thresholds = await this.fetchThresholds(
+    const dynamicThresholds = await this.fetchDynamicThresholds(
       symbol,
       session,
       atrExpansion,
@@ -228,30 +193,40 @@ export class MicroRegimeClassifier {
       volumeRatio
     );
 
+    if (!dynamicThresholds) {
+      return { type: 'live_only', indicators, sampleCount: 0 };
+    }
+
     const recentSweep = this.detectRecentSweep(candles);
     const structuralRetest = this.detectStructuralRetest(candles);
 
-    return this.classifyRegime(indicators, recentSweep, structuralRetest, thresholds);
+    return this.classifyRegime(indicators, recentSweep, structuralRetest, dynamicThresholds);
   }
 
   /**
-   * Fetch calibrated thresholds from Supabase and trigger baseline update.
-   * Falls back to static thresholds if Supabase is unreachable.
+   * Fetch DYNAMIC thresholds from Supabase and trigger baseline update.
+   *
+   * CCIP-2026-0401: Returns null when:
+   * - symbol or session is missing
+   * - Supabase is unreachable
+   * - sample_count < 20 (insufficient real data to produce valid percentiles)
+   *
+   * Null signals the classifier to take the live_only path — raw indicators
+   * are presented to Alpha without any regime classification verdict.
    */
-  private async fetchThresholds(
+  private async fetchDynamicThresholds(
     symbol?: string,
     session?: RegimeSession,
     atrExpansion?: number,
     emaDisplacement?: number,
     rangeCompression?: number,
     volumeRatio?: number
-  ): Promise<RegimeThresholds> {
+  ): Promise<RegimeThresholds | null> {
     if (!symbol || !session) {
-      return { ...getStaticFallback(symbol), sampleCount: 0, thresholdSource: 'static_fallback' };
+      return null;
     }
 
     try {
-      // Fire baseline update without awaiting — non-blocking
       if (atrExpansion !== undefined) {
         supabase.rpc('upsert_regime_baseline', {
           p_symbol: symbol,
@@ -267,59 +242,82 @@ export class MicroRegimeClassifier {
         });
       }
 
-      // Fetch the current thresholds (fast read path)
       const { data, error } = await supabase.rpc('get_regime_baselines', {
         p_symbol: symbol,
         p_session_name: session,
       });
 
-      const staticFallback = getStaticFallback(symbol);
-
       if (error || !data) {
-        return { ...staticFallback, sampleCount: 0, thresholdSource: 'static_fallback' };
+        return null;
       }
 
-      const isDynamic = (data.is_dynamic === true) && (data.sample_count >= 20);
+      const sampleCount = Number(data.sample_count) || 0;
+
+      if ((data.is_dynamic !== true) || sampleCount < 20) {
+        return null;
+      }
+
+      const atrExpansionP70 = Number(data.atr_expansion_p70);
+      const atrExpansionP85 = Number(data.atr_expansion_p85);
+      const atrExpansionP30 = Number(data.atr_expansion_p30);
+      const emaDisplacementP80 = Number(data.ema_displacement_p80);
+      const emaDisplacementP90 = Number(data.ema_displacement_p90);
+      const emaDisplacementP95 = Number(data.ema_displacement_p95);
+      const rangeCompressionP20 = Number(data.range_compression_p20);
+      const rangeCompressionP35 = Number(data.range_compression_p35);
+
+      if (
+        !atrExpansionP70 || !atrExpansionP85 || !atrExpansionP30 ||
+        !emaDisplacementP80 || !emaDisplacementP90 || !emaDisplacementP95 ||
+        !rangeCompressionP20 || !rangeCompressionP35
+      ) {
+        return null;
+      }
 
       return {
-        atrExpansionP70: Number(data.atr_expansion_p70) || staticFallback.atrExpansionP70,
-        atrExpansionP85: Number(data.atr_expansion_p85) || staticFallback.atrExpansionP85,
-        atrExpansionP30: Number(data.atr_expansion_p30) || staticFallback.atrExpansionP30,
-        emaDisplacementP80: Number(data.ema_displacement_p80) || staticFallback.emaDisplacementP80,
-        emaDisplacementP90: Number(data.ema_displacement_p90) || staticFallback.emaDisplacementP90,
-        emaDisplacementP95: Number(data.ema_displacement_p95) || staticFallback.emaDisplacementP95,
-        rangeCompressionP20: Number(data.range_compression_p20) || staticFallback.rangeCompressionP20,
-        rangeCompressionP35: Number(data.range_compression_p35) || staticFallback.rangeCompressionP35,
-        sampleCount: Number(data.sample_count) || 0,
-        thresholdSource: isDynamic ? 'dynamic' : 'static_fallback',
+        atrExpansionP70,
+        atrExpansionP85,
+        atrExpansionP30,
+        emaDisplacementP80,
+        emaDisplacementP90,
+        emaDisplacementP95,
+        rangeCompressionP20,
+        rangeCompressionP35,
+        sampleCount,
+        thresholdSource: 'dynamic',
       };
     } catch {
-      return { ...getStaticFallback(symbol), sampleCount: 0, thresholdSource: 'static_fallback' };
+      return null;
     }
   }
 
   /**
-   * Classify regime using dynamic percentile thresholds.
-   * Every condition now asks "is this reading in the top/bottom N% for this symbol+session?"
-   * rather than "does this exceed a universal hardcoded number?"
+   * CCIP-2026-0401: Classify regime using DYNAMIC percentile thresholds only.
+   *
+   * Every condition asks "is this reading in the top/bottom N% for this exact
+   * symbol+session pair?" — backed by real accumulated observations.
+   *
+   * When no pattern matches the dynamic thresholds, returns live_only so Alpha
+   * reads the raw indicator values directly. No neutral_ranging label is emitted.
    */
   private classifyRegime(
-    indicators: MicroRegimeClassification['indicators'],
+    indicators: MicroRegimeIndicators,
     recentSweep: { detected: boolean; direction: 'up' | 'down' | null; candlesAgo: number },
     structuralRetest: { detected: boolean; direction: 'up' | 'down' | null },
     thresholds: RegimeThresholds
-  ): MicroRegimeClassification {
+  ): MicroRegimeResult {
     const { atrExpansion, emaDisplacement, rsi, volumeProfile, rangeCompression } = indicators;
     const {
       atrExpansionP70, atrExpansionP85, atrExpansionP30,
       emaDisplacementP80, emaDisplacementP90, emaDisplacementP95,
       rangeCompressionP20, rangeCompressionP35,
+      sampleCount,
     } = thresholds;
 
     // 1. Stop-Hunt Expansion — Recent sweep + ATR in top 15% for this symbol+session
     if (recentSweep.detected && recentSweep.candlesAgo <= 3 && atrExpansion > atrExpansionP85) {
       const direction = recentSweep.direction === 'up' ? 'bullish' : 'bearish';
-      return { regime: 'stop_hunt_expansion', confidence: 85, direction, indicators, thresholds };
+      return { type: 'classified', regime: 'stop_hunt_expansion', confidence: 85, direction, indicators, thresholds };
     }
 
     // 2. Trend Acceleration — ATR above 70th percentile + displacement above 80th + rising volume
@@ -331,7 +329,7 @@ export class MicroRegimeClassifier {
       const direction = emaDisplacement > 0 ? 'bullish' : 'bearish';
       const rsiConfirmation = direction === 'bullish' ? rsi > 55 : rsi < 45;
       if (rsiConfirmation) {
-        return { regime: 'trend_acceleration', confidence: 80, direction, indicators, thresholds };
+        return { type: 'classified', regime: 'trend_acceleration', confidence: 80, direction, indicators, thresholds };
       }
     }
 
@@ -340,7 +338,7 @@ export class MicroRegimeClassifier {
       const direction = emaDisplacement > 0 ? 'bearish' : 'bullish';
       const rsiExtreme = emaDisplacement > 0 ? rsi > 70 : rsi < 30;
       if (rsiExtreme) {
-        return { regime: 'trend_exhaustion', confidence: 70, direction, indicators, thresholds };
+        return { type: 'classified', regime: 'trend_exhaustion', confidence: 70, direction, indicators, thresholds };
       }
     }
 
@@ -349,7 +347,7 @@ export class MicroRegimeClassifier {
       const direction = emaDisplacement > 0 ? 'bearish' : 'bullish';
       const rsiExtreme = (emaDisplacement > 0 && rsi > 75) || (emaDisplacement < 0 && rsi < 25);
       if (rsiExtreme) {
-        return { regime: 'mean_reversion_pocket', confidence: 75, direction, indicators, thresholds };
+        return { type: 'classified', regime: 'mean_reversion_pocket', confidence: 75, direction, indicators, thresholds };
       }
     }
 
@@ -359,7 +357,7 @@ export class MicroRegimeClassifier {
       volumeProfile === 'stable' &&
       atrExpansion < atrExpansionP30
     ) {
-      return { regime: 'liquidity_vacuum', confidence: 65, direction: 'neutral', indicators, thresholds };
+      return { type: 'classified', regime: 'liquidity_vacuum', confidence: 65, direction: 'neutral', indicators, thresholds };
     }
 
     // 6. Pre-Break Compression — Range between P20 and P35 + near EMA (displacement below P80)
@@ -368,13 +366,14 @@ export class MicroRegimeClassifier {
       rangeCompression > rangeCompressionP20 &&
       Math.abs(emaDisplacement) < emaDisplacementP80
     ) {
-      return { regime: 'pre_break_compression', confidence: 70, direction: 'neutral', indicators, thresholds };
+      return { type: 'classified', regime: 'pre_break_compression', confidence: 70, direction: 'neutral', indicators, thresholds };
     }
 
     // 7. Post-Break Retest — Structural retest detected
     if (structuralRetest.detected) {
       const dir = structuralRetest.direction!;
       return {
+        type: 'classified',
         regime: 'post_break_retest',
         confidence: 80,
         direction: dir === 'up' ? 'bullish' : 'bearish',
@@ -383,8 +382,9 @@ export class MicroRegimeClassifier {
       };
     }
 
-    // 8. Neutral Ranging — No clear pattern detected
-    return { regime: 'neutral_ranging', confidence: 50, direction: 'neutral', indicators, thresholds };
+    // No pattern matched the dynamic thresholds — return live indicators only.
+    // CCIP-2026-0401: Do NOT emit neutral_ranging. Alpha reads the raw numbers.
+    return { type: 'live_only', indicators, sampleCount };
   }
 
   private calculateVolumeRatio(volumes: number[]): number {
@@ -458,21 +458,6 @@ export class MicroRegimeClassifier {
     return { detected: false, direction: null };
   }
 
-  private fallbackRegime(): MicroRegimeClassification {
-    return {
-      regime: 'neutral_ranging',
-      confidence: 30,
-      direction: 'neutral',
-      indicators: {
-        atrExpansion: 1.0,
-        emaDisplacement: 0,
-        rsi: 50,
-        volumeProfile: 'stable',
-        rangeCompression: 1.0,
-      },
-      thresholds: { ...getStaticFallback(), sampleCount: 0, thresholdSource: 'static_fallback' },
-    };
-  }
 }
 
 export const microRegimeClassifier = new MicroRegimeClassifier();
