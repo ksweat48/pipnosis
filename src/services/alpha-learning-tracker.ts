@@ -162,7 +162,7 @@ class AlphaLearningTracker {
         return null;
       }
 
-      console.log(`[Alpha Learning] Decision logged: ${decision.action} | Votes: ${buyVotes}B/${sellVotes}S (Override: ${alpha_override})`);
+      console.log(`[Alpha Learning] Decision logged: ${decision.action} | OmegaSignals: ${votesList.length} active (Override: ${alpha_override})`);
       return data.id;
     } catch (error) {
       console.error('[Alpha Learning] Exception logging decision:', error);
