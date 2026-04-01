@@ -808,17 +808,19 @@ class AlphaCoordinatorBrain {
     const entryModePromptSection = entryMonitorActive
       ? `ENTRY MODE — SMART WAITING SYSTEM:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The entry_mode field controls when the trade executes. Choose based on your read of current conditions.
+GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field
+in the JSON. Omitting entry_mode will BLOCK the trade — it is not optional, not nested, not skippable.
+Place it at the root of the JSON object, not inside entry_spec or any other sub-object.
 
-  "execute_now"       → Structure and momentum support an immediate entry at current price.
+  "entry_mode": "execute_now"       → Structure and momentum support an immediate entry at current price.
 
-  "wait_pullback"     → Thesis is valid but price is extended. You want a better entry at a structural level.
-                        The system places a limit-style entry that triggers on first touch — no candle close needed.
-                        Include a wait_condition block with the zone, invalidation price, and reasoning.
+  "entry_mode": "wait_pullback"     → Thesis is valid but price is extended. You want a better entry at a structural level.
+                                      The system places a limit-style entry that triggers on first touch — no candle close needed.
+                                      Include a wait_condition block with the zone, invalidation price, and reasoning.
 
-  "push_confirmation" → You want a candle close inside a specific zone before entering.
-                        Use for breakout entries or when you need confirmed commitment before executing.
-                        Include a wait_condition block. Zone should be tight (1-3 pip width).
+  "entry_mode": "push_confirmation" → You want a candle close inside a specific zone before entering.
+                                      Use for breakout entries or when you need confirmed commitment before executing.
+                                      Include a wait_condition block. Zone should be tight (1-3 pip width).
 
 For wait_pullback or push_confirmation, include:
 {
@@ -830,15 +832,24 @@ For wait_pullback or push_confirmation, include:
     "expected_wait_minutes": <your estimate>
   }
 }
+
+REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
+{ "action": "BUY", "entry_mode": "execute_now", ... }
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
       : `ENTRY MODE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The entry monitor is OFFLINE. Two choices are available:
+GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field
+in the JSON. Omitting entry_mode will BLOCK the trade.
 
-  "execute_now" → Structure and momentum support an immediate entry at current price.
-  NO_TRADE      → No structural edge at current price.
+The entry monitor is OFFLINE. Only one entry_mode is available for BUY/SELL:
 
-"wait_pullback" and "push_confirmation" require the entry monitor to be active and are not available.
+  "entry_mode": "execute_now" → Structure and momentum support an immediate entry at current price.
+
+"wait_pullback" and "push_confirmation" require the entry monitor to be active and are NOT available.
+Set entry_mode to "execute_now" for all BUY/SELL decisions when the monitor is offline, or output NO_TRADE.
+
+REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
+{ "action": "BUY", "entry_mode": "execute_now", ... }
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
     let riskContext = '';
@@ -3129,7 +3140,7 @@ ${isScalp ? `SCALP PDH/PDL RULES (advisory — do not block on these alone):
 ${intradayD1StructureBlock}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-        console.log(`[Alpha Coordinator] D1 Previous Day (${styleName}): H=${prevDayHigh.toFixed(pipInfo.decimalPlaces)} L=${prevDayLow.toFixed(pipInfo.decimalPlaces)} range=${prevDayRange.toFixed(1)}p, price at ${pricePositionInPDRange}% of PD range`);
+        console.log(`[Alpha Coordinator] D1 Previous Day (${styleName ?? tradeStyle}): H=${prevDayHigh.toFixed(pipInfo.decimalPlaces)} L=${prevDayLow.toFixed(pipInfo.decimalPlaces)} range=${prevDayRange.toFixed(1)}p, price at ${pricePositionInPDRange}% of PD range`);
       }
     } catch (error) {
       console.warn('[Alpha Coordinator] D1 context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
@@ -4417,7 +4428,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       let entryMode: string | undefined;
       if (action === 'NO_TRADE') {
         entryMode = undefined;
-      } else if (!parsed.entry_mode) {
+      } else if (!parsed.entry_mode && !parsed.entry_spec?.entry_mode) {
         logViolation({
           violationType: 'MISSING_ENTRY_MODE',
           symbol: marketContext.symbol,
@@ -4444,7 +4455,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           tradeStyle,
         };
       } else {
-        entryMode = parsed.entry_mode;
+        entryMode = parsed.entry_mode ?? parsed.entry_spec?.entry_mode;
       }
 
       // CCIP-2026-0333: Structural anchor validation — fail-loud, no synthesis.
