@@ -276,8 +276,15 @@ export class TradeExecutionFreshnessGate {
    *      last successfully polled the Netlify function, NOT the DB record age.
    *      This is genuinely independent: coordinator polls every 2s from client,
    *      so a recent fetch proves live price availability regardless of DB writes.
+   * 4. Market snapshot hint (candle-derived price from shared intelligence cache)
+   *    — if a snapshot was freshly built (within 30s) and contains a valid price,
+   *      the candle pipeline has confirmed market activity. This prevents false blocks
+   *      at session startup before the first price poll has written to realtime_prices.
    */
-  async preCheckFreshness(symbol: string): Promise<{ shouldProceed: boolean; reason?: string }> {
+  async preCheckFreshness(
+    symbol: string,
+    snapshotHint?: { price: number; createdAt: number }
+  ): Promise<{ shouldProceed: boolean; reason?: string }> {
     logger.info(
       LogCategory.AI_TRADING,
       `[Freshness Gate] 🔍 Pre-check for ${symbol} before Omega calls`
@@ -326,7 +333,24 @@ export class TradeExecutionFreshnessGate {
       }
     }
 
-    // All three layers confirm stale/absent — genuine block
+    // Tier-4 fallback: market snapshot price (candle-derived, from shared intelligence cache).
+    // If a fresh snapshot was built for this symbol within the last 30 seconds, the candle
+    // pipeline has confirmed market activity and a current price is already in memory.
+    // This prevents false blocks at session startup before the first realtime_prices DB write.
+    if (snapshotHint && snapshotHint.price > 0) {
+      const snapshotAgeSeconds = (Date.now() - snapshotHint.createdAt) / 1000;
+      const MAX_SNAPSHOT_AGE_SECONDS = 30;
+
+      if (snapshotAgeSeconds <= MAX_SNAPSHOT_AGE_SECONDS) {
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[Freshness Gate] ✅ Pre-check PASSED via snapshot hint - snapshot age: ${snapshotAgeSeconds.toFixed(1)}s, price: ${snapshotHint.price} (DB was ${freshnessResult.ageSeconds}s old)`
+        );
+        return { shouldProceed: true };
+      }
+    }
+
+    // All four layers confirm stale/absent — genuine block
     const reason = freshnessResult.reason || 'Price data unavailable or critically stale';
     logger.error(
       LogCategory.AI_TRADING,

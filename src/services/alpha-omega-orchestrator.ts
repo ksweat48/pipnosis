@@ -160,49 +160,6 @@ class AlphaOmegaOrchestrator {
     const signalPrice = marketState.price;
     const signalTimestamp = Date.now();
 
-    // FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
-    const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(marketState.symbol);
-
-    const isCriticallyStale = preCheck.reason?.includes('stale') && !preCheck.shouldProceed;
-
-    if (isCriticallyStale) {
-      console.error(`[Alpha+Omega] HARD BLOCK: ${preCheck.reason} (DATA INTEGRITY)`);
-
-      if (userId) {
-        freshnessBlockLogger.logOmegaBlock(
-          marketState.symbol,
-          entryTimeframe,
-          FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED,
-          { symbol: marketState.symbol, reason: preCheck.reason || 'critically stale', refreshAttempted: false, wasAutoRefreshed: false },
-          userId
-        );
-      }
-
-      return {
-        action: 'NO_TRADE',
-        decision: 'NO_TRADE',
-        entry: marketState.price,
-        stopLoss: proposedSL,
-        takeProfit: proposedTP,
-        confidence: 0,
-        reasoning: `HARD BLOCK - DATA INTEGRITY: ${preCheck.reason}`,
-        omega_summary: 'Execution blocked - price data critically stale (>5min), violates SSOT'
-      };
-    }
-
-    if (!preCheck.shouldProceed) {
-
-      if (userId) {
-        freshnessBlockLogger.logOmegaBlock(
-          marketState.symbol,
-          entryTimeframe,
-          FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED,
-          { symbol: marketState.symbol, reason: preCheck.reason || 'advisory staleness', refreshAttempted: false, wasAutoRefreshed: false, advisory: true },
-          userId
-        );
-      }
-    }
-
     // ✅ STEP 0: Get Market Context from Regime Analysis (if not already provided)
     let sentiment = marketState.sentiment;
     if (!sentiment) {
@@ -241,6 +198,53 @@ class AlphaOmegaOrchestrator {
         reasoning: `Snapshot build failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         omega_summary: 'System error - no market snapshot available'
       };
+    }
+
+    // FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
+    // Runs AFTER snapshot is built so the snapshot price can serve as Tier-4 fallback,
+    // preventing false blocks at session startup before realtime_prices DB writes arrive.
+    const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(
+      marketState.symbol,
+      { price: snapshot.price, createdAt: snapshot.createdAt ?? Date.now() }
+    );
+
+    const isCriticallyStale = preCheck.reason?.includes('stale') && !preCheck.shouldProceed;
+
+    if (isCriticallyStale) {
+      console.error(`[Alpha+Omega] HARD BLOCK: ${preCheck.reason} (DATA INTEGRITY)`);
+
+      if (userId) {
+        freshnessBlockLogger.logOmegaBlock(
+          marketState.symbol,
+          entryTimeframe,
+          FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED,
+          { symbol: marketState.symbol, reason: preCheck.reason || 'critically stale', refreshAttempted: false, wasAutoRefreshed: false },
+          userId
+        );
+      }
+
+      return {
+        action: 'NO_TRADE',
+        decision: 'NO_TRADE',
+        entry: marketState.price,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        confidence: 0,
+        reasoning: `HARD BLOCK - DATA INTEGRITY: ${preCheck.reason}`,
+        omega_summary: 'Execution blocked - price data critically stale (>5min), violates SSOT'
+      };
+    }
+
+    if (!preCheck.shouldProceed) {
+      if (userId) {
+        freshnessBlockLogger.logOmegaBlock(
+          marketState.symbol,
+          entryTimeframe,
+          FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED,
+          { symbol: marketState.symbol, reason: preCheck.reason || 'advisory staleness', refreshAttempted: false, wasAutoRefreshed: false, advisory: true },
+          userId
+        );
+      }
     }
 
     // CCIP-STALENESS-FIX-2026-02-20: Price Drift Guard
