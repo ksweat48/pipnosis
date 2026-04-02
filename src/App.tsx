@@ -13,6 +13,8 @@ import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { UpdateBanner } from './components/UpdateBanner';
 import { cacheManager } from './services/cache-manager';
 import { supabase } from './lib/supabase';
+import { pricePollingCoordinator } from './services/price-polling-coordinator';
+import { systemReadinessRegistry } from './services/system-readiness-registry';
 import { midTradeNotificationQueue } from './services/mid-trade-notification-queue';
 import MidTradeUpdateModal from './components/MidTradeUpdateModal';
 import { MidTradeAlertListener } from './components/MidTradeAlertListener';
@@ -128,6 +130,14 @@ const AppRoutes: React.FC = () => {
       console.error('[App] Error initializing cache:', error);
     });
 
+    // CCIP-BOOT-ORDER-2026-04-02: Start price polling eagerly — no auth required.
+    // This guarantees the 'price-poller' boot gate resolves before the first scan
+    // request reaches goal-scanner.ts, eliminating the cold-start race condition
+    // where preCheckFreshness received ageSeconds: Infinity on the very first scan.
+    // Calling start() here is idempotent; if a component has already subscribed the
+    // coordinator is already active and this is a no-op.
+    pricePollingCoordinator.start();
+
     // Wait for auth to be ready before starting database-dependent services
     const initDatabaseServices = async () => {
       if (loading) return;
@@ -153,8 +163,12 @@ const AppRoutes: React.FC = () => {
         try {
           const { thesisCacheWarmer } = await import('./services/thesis-cache-warmer');
           await thesisCacheWarmer.warmCache();
-        } catch {
-          // Non-blocking
+          // CCIP-BOOT-ORDER-2026-04-02: Self-register advisory gate on completion.
+          systemReadinessRegistry.markReady('thesis-cache');
+        } catch (err) {
+          // Non-blocking — advisory gate, does not block scans
+          const reason = err instanceof Error ? err.message : String(err);
+          systemReadinessRegistry.markFailed('thesis-cache', reason);
         }
       };
 

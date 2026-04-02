@@ -23,6 +23,7 @@
  */
 
 import TinyEmitter from 'tiny-emitter';
+import { systemReadinessRegistry } from './system-readiness-registry';
 
 export interface PriceData {
   symbol: string;
@@ -104,6 +105,14 @@ class PricePollingCoordinator extends TinyEmitter {
     // Circuit breaker: stop if too many errors
     if (this.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
       console.error('[PriceCoordinator] Circuit breaker: too many errors, backing off...');
+
+      // CCIP-BOOT-ORDER-2026-04-02: Surface circuit-breaker trip to registry so
+      // awaitReady() callers can proceed with a degraded-boot warning rather than
+      // hanging indefinitely.  Advisory — hard gate timeout handles the final guard.
+      if (this.lastSuccessfulFetchAt === null) {
+        systemReadinessRegistry.markFailed('price-poller', 'Circuit breaker tripped before first successful fetch');
+      }
+
       this.stop();
 
       // Try again after backoff period
@@ -133,9 +142,17 @@ class PricePollingCoordinator extends TinyEmitter {
       // Reset error counter on success
       this.consecutiveErrors = 0;
 
+      const isFirstFetch = this.lastSuccessfulFetchAt === null;
+
       // Store latest update and record wall-clock time of this fetch
       this.lastSuccessfulFetchAt = Date.now();
       this.latestUpdate = update;
+
+      // CCIP-BOOT-ORDER-2026-04-02: Self-register with SystemReadinessRegistry on first
+      // successful fetch.  This replaces the manual polling loop in goal-scanner.ts.
+      if (isFirstFetch) {
+        systemReadinessRegistry.markReady('price-poller');
+      }
 
       // Emit to all subscribers
       this.emit('update', update);

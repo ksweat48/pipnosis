@@ -43,6 +43,7 @@ import { priceDriftDetector } from './price-drift-detector';
 import { priceFreshnessGate } from '../governance/price-freshness-gate';
 import { priceCoordinator } from './coordinators/price-coordinator';
 import { pricePollingCoordinator } from './price-polling-coordinator';
+import { systemReadinessRegistry } from './system-readiness-registry';
 import type { CachedOmegaIntelligence } from './shared-intelligence-coordinator';
 import type { AlphaMarketThesis } from '../types/alpha-thesis';
 import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
@@ -285,6 +286,23 @@ export class TradeExecutionFreshnessGate {
     symbol: string,
     snapshotHint?: { price: number; createdAt: number }
   ): Promise<{ shouldProceed: boolean; reason?: string }> {
+    // CCIP-BOOT-ORDER-2026-04-02: Structural cold-start guard.
+    // The SystemReadinessRegistry is the upstream authority for boot ordering.
+    // If the price-poller gate has not yet resolved (system still cold-starting),
+    // return a clear COLD_START_IN_PROGRESS block rather than falling through the
+    // 4-tier fallback chain on zero data.  This surfaces the true root cause rather
+    // than a misleading "price data unavailable" message.
+    if (!systemReadinessRegistry.isReady('price-poller')) {
+      logger.warn(
+        LogCategory.AI_TRADING,
+        `[Freshness Gate] ⏳ COLD_START_IN_PROGRESS — price-poller gate not yet ready for ${symbol}`
+      );
+      return {
+        shouldProceed: false,
+        reason: 'COLD_START_IN_PROGRESS: price poller has not yet completed first fetch',
+      };
+    }
+
     logger.info(
       LogCategory.AI_TRADING,
       `[Freshness Gate] 🔍 Pre-check for ${symbol} before Omega calls`
