@@ -123,7 +123,16 @@ export interface AlphaMarketThesis {
   /** HTF timeframe context used for thesis generation */
   timeframe: string;
 
-  /** Market direction bias: BUY, SELL, NEUTRAL, MIXED */
+  /**
+   * Market direction bias — machine-readable routing tag.
+   *
+   * CCIP-ALPHA-AUDIT-TEXT GOVERNANCE:
+   * This field drives cache-key differentiation and thesis conflict detection.
+   * It is a routing classification, not Alpha's explanation of the market.
+   * Alpha's nuanced directional read — the structure, context, and qualifications
+   * behind the bias — must be expressed in the `narrative` field as free text.
+   * A MIXED bias with no narrative is a governance violation.
+   */
   directionBias: 'BUY' | 'SELL' | 'NEUTRAL' | 'MIXED';
 
   /** Alpha's explanation of market structure, liquidity, and context */
@@ -138,8 +147,25 @@ export interface AlphaMarketThesis {
   /** Logic that would invalidate this thesis */
   invalidationLogic?: string;
 
-  /** Rough confidence band: weak, medium, strong */
+  /**
+   * Confidence band — coarse routing tier for downstream consumers.
+   *
+   * CCIP-ALPHA-AUDIT-TEXT GOVERNANCE:
+   * This 3-bucket classification exists for routing and UI display only.
+   * It collapses Alpha's precise confidence signal into three labels.
+   * Alpha's full reasoning for why this band was assigned — what he sees,
+   * what makes him uncertain, what would shift him to a higher band —
+   * must be expressed in the `narrative` and `thesisSummary` free-text fields.
+   * Never use the band label as a substitute for Alpha's actual conviction read.
+   */
   confidenceBand: 'weak' | 'medium' | 'strong';
+
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Alpha's free-text justification for the confidence band assigned.
+   * His words — not a label, not a score. What does he actually see that makes this
+   * 'strong' or 'weak'? What conditions would change this assessment?
+   */
+  confidenceBandRationale?: string;
 
   /** Brief summary of thesis for quick reference */
   thesisSummary: string;
@@ -293,13 +319,25 @@ export interface ConflictInfo {
   /** Whether a conflict was detected */
   detected: boolean;
 
-  /** Type of conflict detected */
+  /**
+   * Conflict routing type — governs penalty multiplier applied.
+   * CCIP-ALPHA-AUDIT-TEXT: This is a machine-routing tag.
+   * Alpha's specific explanation of what conflict he observed must go in `description`.
+   */
   type: 'HARD' | 'SOFT' | 'NONE';
 
-  /** Severity of the conflict */
+  /**
+   * Severity routing tier — governs learning system categorisation.
+   * CCIP-ALPHA-AUDIT-TEXT: This is a machine-routing tag.
+   * Alpha's reasoning for the severity assessment must go in `description`.
+   */
   severity?: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
 
-  /** Human-readable description of the conflict */
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Alpha's free-text description of the conflict.
+   * What specifically did he observe? Which Omega contradicted him and why?
+   * This must be Alpha's words — not derived from the type/severity labels.
+   */
   description?: string;
 
   /** Confidence penalty multiplier applied (1.0 = no penalty, 0.75 = -25% penalty) */
@@ -319,6 +357,8 @@ export interface ParsedAlphaResponse {
     invalidationLogic?: string;
     timeframeRelevance?: string;
     confidenceBand: 'weak' | 'medium' | 'strong';
+    /** CCIP-ALPHA-AUDIT-TEXT: Alpha's free-text justification for the confidence band. */
+    confidenceBandRationale?: string;
   };
 
   /** Execution plan (user-specific, never cached) */

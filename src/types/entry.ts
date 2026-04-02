@@ -1,3 +1,21 @@
+/**
+ * Entry intent classification for monitoring logic routing.
+ *
+ * CCIP-ALPHA-AUDIT-TEXT GOVERNANCE:
+ * This enum governs MONITORING BEHAVIOR — it tells the entry monitor which
+ * evaluation strategy to apply (momentum check, VWAP proximity check, etc.)
+ * It is a machine-routing tag, NOT Alpha's description of the trade setup.
+ *
+ * Alpha's actual read of why this entry type was chosen — the specific confluence,
+ * structure, and context — must be recorded in the companion `alpha_reasoning` field
+ * as free text. A populated intent_type with empty alpha_reasoning is a governance gap.
+ *
+ * Example:
+ *   intent_type = 'break_and_retest' (routing tag)
+ *   alpha_reasoning = "EURUSD broke above the Asian range high at 1.0847 with a strong
+ *     M15 momentum candle. Waiting for price to retrace into the broken level which
+ *     should now act as demand. FVG sits at 1.0838-1.0841 — that's the retest zone."
+ */
 export type EntryIntentType =
   | 'immediate_momentum'
   | 'pullback_to_vwap'
@@ -32,6 +50,12 @@ export type MonitorDecision =
 
 /**
  * Reasons for abandoning an entry intent
+ *
+ * CCIP-ALPHA-AUDIT-TEXT:
+ * This enum governs machine routing only (which recovery path to take).
+ * Alpha's actual reasoning for abandonment must be stored in the companion
+ * `abandon_reason_detail` free-text field. The enum is a routing tag;
+ * the detail field is Alpha's words. Both are required for a complete audit trail.
  */
 export type AbandonReason =
   | 'TIMEOUT_EXCEEDED'
@@ -47,6 +71,13 @@ export type AbandonReason =
  * EXPIRED: Execution window closed (do NOT rescan same thesis)
  * INVALIDATED: Structure broken (rescan allowed - market changed)
  * PAUSED: Temporary condition (rescan after condition clears)
+ *
+ * CCIP-ALPHA-AUDIT-TEXT:
+ * This enum is a routing tag that governs rescan eligibility.
+ * Alpha's specific observation of WHY the outcome occurred must be stored
+ * in the companion `outcome_reason_detail` free-text field.
+ * Example: reason = 'STRUCTURE_INVALIDATED', detail = "M15 BOS through Asian low at
+ * 1.0832 confirmed by two closes below — original BOS assumption invalidated."
  */
 export type EntryOutcomeReason =
   | 'RUNAWAY_DETECTED'          // EXPIRED: Price moved too far (> 3x ATR)
@@ -58,6 +89,16 @@ export type EntryOutcomeReason =
   | 'TIMEOUT'                   // EXPIRED: Time limit exceeded
   | 'EXECUTION_COMPLETED'       // Success: Trade entered
   | 'USER_CANCELLED';           // User action
+
+/**
+ * Alpha's free-text explanation companion to EntryOutcomeReason.
+ *
+ * CCIP-ALPHA-AUDIT-TEXT GOVERNANCE:
+ * Wherever an EntryOutcomeReason is recorded, this string MUST accompany it.
+ * Alpha writes this in his own words — no predefined options, no menus.
+ * This is Alpha's voice in the audit trail. A missing detail is a governance gap.
+ */
+export type EntryOutcomeReasonDetail = string;
 
 /**
  * Entry Outcome Status - Lifecycle state of entry intent
@@ -186,6 +227,13 @@ export interface EntryIntent {
 
   // Entry Lifecycle Taxonomy
   abandonment_reason?: EntryOutcomeReason;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Alpha's free-text explanation of why this intent was abandoned.
+   * Required whenever abandonment_reason is set. Alpha's words, not a label from a list.
+   * Example: "Equal highs at 1.0847 were swept with no BOS follow-through after 3 candles —
+   * manipulation confirmed, original breakout thesis invalidated."
+   */
+  abandonment_reason_detail?: EntryOutcomeReasonDetail;
   outcome_status?: EntryOutcomeStatus;
   distance_from_zone_atr?: number;
   escalation_attempted?: boolean;
@@ -557,12 +605,54 @@ export interface AlphaOutputFormat {
 }
 
 /**
+ * Entry trigger routing classification.
+ *
+ * CCIP-ALPHA-AUDIT-TEXT GOVERNANCE:
+ * This enum is a routing/categorisation tag for monitoring logic only.
+ * It tells the entry monitor WHAT TYPE of condition to evaluate.
+ * Alpha's actual description of the trigger — what he sees, why it matters,
+ * what specific market event he is waiting for — must go in EntryTrigger.name
+ * and EntryTrigger.description as free text. Never compress Alpha's trigger
+ * read into this enum alone.
+ *
+ * Example:
+ *   type = 'pattern_confirmation' (routing tag)
+ *   name = "BOS reclaim above Asian session high at 1.0832" (Alpha's words)
+ *   description = "Need M5 close above 1.0832 with body — not wick — to confirm
+ *                  the sweep-reclaim structure. Volume should expand on the close."
+ */
+export type EntryTriggerType =
+  | 'vwap_kiss'
+  | 'acceptance_candle'
+  | 'pullback_complete'
+  | 'pattern_confirmation'
+  | 'level_retest';
+
+/**
  * Entry trigger - specific condition to monitor for entry execution
  * Generated when WAIT_FOR_BETTER_ENTRY is chosen
  */
 export interface EntryTrigger {
-  type: 'vwap_kiss' | 'acceptance_candle' | 'pullback_complete' | 'pattern_confirmation' | 'level_retest';
+  /**
+   * Routing classification — tells the monitor what evaluation logic to run.
+   * SSOT: Use EntryTriggerType enum. Do not use this field to express Alpha's reasoning.
+   */
+  type: EntryTriggerType;
+
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Alpha's name for this specific trigger in his own words.
+   * Not a label from a list. Not a category name. Alpha's precise description of
+   * the exact market event he is waiting for.
+   * Example: "BOS reclaim above Asian high 1.0832" or "CHoCH at London open lows"
+   */
+  name: string;
+
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Alpha's full explanation of what this trigger means,
+   * why it matters, and what confirms it. Free text, no constraints.
+   */
   description: string;
+
   targetConditions: {
     priceLevel?: number;         // Target price level
     vwapDistance?: number;       // Distance from VWAP (in ATR)

@@ -9,6 +9,20 @@
 import type { OmegaVote } from './omega-vote';
 export type { OmegaVote };
 
+/**
+ * Structural liquidity classification tag for Omega-8.
+ *
+ * CCIP-ALPHA-AUDIT-TEXT GOVERNANCE:
+ * This enum is a FACTUAL CLASSIFICATION derived from computed pattern data.
+ * It is not an opinion and not a recommendation — it is a measured categorisation
+ * of what the order flow patterns indicate.
+ *
+ * However, novel liquidity structures (e.g., "accumulation inside distribution with
+ * absorption at the low") cannot be expressed by this 5-value list alone.
+ * Alpha's interpretation of the liquidity context must go in the companion
+ * free-text fields in the prompt layer (liquidity_sweep_read, Q_TRAPPED_FUEL, etc.)
+ * where Alpha has full expressive freedom.
+ */
 export type Omega8LiquidityBias = 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
 
 /**
@@ -72,6 +86,11 @@ export interface Omega9ValidationResult {
 }
 
 export interface Omega9ConstraintViolation {
+  /**
+   * Violation routing type — governs which recovery path the system takes.
+   * CCIP-ALPHA-AUDIT-TEXT: This is a machine-routing tag.
+   * The specific violation context must be expressed in `message`.
+   */
   type:
     | 'STOP_BELOW_NOISE_FLOOR'
     | 'STOP_INSIDE_SPREAD'
@@ -80,6 +99,11 @@ export interface Omega9ConstraintViolation {
   severity: 'WARNING' | 'HARD_BLOCK';
   currentValue: number;
   minimumValue?: number;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text explanation of this specific violation.
+   * Not just "stop below noise floor" — but what the actual numbers are,
+   * what they mean in context, and what Alpha should understand from this.
+   */
   message: string;
   suggestedActions: string[];
 }

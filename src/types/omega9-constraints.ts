@@ -24,16 +24,29 @@ export interface Omega9Constraints {
   minStopLossPips: number;
   maxStopLossPips: number;
   recommendedStopLossPips: number;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text explanation of why these SL constraints
+   * were computed as they are. Must reference actual ATR, noise floor, and
+   * market context — not just restate the numbers.
+   */
   stopLossReasoning: string;
 
   // Noise Floor (statistical minimum for survival)
-  noiseFloorPips: number;       // Minimum stop to survive spread + volatility noise
-  noiseFloorReasoning: string;  // Explanation of noise floor calculation
+  noiseFloorPips: number;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text explanation of the noise floor calculation.
+   * What spread, volatility, and microstructure factors produced this minimum?
+   */
+  noiseFloorReasoning: string;
 
   // Take-Profit Constraints
   minTakeProfitPips: number;  // Minimum for R:R ≥ 1.0 (given current SL)
   maxTakeProfitPips: number;  // Session/volatility ceiling
   recommendedTakeProfitPips: number;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text explanation of TP constraints.
+   * Why is the ceiling where it is? What session or volatility factor drives it?
+   */
   takeProfitReasoning: string;
 
   // Risk:Reward Constraints
@@ -55,9 +68,23 @@ export interface Omega9Constraints {
 }
 
 export interface ConstraintViolation {
+  /**
+   * Violation routing type — determines which recovery logic runs.
+   * CCIP-ALPHA-AUDIT-TEXT: This is a machine-routing tag only.
+   * The specific violation context, actual values, and what Alpha should do
+   * must be expressed in the `message` field as free text.
+   */
   type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL' | 'BELOW_NOISE_FLOOR' | 'INFEASIBLE_SETUP' | 'TIGHT_CONSTRAINTS' | 'CRYPTO_SCALE_MISMATCH';
   severity: 'WARNING' | 'ERROR' | 'CATASTROPHIC';
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text explanation of this specific violation.
+   * Must include actual numbers and context — not just a restatement of the type label.
+   */
   message: string;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text description of how this violation could be resolved.
+   * Not a label. A specific, actionable suggestion in plain language.
+   */
   suggestedFix?: string;
   currentValue?: number;
   minimumValue?: number;
@@ -70,8 +97,23 @@ export interface ConstraintFeasibilityStatus {
   maxTakeProfitAvailable: number;
   minRiskRewardRequired: number;
   maxRiskRewardAchievable: number;
+  /**
+   * Conflict source routing tag — identifies which constraint system is limiting.
+   * CCIP-ALPHA-AUDIT-TEXT: This is a machine-routing tag.
+   * The full context of the conflict must appear in `advisoryMessage`.
+   */
   conflictSource: 'SESSION_TIME' | 'MARKET_ATR' | 'NONE';
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text advisory explaining the feasibility situation.
+   * Must describe actual numbers, what the constraint means, and why Alpha
+   * should care. Not a restatement of the conflictSource label.
+   */
   advisoryMessage: string;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Alpha's available options expressed as free-text descriptions.
+   * Each string must be a plain-language description of a viable path forward,
+   * not a label from a predefined option set. Alpha reads these and decides.
+   */
   alphaOptions: string[];
 }
 
@@ -136,7 +178,17 @@ export interface ArenaWalls {
 
   feasible: boolean;
   sandwiched: boolean;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text description of the sandwich trap risk.
+   * What levels surround the trade? What is the risk of the stop being swept?
+   * Alpha's words — not a template string.
+   */
   sandwichAdvisory: string | null;
+  /**
+   * CCIP-ALPHA-AUDIT-TEXT: Free-text description of the feasibility situation.
+   * What is limiting this arena? Session time, ATR, or corridor width?
+   * Specific numbers and context required.
+   */
   feasibilityAdvisory: string | null;
 }
 
