@@ -4655,6 +4655,55 @@ Return PURE JSON only — all required fields from the schema in my system promp
         console.log(`[Alpha Coordinator] CCIP-2026-0328B: Q11=DEEP_ZONE + execute_now — advisory observation logged. Alpha's entry_mode stands as issued. Symbol=${symbol}.`);
       }
 
+      // CCIP-2026-0402A: Q6=NONE_YET + execute_now consistency enforcement.
+      //
+      // Alpha's own prompt defines the rule:
+      //   "The absence of a fired trigger supports wait_pullback or push_confirmation
+      //    — it does not produce NO_TRADE."
+      // The inverse is equally true: execute_now requires a fired trigger (Q6 named event).
+      // If Alpha answers Q6=NONE_YET but sets entry_mode=execute_now, those two outputs
+      // are internally contradictory. Alpha acknowledged no event has fired, yet routed
+      // the trade as an immediate market order — exactly what happened on the USDJPY loss
+      // (2026-04-02, trade 685d0c91) where price ran 25 pips against entry from tick 1.
+      //
+      // This is NOT an override of Alpha's trading judgment. Alpha self-documented the
+      // absence of a trigger. We are enforcing his own stated rule, not ours.
+      // The entry_mode is downgraded to wait_pullback. The thesis, direction, levels,
+      // and confidence are left entirely intact. Alpha's trade will execute when the
+      // entry monitor detects the trigger condition he implicitly needed.
+      //
+      // SSOT: coordinator-alpha.ts is the sole parse boundary for LLM output.
+      // This correction must live here — not in the executor or live engine.
+      if (
+        (action === 'BUY' || action === 'SELL') &&
+        answerSheet?.Q6_entry_trigger?.toUpperCase() === 'NONE_YET' &&
+        resolvedEntryMode === 'execute_now'
+      ) {
+        console.warn(
+          `[Alpha Coordinator] CCIP-2026-0402A: Q6=NONE_YET + execute_now CONFLICT detected. ` +
+          `Alpha acknowledged no trigger has fired but selected immediate execution. ` +
+          `Downgrading entry_mode from execute_now → wait_pullback per Alpha's own rule. ` +
+          `Thesis/direction/levels/confidence unchanged. Symbol=${symbol}.`
+        );
+        resolvedEntryMode = 'wait_pullback';
+        logViolation({
+          violationType: 'Q6_NONE_YET_EXECUTE_NOW_CONFLICT',
+          symbol: marketContext.symbol,
+          attemptedOperation: 'execute_now_with_no_trigger',
+          callLocation: 'coordinator-alpha',
+          blocked: false,
+          errorDetails: {
+            q6_value: answerSheet?.Q6_entry_trigger,
+            entry_mode_before: 'execute_now',
+            entry_mode_after: 'wait_pullback',
+            action,
+            userId: userId || 'unknown',
+            description: 'Alpha answered Q6=NONE_YET but set entry_mode=execute_now. Per Alpha\'s own rule, no trigger means deferred entry. entry_mode corrected to wait_pullback. Trade thesis and levels unchanged.',
+            timestamp: new Date().toISOString(),
+          },
+        }).catch(() => {});
+      }
+
       // CCIP-2026-0324D: Q8D weekly narrative vs action conflict advisory check.
       // alpha-identity.ts instructs Alpha to resolve DELIVERY_BEARISH+BUY and
       // DELIVERY_BULLISH+SELL in thesis_coherence_statement. This guard detects the
