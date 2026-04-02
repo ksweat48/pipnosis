@@ -402,13 +402,13 @@ export function getCurrentMarketSession(): SessionInfo {
     };
   }
 
-  // Dead Zone: 22:00-00:00 UTC (5pm-7pm EST)
+  // Sydney Session: 22:00-00:00 UTC (5pm-7pm EST)
   if (utcHours >= 22 || utcHours < 0) {
     return {
       session: 'dead_zone',
       liquidity: 'very_low',
       timeoutMultiplier: 0.2, // Reduce timeouts to 20% (e.g., 90min -> 18min)
-      description: 'Dead zone - very low liquidity, reduce timeouts'
+      description: 'Sydney session - low volume, wide spreads, thin book depth'
     };
   }
 
@@ -546,7 +546,7 @@ export function calculateSessionContext(): SessionContext {
       currentSession: 'ny',
       sessionTimeRemainingMinutes: remaining,
       sessionName: 'NY Session',
-      nextSessionName: 'Dead Zone / Sydney',
+      nextSessionName: 'Sydney Session',
       minutesUntilNextSession: remaining,
     };
   }
@@ -564,14 +564,14 @@ export function calculateSessionContext(): SessionContext {
     };
   }
 
-  // Sydney/Dead Zone: 22:00-24:00 UTC
+  // Sydney Session: 22:00-24:00 UTC
   if (utcHours >= 22) {
     const endMinutes = 24 * 60;
     const remaining = endMinutes - totalUtcMinutes;
     return {
       currentSession: 'sydney',
       sessionTimeRemainingMinutes: remaining,
-      sessionName: 'Dead Zone / Sydney',
+      sessionName: 'Sydney Session',
       nextSessionName: 'Asian Session',
       minutesUntilNextSession: remaining,
     };

@@ -147,11 +147,11 @@ export const KILL_ZONES: KillZone[] = [
   },
   {
     name: 'dead_zone',
-    label: 'Dead Zone',
+    label: 'Sydney Session',
     startUtc: 20,
     endUtc: 24,
     quality: 'slow',
-    description: 'Low volume. High spread risk. Alpha sees session context and decides participation quality.',
+    description: 'Low volume. Wide spreads. Alpha reads the session context and decides.',
     // CCIP-ALPHA-GOV-001: cardSuppression removed. Alpha decides per-trade.
     cardSuppression: 'none',
     allowedStyles: ['scalper', 'micro', 'intraday'],

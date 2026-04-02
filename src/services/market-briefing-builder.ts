@@ -205,7 +205,7 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
 
   if (intel.sessionName || intel.marketPhase) {
     const sessionRem = intel.sessionMinutesRemaining !== undefined
-      ? ` ${intel.sessionMinutesRemaining}min${intel.sessionMinutesRemaining < 30 ? '[CLOSING]' : intel.sessionMinutesRemaining < 60 ? '[LATE]' : ''}`
+      ? ` ${intel.sessionMinutesRemaining}min`
       : '';
     const nextSess = intel.nextSessionName && intel.minutesUntilNextSession && intel.minutesUntilNextSession > 0
       ? ` next:${intel.nextSessionName} in ${intel.minutesUntilNextSession}min`

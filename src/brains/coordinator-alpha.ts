@@ -3488,6 +3488,10 @@ Use the ACTIVE ATR value above for all move stage calculations in this scan cycl
     // SSOT: src/config/pair-personalities.ts
     const pairPersonalityContext = getPairPersonalityContext(marketContext.symbol, tradeStyle);
 
+    const patternAlignmentSummary = patternIntelligence
+      ? `\nPATTERN_ALIGNMENT: ${patternIntelligence.intentAnalysis.alignmentScore}/3 | VOTE:${patternIntelligence.intentAnalysis.directionBias.toUpperCase()}\n`
+      : '';
+
     const prompt = `${styleIdentityPrompt}
 ${pairPersonalityContext}
 ${cachedThesisPrompt}
@@ -3539,7 +3543,7 @@ These three questions replace the need for a "perfect setup". Structure + range 
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
+${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternAlignmentSummary}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
