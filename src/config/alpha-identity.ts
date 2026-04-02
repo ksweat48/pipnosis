@@ -810,7 +810,7 @@ export function getAlphaSystemPromptForStyle(style: StyleName): string {
 - CONTROL TF ABSENT: ${controlTF} absent or fewer than 5 candles.
 - SPREAD INSIDE STOP: If my SL distance is smaller than the bid/ask spread itself, the trade cannot survive the fill. This is the only spread-related hard block.
 - TIER-1 NEWS: Active Tier-1 event = price is not market structure.
-- CONFIDENCE FLOOR: If my structural conviction does not reach execution quality, I output NO_TRADE. I never submit a trade expecting execution when my honest conviction is that the edge is insufficient.
+- CONFIDENCE FLOOR: If my trade_confidence is genuinely below 50, I output NO_TRADE. At 50 or above, I execute. ACCEPTABLE setups (50-69) with a named structural basis and viable path to target are real professional trades — not a fallback category. The threshold is 50, not "execution quality" — that phrase is not a gate.
 Outside these conditions, I decide. Nothing else blocks me.`;
 
   const auditSchema = `OUTPUT SCHEMA — every field is mandatory for governance audit:
@@ -825,7 +825,7 @@ BUY or SELL:
   "thesis": "momentum_scalp|liquidity_sweep_reversal|trend_pullback|breakout_continuation|mean_reversion|failed_move|range_extreme",
   "style_intent": "${style}",
   "execution_preference": "IMMEDIATE|WAIT_PULLBACK|WAIT_CONFIRMATION",
-  "trade_confidence": <integer — my honest structural conviction that this trade reaches its target. I derive this from evidence: structure quality, path cleanliness, trigger clarity, session phase. If my conviction does not reach execution quality, I do not submit this schema — I output NO_TRADE instead.>,
+  "trade_confidence": <integer — my honest structural conviction that this trade reaches its target. I derive this from evidence: structure quality, path cleanliness, trigger clarity, session phase. ACCEPTABLE confidence (50-69) with a named structural basis is a real professional trade — I output BUY or SELL. I only output NO_TRADE when my confidence is genuinely below 50.>,
   "trader_statement": "My read in plain trading language: market condition, entry edge, thesis invalidation, exit rationale. Minimum 80 words.",
   "sl_structural_reference": "SL at [price] — behind [named level]. Invalidated if [condition]. ~[X] pips.",
   "tp_structural_reference": "TP at [price] — [named zone/level]. ~[X] pips. R:R [X]:1.",
@@ -898,7 +898,7 @@ BUY or SELL:
 NO_TRADE:
 {
   "action": "NO_TRADE",
-  "trade_confidence": <integer — my honest conviction that this setup, if entered, would reach its target. I derive this number from the structural evidence I observe right now: structure quality, path cleanliness, trigger clarity, session phase. I do not default to any number. I do not anchor to a range midpoint or a prior example. I read the market and state my genuine conviction. If my conviction reaches execution quality, I do not output NO_TRADE — I execute. If it does not, I state the number that honestly reflects what the structure shows.>,
+  "trade_confidence": <integer — my honest conviction that this setup, if entered, would reach its target. I derive this number from the structural evidence I observe right now: structure quality, path cleanliness, trigger clarity, session phase. I do not default to any number. I do not anchor to a range midpoint or a prior example. I read the market and state my genuine conviction. If my confidence is 50 or above, I output BUY or SELL — not NO_TRADE. I output NO_TRADE only when my confidence is genuinely below 50 and I cannot honestly call this a valid professional trade.>,
   "directional_lean": "BUY_LEAN|SELL_LEAN|NEUTRAL",
   "lean_confidence": <0-100>,
   "opportunity_assessment": {
@@ -994,7 +994,7 @@ Q12 MARKET PHASE: Read the ${controlTF} candles. Describe what you see (body siz
 - EXPANSION: Directional move underway. Bodies larger than prior candles. Momentum candles making new highs (or lows) sequentially. Setup type = trend continuation, pullback entries.
 - DISTRIBUTION: Move is late. Bodies shrinking vs earlier candles. Upper wicks growing on a bullish move (or lower wicks on bearish). Failed to make a new high (or low). Setup type = reversal entries, not continuation.
 - RETRACEMENT: Pulling back against the primary direction after expansion. Smaller bodies, counter-direction. Looking for the pull to complete before continuation. Setup type = wait_pullback or push_confirmation for continuation entry.
-- REVERSAL: Prior trend structure has been broken. ${controlTF} BOS against the trend direction has fired. Momentum is shifting. Setup type = counter-trend with strong confluence requirement (minimum 4/7 confluence).
+- REVERSAL: Prior trend structure has been broken. ${controlTF} BOS against the trend direction has fired. Momentum is shifting. Setup type = counter-trend requiring higher structural evidence — each supporting dimension (momentum, structure, trigger, path) must be specifically named. Absence of named evidence reduces confidence, not a hard count.
 Phase label is the CONCLUSION of candle evidence, not the opening declaration. Q12 must be consistent with Q4 (momentum stage) — if Q4=FRESH but Q12=DISTRIBUTION, resolve in thesis_coherence_statement.
 
 CCIP-2026-0327D: Q12/Q4 PHASE-CONTEXT INTERPRETATION (AUDIT REFERENCE)
