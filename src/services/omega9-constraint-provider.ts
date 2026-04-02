@@ -720,8 +720,9 @@ Entry Price: ${entryPrice.toFixed(decimalPlaces)}
 Typical Price Range: Use this as sanity check for your outputs
 
 STOP-LOSS BOUNDARIES (Relative):
-• NOISE FLOOR: ${constraints.noiseFloorPips.toFixed(1)} pips — statistical SL survival threshold. SL below this has elevated stop-out risk from normal price noise. (${constraints.noiseFloorReasoning})
-  IMPORTANT: The noise floor is SL survival intelligence ONLY. It has NO bearing on your TP calculation. The TP range below is derived from the style envelope, not the noise floor. Do not use the noise floor as a reason to limit TP.${constraints.noiseFloorPips > constraints.maxTakeProfitPips ? `\n  NOTE: Noise floor (${constraints.noiseFloorPips.toFixed(1)} pips) exceeds TP advisory max (${constraints.maxTakeProfitPips.toFixed(1)} pips). This means a structurally safe SL may produce sub-1:1 R:R on paper. You may use a tighter structural SL if price structure supports it — the noise floor is a statistical average, not a price-level requirement. You retain full authority to trade if you have a structural reason to tighten the SL.` : ''}
+• NOISE FLOOR: ${constraints.noiseFloorPips.toFixed(1)} pips — statistical SL survival advisory ONLY. NOT a hard block. SL below this has elevated stop-out risk from normal price noise. (${constraints.noiseFloorReasoning})
+  CRITICAL: The noise floor is survival intelligence only — it is NOT a hard requirement and does NOT prevent you from placing your SL. You may place your SL tighter than the noise floor if a named structural level supports it. State the elevated stop-out risk in your reasoning.
+  The noise floor has NO bearing on your TP calculation. The TP range is derived from the style envelope, not the noise floor. Do not use the noise floor as a reason to limit TP or to decline a trade.${constraints.noiseFloorPips > constraints.maxStopLossPips ? `\n  CONTEXT: Noise floor (${constraints.noiseFloorPips.toFixed(1)} pips) exceeds the SL advisory max (${constraints.maxStopLossPips.toFixed(1)} pips). This is expected for this style/asset combination — it means a statistically safe SL would be wider than the envelope typically recommends. Use your structural SL placement: put the SL behind a named level, acknowledge the elevated noise risk, and trade if your structure supports it. The noise floor is a statistical average across all sessions and participants — your specific structural SL level is your authority.` : ''}${constraints.noiseFloorPips > constraints.maxTakeProfitPips ? `\n  CONTEXT: Noise floor (${constraints.noiseFloorPips.toFixed(1)} pips) exceeds TP advisory max (${constraints.maxTakeProfitPips.toFixed(1)} pips). This means a statistically safe SL may produce sub-1:1 R:R on paper. Use a structural SL — your named invalidation level is the authority, not the statistical noise floor.` : ''}
 • Minimum: ${constraints.minStopLossPips.toFixed(1)} pips
 • Maximum: ${constraints.maxStopLossPips.toFixed(1)} pips
 • Recommended: ${constraints.recommendedStopLossPips.toFixed(1)} pips
@@ -912,28 +913,28 @@ Core Principle: If the market can offer some profit, you should take it.
         lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price (price-tier scaled)`);
         lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
         lines.push(`  WHY: Index pip walls are derived from price-tier percentages. At this price level (${entryPrice.toFixed(0)}), 1 pip = ${((symbolConfig?.pipValue || 1) / entryPrice * 100).toFixed(4)}% of price.`);
-        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips at this index level has a HIGH probability of intraday noise stop-out.`);
-        lines.push(`  DO NOT: Place SL below the survival floor — normal intraday volatility will stop you out repeatedly.`);
+        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips at this index level has elevated probability of intraday noise stop-out — this is survival intelligence, not a veto.`);
+        lines.push(`  ADVISORY: SL below the floor risks noise stop-out. If structure demands a tighter SL, acknowledge the elevated risk in your reasoning and size accordingly.`);
       } else if (assetCategory === 'crypto') {
         lines.push(`  Asset: CRYPTO | Current price: ${entryPrice.toFixed(2)}`);
         lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
         lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
         lines.push(`  WHY: Crypto operates with extreme volatility. Walls are calibrated as % of price (min 0.30–0.50% of nominal price for SL).`);
-        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips on this crypto instrument means it is inside the normal ATR noise band — guaranteed stop-out territory.`);
-        lines.push(`  DO NOT: Place SL tighter than the survival floor — crypto moves ${slMinPips.toFixed(0)}+ pips in seconds during normal volatility spikes.`);
+        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips on this crypto instrument is inside the normal ATR noise band — elevated stop-out probability. This is advisory intelligence, not a veto.`);
+        lines.push(`  ADVISORY: SL tighter than the survival floor on crypto has elevated noise stop-out risk. If structure supports it, acknowledge this in your reasoning and size accordingly.`);
       } else if (assetCategory === 'metal') {
         lines.push(`  Asset: METAL | Current price: ${entryPrice.toFixed(2)}`);
         lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
         lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
         lines.push(`  WHY: Metals (XAUUSD, XAGUSD) have high nominal prices. Walls are calibrated as % of metal price (min 0.20% of nominal for SL).`);
-        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips places it within the normal session noise floor for metals — structural stop-out risk.`);
-        lines.push(`  DO NOT: Place SL below metal survival floor — gold/silver move aggressively and absorb tight stops before resuming direction.`);
+        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips is within the statistical session noise floor for metals — elevated stop-out probability. Advisory only.`);
+        lines.push(`  ADVISORY: SL below the metal survival floor risks aggressive noise stop-out. If your structural SL is tighter, state the named structural level and acknowledge the elevated risk in reasoning.`);
       } else {
         lines.push(`  Asset: FOREX | Current price: ${entryPrice.toFixed(5)}`);
         lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
         lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
-        lines.push(`  WHY: Forex walls are calibrated to the session spread and ATR noise band. SL below the floor is inside the bid/ask spread noise zone.`);
-        lines.push(`  DO NOT: Place SL below ${slMinPips.toFixed(1)} pips — spread alone can be 1–3 pips; sub-floor SLs are consumed by normal tick noise.`);
+        lines.push(`  WHY: Forex walls are calibrated to the session spread and ATR noise band. SL below the floor is in the statistical noise zone — elevated stop-out risk.`);
+        lines.push(`  ADVISORY: SL below ${slMinPips.toFixed(1)} pips has elevated risk of noise stop-out (spread 1–3 pips + tick noise). This is survival intelligence. If structure demands a tighter SL, state the named structural level and acknowledge the risk.`);
       }
 
       lines.push(`  R:R ACCOUNTABILITY: Sub-1.0:1 R:R means you need >50% win rate to profit. At 0.75:1 R:R you need 57% wins. At 0.5:1 R:R you need 67% wins.`);
@@ -947,7 +948,7 @@ Core Principle: If the market can offer some profit, you should take it.
         `${label}:`,
         `  SL Wall: ${arena.slPrice.min.toFixed(dp)} to ${arena.slPrice.max.toFixed(dp)} (${arena.slPips.min.toFixed(1)}-${arena.slPips.max.toFixed(1)} pips, rec: ${arena.slPips.recommended.toFixed(1)})`,
         `  TP Wall: ${arena.tpPrice.min.toFixed(dp)} to ${arena.tpPrice.max.toFixed(dp)} (${arena.tpPips.min.toFixed(1)}-${arena.tpPips.max.toFixed(1)} pips, rec: ${arena.tpPips.recommended.toFixed(1)})`,
-        `  NOISE FLOOR: ${arena.noiseFloorPips.toFixed(1)} pips — SL survival advisory only (does NOT affect TP calculation). SL below this risks noise stop-out; use structural SL if your level is tighter.${arena.noiseFloorPips > arena.tpPips.max ? ` Note: noise floor exceeds TP wall max — use structural SL and your own R:R judgment.` : ''}`,
+        `  NOISE FLOOR: ${arena.noiseFloorPips.toFixed(1)} pips — statistical SL survival ADVISORY ONLY. NOT a hard block. Does NOT affect your TP calculation. A SL tighter than this has elevated stop-out probability from normal price noise — acknowledge it in your reasoning and factor it into confidence. You may use a structural SL tighter than this floor if a named structural level supports it.${arena.noiseFloorPips > arena.tpPips.max ? ` Context: noise floor (${arena.noiseFloorPips.toFixed(1)} pips) exceeds TP wall max (${arena.tpPips.max.toFixed(1)} pips). Use your structural SL and state your R:R clearly in reasoning.` : ''}`,
         `  Min R:R: ${arena.minRiskReward.toFixed(2)}:1`,
       ];
 
