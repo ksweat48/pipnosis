@@ -92,10 +92,9 @@ class Omega9ConstraintProvider {
     // ADVISORY ONLY: feasibleTravelPips informs confidence scoring.
     // It does NOT limit TP or block trades - Alpha has final authority.
 
-    // STRUCTURAL GATE: Detect SL floor > feasible travel (physically impossible geometry)
-    // When the minimum stop-loss distance exceeds what the session can travel, NO valid
-    // trade geometry exists regardless of direction. This is PHYSICAL IMPOSSIBILITY —
-    // not a market quality judgment. Log it as STRUCTURAL_CONSTRAINT_VIOLATION.
+    // SESSION GEOMETRY ADVISORY: Detect SL floor vs feasible session travel.
+    // Provides Alpha with session geometry data as advisory context only.
+    // Alpha retains full authority to trade regardless of these values.
     const stopLossCalcEarly = riskAwareStopCalculator.calculateStopLoss({
       symbol,
       entryPrice: entry,
@@ -113,11 +112,10 @@ class Omega9ConstraintProvider {
       const mappedStyleEarly = STYLE_MAP[tradeStyle] || tradeStyle;
       const envelopeBoundsEarly = getAssetClassEnvelopeBounds(mappedStyleEarly, envelopeAssetClassEarly, symbol, entry);
       if (envelopeBoundsEarly.slPips.min > earlyFeasiblePips && earlyFeasiblePips > 0) {
-        console.warn(
-          `[Omega-9 STRUCTURAL_CONSTRAINT_VIOLATION] ${symbol}: Min SL floor ${envelopeBoundsEarly.slPips.min.toFixed(1)} pips ` +
-          `exceeds session feasible travel ${earlyFeasiblePips.toFixed(1)} pips. ` +
-          `GEOMETRIC IMPOSSIBILITY — cannot place minimum SL within session bounds. ` +
-          `Root cause: ${assetCategoryEarly.toUpperCase()} style floor too wide for remaining ${sessionTimeRemainingMinutes}min of ${currentSession} session.`
+        console.log(
+          `[Omega-9 SESSION_GEOMETRY_DATA] ${symbol}: SL floor ${envelopeBoundsEarly.slPips.min.toFixed(1)} pips ` +
+          `vs session feasible travel ${earlyFeasiblePips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min ${currentSession}. ` +
+          `Advisory data provided to Alpha — Alpha retains full trade authority.`
         );
       }
     }
@@ -360,33 +358,29 @@ class Omega9ConstraintProvider {
 
     if (slFloorExceedsTravel) {
       console.warn(
-        `[Omega-9 STRUCTURAL_CONSTRAINT_VIOLATION] ${symbol}: ` +
-        `Min SL floor ${constraints.minStopLossPips.toFixed(1)} pips > session feasible travel ${feasibleTravelPips.toFixed(1)} pips. ` +
-        `GEOMETRIC IMPOSSIBILITY — cannot construct valid trade geometry in ${sessionTimeRemainingMinutes}min of ${currentSession} session. ` +
-        `This is a physical constraint, NOT a market quality judgment. ` +
-        `Alpha MUST log NO_TRADE as: reason="STRUCTURAL_CONSTRAINT: SL floor ${constraints.minStopLossPips.toFixed(1)}p > session travel ${feasibleTravelPips.toFixed(1)}p"`
+        `[Omega-9 SESSION_GEOMETRY_ADVISORY] ${symbol}: ` +
+        `Min SL floor ${constraints.minStopLossPips.toFixed(1)} pips vs session feasible travel ${feasibleTravelPips.toFixed(1)} pips. ` +
+        `Session geometry data provided to Alpha — Alpha retains full trade authority.`
       );
       constraints.violations.push({
         type: 'STRUCTURAL_CONSTRAINT_VIOLATION' as any,
-        severity: 'ERROR',
-        message: `STRUCTURAL IMPOSSIBILITY: Min SL (${constraints.minStopLossPips.toFixed(1)} pips) exceeds session feasible travel (${feasibleTravelPips.toFixed(1)} pips). Cannot place minimum stop-loss within session bounds. This is geometry, not market quality.`,
-        suggestedFix: `If choosing NO_TRADE, log reason as: "STRUCTURAL_CONSTRAINT: SL floor ${constraints.minStopLossPips.toFixed(1)}p > session travel ${feasibleTravelPips.toFixed(1)}p in ${sessionTimeRemainingMinutes}min ${currentSession} session"`
+        severity: 'WARNING',
+        message: `SESSION GEOMETRY DATA: Min SL floor (${constraints.minStopLossPips.toFixed(1)} pips) vs session feasible travel (${feasibleTravelPips.toFixed(1)} pips) in ${sessionTimeRemainingMinutes}min ${currentSession} session. Alpha has full authority to trade or pass based on this data.`,
+        suggestedFix: `Advisory data: SL floor ${constraints.minStopLossPips.toFixed(1)}p vs session travel ${feasibleTravelPips.toFixed(1)}p. If you choose NO_TRADE, describe the actual reason. Alpha decides.`
       });
     }
 
     if (tpFloorExceedsTravel && !slFloorExceedsTravel) {
       console.warn(
-        `[Omega-9 GEOMETRIC_CONSTRAINT] ${symbol}: ` +
-        `Min TP floor ${minTakeProfitPips.toFixed(1)} pips > session feasible travel ${feasibleTravelPips.toFixed(1)} pips. ` +
-        `GEOMETRIC CONSTRAINT — market cannot travel far enough to reach minimum TP in ${sessionTimeRemainingMinutes}min remaining. ` +
-        `This is a PHYSICAL/SESSION constraint, NOT a market quality issue. ` +
-        `Alpha MUST log NO_TRADE as: reason="GEOMETRIC_CONSTRAINT: TP floor ${minTakeProfitPips.toFixed(1)}p > session travel ${feasibleTravelPips.toFixed(1)}p"`
+        `[Omega-9 SESSION_TP_ADVISORY] ${symbol}: ` +
+        `Min TP floor ${minTakeProfitPips.toFixed(1)} pips vs session feasible travel ${feasibleTravelPips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min ${currentSession}. ` +
+        `Session travel data provided to Alpha — Alpha retains full trade authority.`
       );
       constraints.violations.push({
         type: 'GEOMETRIC_TP_CONSTRAINT' as any,
         severity: 'WARNING',
-        message: `GEOMETRIC CONSTRAINT: Min TP floor (${minTakeProfitPips.toFixed(1)} pips) exceeds session travel (${feasibleTravelPips.toFixed(1)} pips) in ${sessionTimeRemainingMinutes}min of ${currentSession} session. This is physics, not market quality.`,
-        suggestedFix: `If choosing NO_TRADE, log reason as: "GEOMETRIC_CONSTRAINT: TP floor ${minTakeProfitPips.toFixed(1)}p > session travel ${feasibleTravelPips.toFixed(1)}p" — NOT as "mixed signals" or "no momentum"`
+        message: `SESSION TRAVEL DATA: Min TP floor (${minTakeProfitPips.toFixed(1)} pips) vs session feasible travel (${feasibleTravelPips.toFixed(1)} pips) in ${sessionTimeRemainingMinutes}min of ${currentSession} session. Alpha has full authority to trade, adjust TP, or pass.`,
+        suggestedFix: `Advisory data only. Alpha may trade with current TP, widen session outlook, or pass — your call. If you pass, state the actual reason for your decision.`
       });
     }
 
@@ -696,12 +690,12 @@ STOP-LOSS BOUNDARIES (Relative):
 • Rationale: ${constraints.stopLossReasoning}
 
 STOP-LOSS BOUNDARIES (Absolute Prices):
-Your stop loss must fall within the following allowed range.
-You are free to choose any value inside it.
-• Minimum: ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} (tightest acceptable stop)
+These are the advisory range boundaries for your stop loss.
+You are free to choose any value — these are guidance, not restrictions.
+• Tightest advisory: ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} (below this SL risks noise stop-out)
 • Recommended: ${absolutePrices.stopLoss.recommended.toFixed(decimalPlaces)} (professional placement)
-• Maximum: ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)} (widest acceptable stop)
-⚠️ Your stopLoss output must be between ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} and ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)}
+• Widest advisory: ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)} (above this is over-exposed)
+ℹ️ Advisory range: ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} to ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)} — you may place SL outside this range if your structure requires it, with reasoning
 
 TAKE-PROFIT BOUNDARIES (Relative):
 • Minimum: ${constraints.minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${constraints.minRiskReward.toFixed(2)}:1)
@@ -710,12 +704,12 @@ TAKE-PROFIT BOUNDARIES (Relative):
 • Rationale: ${constraints.takeProfitReasoning}
 
 TAKE-PROFIT BOUNDARIES (Absolute Prices):
-Your take profit must fall within the following allowed range.
-You are free to choose any value inside it.
-• Minimum: ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} (meets minimum R:R)
+These are the advisory range boundaries for your take profit.
+You are free to choose any value — these are guidance, not restrictions.
+• Minimum advisory: ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} (below this R:R becomes marginal)
 • Recommended: ${absolutePrices.takeProfit.recommended.toFixed(decimalPlaces)} (professional target)
-• Maximum: ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)} (maximum realistic target)
-⚠️ Your takeProfit output must be between ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} and ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)}
+• Maximum advisory: ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)} (ATR-based realistic ceiling)
+ℹ️ Advisory range: ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} to ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)} — you may place TP outside this range if your structure supports it, with reasoning
 
 RISK:REWARD REQUIREMENTS:
 • AVAILABLE: ${constraints.minRiskReward.toFixed(2)}:1 ${tightConstraints ? '(⚠️ BELOW 1:1 - advisory only, your call)' : '(professional floor)'}
@@ -727,12 +721,11 @@ SESSION PHYSICS:
 • Expected volatility: ${constraints.volatilityPerHour.toFixed(1)} pips/hour
 • Realistic travel: ${constraints.feasibleTravelPips.toFixed(1)} pips maximum
 
-CRITICAL VALIDATION BEFORE OUTPUT:
-Before you finalize your JSON response, verify:
-✓ For ${direction}: takeProfit ${direction === 'BUY' ? '>' : '<'} entry ${direction === 'BUY' ? '>' : '<'} stopLoss
-✓ stopLoss is between ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} and ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)}
-✓ takeProfit is between ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} and ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)}
-✓ All prices are within ±20% of entry price ${entryPrice.toFixed(decimalPlaces)}
+GEOMETRY SANITY CHECK:
+Before you finalize your JSON response, confirm the one true mathematical requirement:
+✓ For ${direction}: takeProfit ${direction === 'BUY' ? '>' : '<'} entry ${direction === 'BUY' ? '>' : '<'} stopLoss (direction geometry — this is the only hard requirement)
+ℹ️ Advisory reference: SL range ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)}–${absolutePrices.stopLoss.max.toFixed(decimalPlaces)} | TP range ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)}–${absolutePrices.takeProfit.max.toFixed(decimalPlaces)}
+ℹ️ You may place SL/TP outside advisory ranges when structure requires it — state your reasoning
 
 YOUR AUTHORITY:
 ✅ You may choose ANY SL within min-max range
@@ -746,9 +739,10 @@ R:R ACCOUNTABILITY:
 • Sub-1.0:1 R:R requires explicit justification in your reasoning (e.g., "R:R is 0.7:1 because structure demands SL above X level, TP is hard resistance").
 • At 0.75:1 R:R you need 57% win rate to be profitable. At 0.5:1 R:R you need 67%. State your R:R explicitly if below 1.0:1.
 
-HARD WALL ENFORCEMENT:
-• TP > maximum → Auto-corrected to maximum (wall is physics, not advisory)
-• SL outside wall range → Advisory warning (wall defines the corridor — factor into your structural assessment)
+ADVISORY WALLS:
+• TP above maximum advisory → Factor into your R:R reasoning. You retain authority to place TP where structure dictates.
+• SL outside advisory range → Factor into your noise/survival reasoning. You retain authority to place SL where invalidation demands.
+• The only hard requirement is direction geometry: TP and SL must be on correct sides of entry.
 
 Core Principle: If the market can offer some profit, you should take it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -972,19 +966,17 @@ Core Principle: If the market can offer some profit, you should take it.
         }
       });
 
-      // Explicit instruction: if geometric constraint exists, mandate honest logging
+      // Advisory note when session geometry data is present
       const hasStructural = walls.violations.some(v =>
         (v.type as string) === 'STRUCTURAL_CONSTRAINT_VIOLATION' ||
         (v.type as string) === 'GEOMETRIC_TP_CONSTRAINT'
       );
       if (hasStructural) {
         sections.push('');
-        sections.push('⚠️ GEOMETRIC CONSTRAINT DETECTED — MANDATORY HONEST LOGGING:');
-        sections.push('  The above constraint is MATHEMATICAL/PHYSICAL in nature — it has nothing to do with market quality.');
-        sections.push('  If you choose NO_TRADE due to this constraint, your reason field MUST reference the geometric/session constraint.');
-        sections.push('  DO NOT write: "mixed signals", "no momentum", "no directional bias", "consolidation", or any market quality reason.');
-        sections.push('  DO write: "GEOMETRIC_CONSTRAINT: [specific numbers from above]"');
-        sections.push('  Fabricating market reasons to explain a mathematical impossibility is an audit failure.');
+        sections.push('SESSION GEOMETRY ADVISORY (data, not a directive):');
+        sections.push('  The above data reflects session time vs floor distances — provided so you can factor it into your reasoning.');
+        sections.push('  You have FULL AUTHORITY to trade, adjust parameters, or pass based on your assessment of the setup.');
+        sections.push('  If you pass, state your actual reason in your own words — no format is required.');
       }
     }
 
@@ -998,10 +990,10 @@ Core Principle: If the market can offer some profit, you should take it.
       const shortMinTP1Pips = walls.short.slPips.min * minTP1RR;
       const minTP2RR = style === 'MICRO_INTRADAY' ? 2.0 : 2.5;
       sections.push(`  ${style}: TP1 R:R vs SL >= ${minTP1RR.toFixed(1)}:1, TP2 R:R vs SL >= ${minTP2RR.toFixed(1)}:1`);
-      sections.push(`  CONCRETE TP1 MINIMUM: IF LONG TP1 >= ${longMinTP1Pips.toFixed(1)} pips | IF SHORT TP1 >= ${shortMinTP1Pips.toFixed(1)} pips`);
-      sections.push(`  (Derived from: SL wall min * ${minTP1RR.toFixed(1)} R:R. Alpha MUST place TP1 at or beyond this distance.)`);
+      sections.push(`  ADVISORY TP1 MINIMUM: IF LONG TP1 >= ${longMinTP1Pips.toFixed(1)} pips | IF SHORT TP1 >= ${shortMinTP1Pips.toFixed(1)} pips`);
+      sections.push(`  (Derived from: SL wall min * ${minTP1RR.toFixed(1)} R:R. Advisory target — Alpha places TP1 where structure supports it.)`);
     }
-    sections.push('  Both TP1 and TP2 must be within the TP Wall range. Violations are auto-blocked.');
+    sections.push('  Both TP1 and TP2 should be within the TP Wall advisory range. Alpha may place them outside if structure clearly supports it, with reasoning.');
     if (walls.wallCalibration?.wasCalibrated) {
       const cal = walls.wallCalibration;
       sections.push('');
@@ -1018,7 +1010,7 @@ Core Principle: If the market can offer some profit, you should take it.
     }
 
     sections.push('');
-    sections.push('WALLS ARE PHYSICS. Choose LONG, SHORT, or NO_TRADE. Place SL/TP within the chosen arena.');
+    sections.push('WALLS ARE ADVISORY INTELLIGENCE. Choose LONG, SHORT, or NO_TRADE. Place SL/TP where structure demands — use the advisory ranges as professional guidance, not restrictions.');
 
     return sections.join('\n');
   }
