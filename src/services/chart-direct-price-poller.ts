@@ -47,6 +47,7 @@ interface LivePrice {
   bid: number;
   ask: number;
   timestamp: string;
+  brokerTime?: string;
   midPrice: number;
   source: string; // Can be 'metaapi', 'database', 'kraken-live', 'binance-live', 'coingecko-live', 'cryptocompare-live'
 }
@@ -360,7 +361,12 @@ class ChartDirectPricePoller {
             symbol,
             bid: data.bid,
             ask: data.ask,
+            // CCIP-2026-04-02: Use broker_time from API response when available.
+            // If the MetaAPI endpoint returns a broker_time, it is authoritative server time.
+            // timestamp remains as client fallback for legacy consumers; brokerTime is the
+            // SSOT for candle slot alignment in updateCurrentCandleFromTick.
             timestamp: new Date().toISOString(),
+            brokerTime: data.brokerTime || data.broker_time || undefined,
             midPrice,
             source: actualSource
           });
@@ -421,7 +427,10 @@ class ChartDirectPricePoller {
           symbol: price.symbol,
           bid,
           ask,
+          // CCIP-2026-04-02: broker_time is the authoritative server-side timestamp.
+          // Expose it as brokerTime so candle slot calculation uses server time, not client time.
           timestamp: price.broker_time || price.created_at,
+          brokerTime: price.broker_time || price.created_at,
           midPrice: (bid + ask) / 2,
           source: 'database' as const
         };

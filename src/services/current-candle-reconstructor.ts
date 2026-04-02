@@ -55,8 +55,22 @@ class CurrentCandleReconstructor {
     try {
       const timeframeMinutes = getTimeframeMinutes(timeframe);
 
-      // Calculate when the current candle period started
-      const now = Date.now();
+      // CCIP-2026-04-02 (RECONSTRUCTOR-CLOCK-SKEW):
+      // Calculate candle period from authoritative broker_time, not client Date.now().
+      // Step 1: Get the most recent broker_time for this symbol to anchor the boundary.
+      const { data: latestTickForAnchor } = await supabase
+        .from('realtime_prices')
+        .select('broker_time, created_at')
+        .eq('symbol', symbol)
+        .order('broker_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const anchorTimeMs = latestTickForAnchor
+        ? new Date(latestTickForAnchor.broker_time || latestTickForAnchor.created_at).getTime()
+        : Date.now();
+
+      const now = anchorTimeMs;
       const currentCandleStartMs = Math.floor(now / (timeframeMinutes * 60 * 1000)) * (timeframeMinutes * 60 * 1000);
       const currentCandleStartTime = Math.floor(currentCandleStartMs / 1000);
 
@@ -70,7 +84,7 @@ class CurrentCandleReconstructor {
       );
       logger.debug(
         LogCategory.CHART_POLLER,
-        `  Current period: ${new Date(currentCandleStartMs).toISOString()}`
+        `  Current period: ${new Date(currentCandleStartMs).toISOString()} (anchored to broker_time)`
       );
 
       // Fetch all ticks since the current candle period started

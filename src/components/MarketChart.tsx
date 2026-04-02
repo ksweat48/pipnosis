@@ -705,7 +705,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   // Gap detection removed - now using automatic recent candle backfill instead
 
-  const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => {
+  const updateCurrentCandleFromTick = (tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number; brokerTime?: string }) => {
     // CRITICAL: Check if chart is still mounted
     if (!isMountedRef.current || !candlestickSeriesRef.current || !chartRef.current) {
       return;
@@ -772,9 +772,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     renderFrameRef.current = requestAnimationFrame(() => {
 
       const price = tick.midPrice;
-      const timestampMs = new Date(tick.timestamp).getTime();
+      // CCIP-2026-04-02 (TICK-CANDLE-CLOCK-SKEW):
+      // Use brokerTime (server-authoritative) when available to derive the candle slot.
+      // tick.timestamp from the MetaAPI path is set to new Date().toISOString() (client time),
+      // which can diverge from broker/server UTC and place the tick in the wrong candle period.
+      // brokerTime comes directly from the broker feed and is the SSOT for candle alignment.
+      const tickTimeMs = new Date(tick.brokerTime || tick.timestamp).getTime();
       const timeframeMinutes = getTimeframeMinutes(timeframe);
-      const candleTime = Math.floor(timestampMs / (timeframeMinutes * 60 * 1000)) * (timeframeMinutes * 60 * 1000);
+      const candleTime = Math.floor(tickTimeMs / (timeframeMinutes * 60 * 1000)) * (timeframeMinutes * 60 * 1000);
       const candleTimeSeconds = Math.floor(candleTime / 1000);
 
       // CRITICAL FIX: Reject ticks that would create candles older than our historical data
@@ -1728,6 +1733,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           bid: price.bid,
           ask: price.ask,
           timestamp: price.timestamp,
+          brokerTime: price.brokerTime,
           midPrice: price.midPrice
         });
 

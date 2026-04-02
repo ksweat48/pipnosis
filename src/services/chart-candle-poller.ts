@@ -609,20 +609,51 @@ class ChartCandlePoller {
       const intervalMinutes = timeframeMap[timeframe] || 5;
       const intervalMs = intervalMinutes * 60 * 1000;
 
-      // Calculate current candle start time
-      const now = Date.now();
-      const currentCandleStartMs = Math.floor(now / intervalMs) * intervalMs;
+      // CCIP-2026-04-02 (FORMING-CANDLE-CLOCK-SKEW):
+      // ROOT CAUSE: Date.now() is client browser time, which can diverge from broker/server
+      // time. This caused the candle boundary query to start at the wrong UTC offset, pulling
+      // ticks from the wrong period and rendering a stale or misaligned forming candle.
+      //
+      // FIX: Derive the candle boundary from the latest broker_time in realtime_prices for this
+      // symbol. broker_time is authoritative server-side time. We align the boundary to the
+      // timeframe grid using that timestamp, ensuring the query window always matches the actual
+      // market candle period regardless of the client's local clock.
+      //
+      // SSOT ALIGNMENT: candle-data-service.ts:aggregatePricesToCurrentCandle already uses
+      // broker_time for all its internal calculations — this fix brings pollFormingCandle into
+      // alignment with that contract.
+
+      // Step 1: Get the most recent broker_time for this symbol to anchor the candle boundary
+      const { data: latestTick, error: latestTickError } = await supabase
+        .from('realtime_prices')
+        .select('broker_time, created_at')
+        .eq('symbol', symbol)
+        .order('broker_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // Step 2: Derive candle boundary from broker_time (authoritative) or fall back to Date.now()
+      let anchorTimeMs: number;
+      if (!latestTickError && latestTick) {
+        anchorTimeMs = new Date(latestTick.broker_time || latestTick.created_at).getTime();
+        console.log(`[ChartPoller] 🔍 Using broker_time anchor for ${symbol}: ${new Date(anchorTimeMs).toISOString()}`);
+      } else {
+        anchorTimeMs = Date.now();
+        console.warn(`[ChartPoller] ⚠️ No broker_time available for ${symbol}, falling back to Date.now() — candle boundary may be approximate`);
+      }
+
+      const currentCandleStartMs = Math.floor(anchorTimeMs / intervalMs) * intervalMs;
       const currentCandleStart = new Date(currentCandleStartMs);
 
       console.log(`[ChartPoller] 🔍 Forming candle query: ${symbol} ${timeframe} since ${currentCandleStart.toISOString()}`);
 
-      // Fetch all ticks since current candle start
+      // Fetch all ticks since current candle start using broker_time for consistent alignment
       const { data: prices, error: pricesError } = await supabase
         .from('realtime_prices')
-        .select('bid, ask, created_at')
+        .select('bid, ask, created_at, broker_time')
         .eq('symbol', symbol)
-        .gte('created_at', currentCandleStart.toISOString())
-        .order('created_at', { ascending: true });
+        .gte('broker_time', currentCandleStart.toISOString())
+        .order('broker_time', { ascending: true });
 
       if (pricesError) {
         console.error(`[ChartPoller] ❌ Error fetching forming candle ticks:`, pricesError);
