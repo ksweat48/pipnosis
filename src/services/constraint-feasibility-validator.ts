@@ -106,7 +106,7 @@ Alpha retains full authority to decide how to proceed.
       advisoryMessage,
       alphaOptions: [
         `Accept reduced R:R of ${maxAchievableRR.toFixed(2)}:1 (market reality)`,
-        `Skip this trade and return NO_TRADE (style is IMMUTABLE - cannot change)`,
+        `Seek a different entry or structural geometry within the same style`,
         `Widen stop loss to improve R:R at current market constraints`,
         `Accept higher position risk with lower R:R (if setup quality justifies)`
       ]

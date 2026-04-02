@@ -178,7 +178,7 @@ class Omega9ConstraintProvider {
           sessionConstraintMode = 'ADVISORY';
 
           if (feasibleTravelPips < idealMinTakeProfitPips) {
-            tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} minimum TP requires ${idealMinTakeProfitPips.toFixed(1)} pips but only ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining. Consider NO_TRADE if minimum R:R not achievable within session.`;
+            tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} minimum TP requires ${idealMinTakeProfitPips.toFixed(1)} pips but only ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining. Alpha has full authority to assess whether R:R geometry is achievable.`;
           }
           break;
 
@@ -878,7 +878,15 @@ Core Principle: If the market can offer some profit, you should take it.
       `  Timeframe: ${walls.timeframe} | Candles: ${walls.targetCandles.min}-${walls.targetCandles.max} | Duration: ${walls.durationBand.min}-${walls.durationBand.max} min | Entry: ${walls.entryMode}`,
       '',
       'SESSION:',
-      `  Time Remaining: ${walls.sessionTimeRemaining} min | Volatility: ${walls.volatilityPerHour.toFixed(1)} pips/hr | Feasible Travel: ${walls.feasibleTravelPips.toFixed(1)} pips`,
+      (() => {
+        const ftPips = walls.feasibleTravelPips;
+        const tpMinPips = Math.max(walls.long.tpPips.min, walls.short.tpPips.min);
+        const headroom = ftPips - tpMinPips;
+        const headroomStr = headroom >= 0
+          ? `+${headroom.toFixed(1)} pips above TP min`
+          : `${headroom.toFixed(1)} pips below TP min (trade may extend past session)`;
+        return `  Time Remaining: ${walls.sessionTimeRemaining} min | Volatility: ${walls.volatilityPerHour.toFixed(1)} pips/hr | Feasible Travel: ${ftPips.toFixed(1)} pips | Style TP min: ${tpMinPips.toFixed(1)} pips | Travel headroom: ${headroomStr}`;
+      })(),
     ];
 
     if (walls.correlationExposure) {

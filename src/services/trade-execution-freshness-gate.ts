@@ -241,7 +241,7 @@ export class TradeExecutionFreshnessGate {
         advisoryMessage = 'Some data moderately stale - Alpha should factor this into confidence';
         break;
       case 'CRITICAL':
-        advisoryMessage = 'Critical staleness detected - Alpha should strongly consider NO_TRADE';
+        advisoryMessage = 'Critical staleness detected - Alpha should weight staleness risk in confidence calibration';
         break;
     }
 

@@ -137,7 +137,7 @@ class ProfessionalRiskManager {
     // EV Gate is now always approved (advisory mode)
     // Provide warnings based on confidence level
     if (evGate.confidenceLevel === 'very-low') {
-      criticalWarnings.push('⚠️ CRITICAL: Negative expected value - strongly consider NO_TRADE');
+      criticalWarnings.push('⚠️ CRITICAL: Negative expected value - edge is negative, Alpha should scrutinize setup quality before proceeding');
       recommendations.push(...evGate.recommendations);
     } else if (evGate.confidenceLevel === 'low') {
       criticalWarnings.push('⚠️ Low expected value - marginal trade');
