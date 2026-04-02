@@ -269,16 +269,6 @@ class Omega9ConstraintProvider {
       );
     }
 
-    const minTakeProfitPips = Math.min(
-      Math.max(idealMinTakeProfitPips, envelopeTpMin),
-      maxTakeProfitPips
-    );
-    const constraintFeasibilityWarning = '';
-
-    // Build take-profit reasoning with style-aware session context
-    const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (R:R ≤ ${maxRiskReward.toFixed(1)}:1 — style ceiling). Alpha scales TP freely within this band.`;
-    const fullTpReasoning = constraintFeasibilityWarning || (baseTpReasoning + tpReasoningSuffix);
-
     let envelopeAlignedProfileMin = stopLossCalc.profileMinPips;
     let envelopeAlignedProfileMax = stopLossCalc.profileMaxPips;
 
@@ -299,6 +289,53 @@ class Omega9ConstraintProvider {
     // New behavior: Envelope bounds define the wall. Alpha sees the noise floor as market intel.
     const finalMinStopLoss = envelopeAlignedProfileMin;
     const finalMaxStopLoss = envelopeAlignedProfileMax;
+
+    // CCIP-2026-04-02: Fix TP ceiling suppression root cause.
+    //
+    // Problem: maxTakeProfitPips was calculated pre-envelope-alignment as:
+    //   rrCeilingMaxTakeProfitPips = referenceSLPips × maxRiskReward
+    // where referenceSLPips = stopLossCalc.stopLossPips (raw recommended stop, e.g. 20 pips for
+    // SCALP US30). This produces a TP ceiling of 20 × 2.0 = 40 pips.
+    //
+    // Meanwhile, the noise floor for US30 = 1.15 × ATR = ~106 pips, and the envelope TP max
+    // for US30 SCALP at $47k = 0.35% × price = ~164 pips.
+    //
+    // Alpha sees: "noise floor 106 pips (you might get stopped out below this)" vs
+    //             "TP max 40 pips" → infers R:R ≤ 0.37:1 → returns NO_TRADE. Correct logic,
+    //             wrong input data (TP ceiling was incorrectly suppressed).
+    //
+    // Fix: After envelope alignment, recalculate referenceSLPips using the envelope SL floor
+    // so that rrCeilingMaxTakeProfitPips correctly scales with the actual style wall, not the
+    // raw profile recommendation. Then raise maxTakeProfitPips to the envelope TP ceiling as
+    // a floor — the envelope is the authoritative style boundary, not the SL×RR formula.
+    const envelopeAlignedReferenceSL = Math.max(referenceSLPips, envelopeAlignedProfileMin);
+    const envelopeAlignedRRCeilingTP = envelopeAlignedReferenceSL * maxRiskReward;
+    const envelopeTpMax = envelopeBounds.tpPips.max;
+
+    if (envelopeAlignedRRCeilingTP > maxTakeProfitPips || envelopeTpMax > maxTakeProfitPips) {
+      const correctedTP = Math.max(maxTakeProfitPips, envelopeAlignedRRCeilingTP, envelopeTpMax);
+      // Only raise to ATR-based max if the ATR max is larger (don't exceed market capacity)
+      const atrCappedTP = Math.min(correctedTP, atrBasedMaxTP_PIPS);
+      console.log(
+        `[Omega-9 TP Ceiling Fix] ${symbol}: TP ceiling raised from ${maxTakeProfitPips.toFixed(1)} pips → ${atrCappedTP.toFixed(1)} pips ` +
+        `(envelope SL floor ${envelopeAlignedProfileMin.toFixed(1)}p × ${maxRiskReward}x = ${envelopeAlignedRRCeilingTP.toFixed(1)}p | ` +
+        `envelope TP max ${envelopeTpMax.toFixed(1)}p | ATR cap ${atrBasedMaxTP_PIPS.toFixed(1)}p)`
+      );
+      maxTakeProfitPips = atrCappedTP;
+    }
+
+    // Recalculate minTakeProfitPips AFTER maxTakeProfitPips has been corrected by envelope alignment.
+    // Previously this ran before the TP ceiling fix, causing minTakeProfitPips to be clamped
+    // against the old suppressed maxTakeProfitPips (40 pips for US30 SCALP).
+    const minTakeProfitPips = Math.min(
+      Math.max(idealMinTakeProfitPips, envelopeTpMin),
+      maxTakeProfitPips
+    );
+    const constraintFeasibilityWarning = '';
+
+    // Build take-profit reasoning with style-aware session context
+    const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (R:R ≤ ${maxRiskReward.toFixed(1)}:1 — style ceiling). Alpha scales TP freely within this band.`;
+    const fullTpReasoning = constraintFeasibilityWarning || (baseTpReasoning + tpReasoningSuffix);
 
     const constraints: Omega9Constraints = {
       // Context (SSOT: Constraints know their context for absolute price calculations)
@@ -683,7 +720,8 @@ Entry Price: ${entryPrice.toFixed(decimalPlaces)}
 Typical Price Range: Use this as sanity check for your outputs
 
 STOP-LOSS BOUNDARIES (Relative):
-• NOISE FLOOR: ${constraints.noiseFloorPips.toFixed(1)} pips -- SL below this is statistically likely to be stopped out by normal price fluctuations. Place SL at or above the noise floor unless structural invalidation specifically requires tighter placement. (${constraints.noiseFloorReasoning})
+• NOISE FLOOR: ${constraints.noiseFloorPips.toFixed(1)} pips — statistical SL survival threshold. SL below this has elevated stop-out risk from normal price noise. (${constraints.noiseFloorReasoning})
+  IMPORTANT: The noise floor is SL survival intelligence ONLY. It has NO bearing on your TP calculation. The TP range below is derived from the style envelope, not the noise floor. Do not use the noise floor as a reason to limit TP.${constraints.noiseFloorPips > constraints.maxTakeProfitPips ? `\n  NOTE: Noise floor (${constraints.noiseFloorPips.toFixed(1)} pips) exceeds TP advisory max (${constraints.maxTakeProfitPips.toFixed(1)} pips). This means a structurally safe SL may produce sub-1:1 R:R on paper. You may use a tighter structural SL if price structure supports it — the noise floor is a statistical average, not a price-level requirement. You retain full authority to trade if you have a structural reason to tighten the SL.` : ''}
 • Minimum: ${constraints.minStopLossPips.toFixed(1)} pips
 • Maximum: ${constraints.maxStopLossPips.toFixed(1)} pips
 • Recommended: ${constraints.recommendedStopLossPips.toFixed(1)} pips
@@ -909,7 +947,7 @@ Core Principle: If the market can offer some profit, you should take it.
         `${label}:`,
         `  SL Wall: ${arena.slPrice.min.toFixed(dp)} to ${arena.slPrice.max.toFixed(dp)} (${arena.slPips.min.toFixed(1)}-${arena.slPips.max.toFixed(1)} pips, rec: ${arena.slPips.recommended.toFixed(1)})`,
         `  TP Wall: ${arena.tpPrice.min.toFixed(dp)} to ${arena.tpPrice.max.toFixed(dp)} (${arena.tpPips.min.toFixed(1)}-${arena.tpPips.max.toFixed(1)} pips, rec: ${arena.tpPips.recommended.toFixed(1)})`,
-        `  NOISE FLOOR: ${arena.noiseFloorPips.toFixed(1)} pips -- SL below this has high probability of premature stop-out from normal noise. Place SL at or above noise floor.`,
+        `  NOISE FLOOR: ${arena.noiseFloorPips.toFixed(1)} pips — SL survival advisory only (does NOT affect TP calculation). SL below this risks noise stop-out; use structural SL if your level is tighter.${arena.noiseFloorPips > arena.tpPips.max ? ` Note: noise floor exceeds TP wall max — use structural SL and your own R:R judgment.` : ''}`,
         `  Min R:R: ${arena.minRiskReward.toFixed(2)}:1`,
       ];
 
