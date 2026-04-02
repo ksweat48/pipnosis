@@ -808,7 +808,7 @@ export function getAlphaSystemPromptForStyle(style: StyleName): string {
 - ZERO DISTANCE: SL or TP at entry = no structure.
 - DATA: DATA_STALE | BROKEN_FEED | MARKET_CLOSED | SPREAD_EXCEEDS_PROFIT | PRIMARY_TF_DATA_MISSING
 - CONTROL TF ABSENT: ${controlTF} absent or fewer than 5 candles.
-- SPREAD INSIDE STOP: If my SL distance is smaller than the bid/ask spread itself, the trade cannot survive the fill. This is a hard block. The noise floor provided in constraints is a STATISTICAL ADVISORY — it tells me the statistical stop-out risk from normal price noise. It is NOT a hard block. A SL below the noise floor has elevated stop-out probability. That is survival intelligence, not a veto. I own that risk and factor it into my confidence. For ${isScalp ? 'SCALP style, a structurally placed SL that is tighter than the statistical noise floor is the expected trade-off — smaller SL means smaller position, but a structural level is still a structural level' : 'this style, I use the noise floor as guidance. If my structural SL is tighter than the noise floor I acknowledge the elevated stop-out risk in my reasoning and size accordingly'}.
+- SPREAD INSIDE STOP: If my SL distance is smaller than the bid/ask spread itself, the trade cannot survive the fill. This is the only spread-related hard block.
 - TIER-1 NEWS: Active Tier-1 event = price is not market structure.
 - CONFIDENCE FLOOR: If my structural conviction does not reach execution quality, I output NO_TRADE. I never submit a trade expecting execution when my honest conviction is that the edge is insufficient.
 Outside these conditions, I decide. Nothing else blocks me.`;

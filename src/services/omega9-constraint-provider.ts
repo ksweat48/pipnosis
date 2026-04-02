@@ -707,84 +707,17 @@ Remember: Reduced profit > NO_TRADE. You have FINAL AUTHORITY to proceed.
     }
 
     return `
-🎯 OMEGA-9 TRADING CONSTRAINTS (Your Operating Boundaries)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${advisoryNote}
-These are your DECISION BOUNDARIES, not vetoes.
-You have FULL AUTHORITY to choose within these ranges.
-
-📊 MARKET CONTEXT:
+TRADE CONTEXT:
 Symbol: ${displayName} (${symbol})
 Direction: ${direction}
 Entry Price: ${entryPrice.toFixed(decimalPlaces)}
-Typical Price Range: Use this as sanity check for your outputs
+Session: ${constraints.sessionTimeRemaining} minutes remaining
 
-STOP-LOSS BOUNDARIES (Relative):
-• NOISE FLOOR: ${constraints.noiseFloorPips.toFixed(1)} pips — statistical SL survival advisory ONLY. NOT a hard block. SL below this has elevated stop-out risk from normal price noise. (${constraints.noiseFloorReasoning})
-  CRITICAL: The noise floor is survival intelligence only — it is NOT a hard requirement and does NOT prevent you from placing your SL. You may place your SL tighter than the noise floor if a named structural level supports it. State the elevated stop-out risk in your reasoning.
-  The noise floor has NO bearing on your TP calculation. The TP range is derived from the style envelope, not the noise floor. Do not use the noise floor as a reason to limit TP or to decline a trade.${constraints.noiseFloorPips > constraints.maxStopLossPips ? `\n  CONTEXT: Noise floor (${constraints.noiseFloorPips.toFixed(1)} pips) exceeds the SL advisory max (${constraints.maxStopLossPips.toFixed(1)} pips). This is expected for this style/asset combination — it means a statistically safe SL would be wider than the envelope typically recommends. Use your structural SL placement: put the SL behind a named level, acknowledge the elevated noise risk, and trade if your structure supports it. The noise floor is a statistical average across all sessions and participants — your specific structural SL level is your authority.` : ''}${constraints.noiseFloorPips > constraints.maxTakeProfitPips ? `\n  CONTEXT: Noise floor (${constraints.noiseFloorPips.toFixed(1)} pips) exceeds TP advisory max (${constraints.maxTakeProfitPips.toFixed(1)} pips). This means a statistically safe SL may produce sub-1:1 R:R on paper. Use a structural SL — your named invalidation level is the authority, not the statistical noise floor.` : ''}
-• Minimum: ${constraints.minStopLossPips.toFixed(1)} pips
-• Maximum: ${constraints.maxStopLossPips.toFixed(1)} pips
-• Recommended: ${constraints.recommendedStopLossPips.toFixed(1)} pips
-• Rationale: ${constraints.stopLossReasoning}
+GEOMETRY REQUIREMENT (the only hard rule):
+${direction === 'BUY' ? 'BUY: takeProfit > entry > stopLoss' : 'SELL: takeProfit < entry < stopLoss'}
+Place SL behind your named invalidation level. Place TP at your named structural target. R:R accountability is yours.
 
-STOP-LOSS BOUNDARIES (Absolute Prices):
-These are the advisory range boundaries for your stop loss.
-You are free to choose any value — these are guidance, not restrictions.
-• Tightest advisory: ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} (below this SL risks noise stop-out)
-• Recommended: ${absolutePrices.stopLoss.recommended.toFixed(decimalPlaces)} (professional placement)
-• Widest advisory: ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)} (above this is over-exposed)
-ℹ️ Advisory range: ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} to ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)} — you may place SL outside this range if your structure requires it, with reasoning
-
-TAKE-PROFIT BOUNDARIES (Relative):
-• Minimum: ${constraints.minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${constraints.minRiskReward.toFixed(2)}:1)
-• Recommended: ${constraints.recommendedTakeProfitPips.toFixed(1)} pips (R:R ≥ ${constraints.targetRiskReward}:1)
-• Maximum: ${constraints.maxTakeProfitPips.toFixed(1)} pips (ATR-based maximum)
-• Rationale: ${constraints.takeProfitReasoning}
-
-TAKE-PROFIT BOUNDARIES (Absolute Prices):
-These are the advisory range boundaries for your take profit.
-You are free to choose any value — these are guidance, not restrictions.
-• Minimum advisory: ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} (below this R:R becomes marginal)
-• Recommended: ${absolutePrices.takeProfit.recommended.toFixed(decimalPlaces)} (professional target)
-• Maximum advisory: ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)} (ATR-based realistic ceiling)
-ℹ️ Advisory range: ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} to ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)} — you may place TP outside this range if your structure supports it, with reasoning
-
-RISK:REWARD REQUIREMENTS:
-• AVAILABLE: ${constraints.minRiskReward.toFixed(2)}:1 ${tightConstraints ? '(⚠️ BELOW 1:1 - advisory only, your call)' : '(professional floor)'}
-• TARGET: ${constraints.targetRiskReward}:1 (standard professional expectation)
-• OPTIMAL: ${constraints.optimalRiskReward}:1 (elite trader standard)
-
-SESSION PHYSICS:
-• Time remaining: ${constraints.sessionTimeRemaining} minutes
-• Expected volatility: ${constraints.volatilityPerHour.toFixed(1)} pips/hour
-• Realistic travel: ${constraints.feasibleTravelPips.toFixed(1)} pips maximum
-
-GEOMETRY SANITY CHECK:
-Before you finalize your JSON response, confirm the one true mathematical requirement:
-✓ For ${direction}: takeProfit ${direction === 'BUY' ? '>' : '<'} entry ${direction === 'BUY' ? '>' : '<'} stopLoss (direction geometry — this is the only hard requirement)
-ℹ️ Advisory reference: SL range ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)}–${absolutePrices.stopLoss.max.toFixed(decimalPlaces)} | TP range ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)}–${absolutePrices.takeProfit.max.toFixed(decimalPlaces)}
-ℹ️ You may place SL/TP outside advisory ranges when structure requires it — state your reasoning
-
-YOUR AUTHORITY:
-✅ You may choose ANY SL within min-max range
-✅ You may choose ANY TP within min-max range
-✅ You may override recommendations with reasoning
-✅ You may tighten or widen based on structure
-✅ You may accept lower R:R if setup quality justifies (reduced profit > NO_TRADE)
-
-R:R ACCOUNTABILITY:
-• R:R < ${constraints.minRiskReward.toFixed(2)}:1 → Advisory notice. Trade is NOT blocked. Factor this into your confidence as you see fit — you retain full authority.
-• Sub-1.0:1 R:R requires explicit justification in your reasoning (e.g., "R:R is 0.7:1 because structure demands SL above X level, TP is hard resistance").
-• At 0.75:1 R:R you need 57% win rate to be profitable. At 0.5:1 R:R you need 67%. State your R:R explicitly if below 1.0:1.
-
-ADVISORY WALLS:
-• TP above maximum advisory → Factor into your R:R reasoning. You retain authority to place TP where structure dictates.
-• SL outside advisory range → Factor into your noise/survival reasoning. You retain authority to place SL where invalidation demands.
-• The only hard requirement is direction geometry: TP and SL must be on correct sides of entry.
-
-Core Principle: If the market can offer some profit, you should take it.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHORT, or NO_TRADE based on whether a structural edge exists.
 `;
   }
 
@@ -891,165 +824,34 @@ Core Principle: If the market can offer some profit, you should take it.
     const { symbol, entryPrice, style } = walls;
     const symbolConfig = getSymbolConfig(symbol);
     const dp = symbolConfig?.decimalPlaces || 5;
-    const assetCategory = assetClassifier.getAssetCategory(symbol);
-
-    const buildArenaIntelligence = (): string[] => {
-      const lines: string[] = [
-        'ARENA INTELLIGENCE (why these walls exist):',
-      ];
-      const slMinPips = walls.long.slPips.min;
-      const tpMinPips = walls.long.tpPips.min;
-      const slMinPct = entryPrice > 0 ? ((slMinPips * (symbolConfig?.pipValue || 0.0001)) / entryPrice * 100).toFixed(3) : '?';
-      const tpMinPct = entryPrice > 0 ? ((tpMinPips * (symbolConfig?.pipValue || 0.0001)) / entryPrice * 100).toFixed(3) : '?';
-
-      if (assetCategory === 'index') {
-        const tierLabel =
-          entryPrice > 60_000 ? '>$60,000 (ultra-high index)' :
-          entryPrice > 30_000 ? '$30,001–$60,000 (US30 range)' :
-          entryPrice > 15_000 ? '$15,001–$30,000 (NAS100 mid-range)' :
-          entryPrice > 5_000  ? '$5,001–$15,000 (NAS100 low-range)' :
-                                '≤$5,000 (SPX/DE40 range)';
-        lines.push(`  Asset: INDEX | Price tier: ${tierLabel} | Current price: ${entryPrice.toFixed(2)}`);
-        lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price (price-tier scaled)`);
-        lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
-        lines.push(`  WHY: Index pip walls are derived from price-tier percentages. At this price level (${entryPrice.toFixed(0)}), 1 pip = ${((symbolConfig?.pipValue || 1) / entryPrice * 100).toFixed(4)}% of price.`);
-        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips at this index level has elevated probability of intraday noise stop-out — this is survival intelligence, not a veto.`);
-        lines.push(`  ADVISORY: SL below the floor risks noise stop-out. If structure demands a tighter SL, acknowledge the elevated risk in your reasoning and size accordingly.`);
-      } else if (assetCategory === 'crypto') {
-        lines.push(`  Asset: CRYPTO | Current price: ${entryPrice.toFixed(2)}`);
-        lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
-        lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
-        lines.push(`  WHY: Crypto operates with extreme volatility. Walls are calibrated as % of price (min 0.30–0.50% of nominal price for SL).`);
-        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips on this crypto instrument is inside the normal ATR noise band — elevated stop-out probability. This is advisory intelligence, not a veto.`);
-        lines.push(`  ADVISORY: SL tighter than the survival floor on crypto has elevated noise stop-out risk. If structure supports it, acknowledge this in your reasoning and size accordingly.`);
-      } else if (assetCategory === 'metal') {
-        lines.push(`  Asset: METAL | Current price: ${entryPrice.toFixed(2)}`);
-        lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
-        lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
-        lines.push(`  WHY: Metals (XAUUSD, XAGUSD) have high nominal prices. Walls are calibrated as % of metal price (min 0.20% of nominal for SL).`);
-        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips is within the statistical session noise floor for metals — elevated stop-out probability. Advisory only.`);
-        lines.push(`  ADVISORY: SL below the metal survival floor risks aggressive noise stop-out. If your structural SL is tighter, state the named structural level and acknowledge the elevated risk in reasoning.`);
-      } else {
-        lines.push(`  Asset: FOREX | Current price: ${entryPrice.toFixed(5)}`);
-        lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
-        lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
-        lines.push(`  WHY: Forex walls are calibrated to the session spread and ATR noise band. SL below the floor is in the statistical noise zone — elevated stop-out risk.`);
-        lines.push(`  ADVISORY: SL below ${slMinPips.toFixed(1)} pips has elevated risk of noise stop-out (spread 1–3 pips + tick noise). This is survival intelligence. If structure demands a tighter SL, state the named structural level and acknowledge the risk.`);
-      }
-
-      lines.push(`  R:R ACCOUNTABILITY: Sub-1.0:1 R:R means you need >50% win rate to profit. At 0.75:1 R:R you need 57% wins. At 0.5:1 R:R you need 67% wins.`);
-      lines.push(`  You have FULL FREEDOM to place SL and TP where structure demands — but if R:R is below 1.0:1, you MUST state the R:R in your reasoning and justify it.`);
-
-      return lines;
-    };
-
-    const formatArena = (arena: ArenaWalls, label: string): string => {
-      const lines = [
-        `${label}:`,
-        `  SL Wall: ${arena.slPrice.min.toFixed(dp)} to ${arena.slPrice.max.toFixed(dp)} (${arena.slPips.min.toFixed(1)}-${arena.slPips.max.toFixed(1)} pips, rec: ${arena.slPips.recommended.toFixed(1)})`,
-        `  TP Wall: ${arena.tpPrice.min.toFixed(dp)} to ${arena.tpPrice.max.toFixed(dp)} (${arena.tpPips.min.toFixed(1)}-${arena.tpPips.max.toFixed(1)} pips, rec: ${arena.tpPips.recommended.toFixed(1)})`,
-        `  NOISE FLOOR: ${arena.noiseFloorPips.toFixed(1)} pips — statistical SL survival ADVISORY ONLY. NOT a hard block. Does NOT affect your TP calculation. A SL tighter than this has elevated stop-out probability from normal price noise — acknowledge it in your reasoning and factor it into confidence. You may use a structural SL tighter than this floor if a named structural level supports it.${arena.noiseFloorPips > arena.tpPips.max ? ` Context: noise floor (${arena.noiseFloorPips.toFixed(1)} pips) exceeds TP wall max (${arena.tpPips.max.toFixed(1)} pips). Use your structural SL and state your R:R clearly in reasoning.` : ''}`,
-        `  Min R:R: ${arena.minRiskReward.toFixed(2)}:1`,
-      ];
-
-      if (arena.sandwichAdvisory) {
-        lines.push(`  Condition: ${arena.sandwichAdvisory}`);
-      }
-
-      if (arena.feasibilityAdvisory) {
-        lines.push(`  Advisory: ${arena.feasibilityAdvisory}`);
-      }
-
-      return lines.join('\n');
-    };
 
     const sections = [
-      'DUAL-ARENA CONSTRAINT WALLS',
-      `Symbol: ${symbolConfig?.displayName || symbol} | Entry: ${entryPrice.toFixed(dp)} | Style: ${style} (${walls.timeframe}) | Risk: ${walls.riskMode.toUpperCase()}`,
-      '',
-      ...buildArenaIntelligence(),
-      '',
-      formatArena(walls.long, 'IF LONG (BUY)'),
-      '',
-      formatArena(walls.short, 'IF SHORT (SELL)'),
-      '',
-      'STYLE IDENTITY:',
-      `  Timeframe: ${walls.timeframe} | Candles: ${walls.targetCandles.min}-${walls.targetCandles.max} | Duration: ${walls.durationBand.min}-${walls.durationBand.max} min | Entry: ${walls.entryMode}`,
+      'TRADE IDENTITY:',
+      `  Symbol: ${symbolConfig?.displayName || symbol} | Entry: ${entryPrice.toFixed(dp)} | Style: ${style} (${walls.timeframe}) | Risk: ${walls.riskMode.toUpperCase()}`,
+      `  Duration band: ${walls.durationBand.min}-${walls.durationBand.max} min | Entry mode: ${walls.entryMode}`,
       '',
       'SESSION:',
-      (() => {
-        const ftPips = walls.feasibleTravelPips;
-        const tpMinPips = Math.max(walls.long.tpPips.min, walls.short.tpPips.min);
-        const headroom = ftPips - tpMinPips;
-        const headroomStr = headroom >= 0
-          ? `+${headroom.toFixed(1)} pips above TP min`
-          : `${headroom.toFixed(1)} pips below TP min (trade may extend past session)`;
-        return `  Time Remaining: ${walls.sessionTimeRemaining} min | Volatility: ${walls.volatilityPerHour.toFixed(1)} pips/hr | Feasible Travel: ${ftPips.toFixed(1)} pips | Style TP min: ${tpMinPips.toFixed(1)} pips | Travel headroom: ${headroomStr}`;
-      })(),
+      `  Time Remaining: ${walls.sessionTimeRemaining} min`,
     ];
 
     if (walls.correlationExposure) {
-      sections.push('');
-      sections.push('CORRELATION EXPOSURE:');
-      sections.push(`  Long risks: ${walls.correlationExposure.longWarnings.length > 0 ? walls.correlationExposure.longWarnings.join('; ') : 'None'}`);
-      sections.push(`  Short risks: ${walls.correlationExposure.shortWarnings.length > 0 ? walls.correlationExposure.shortWarnings.join('; ') : 'None'}`);
-    }
-
-    if (walls.violations.length > 0) {
-      sections.push('');
-      sections.push('CONSTRAINT NOTES:');
-      walls.violations.forEach(v => {
-        sections.push(`  [${v.severity}] ${v.message}`);
-        if (v.suggestedFix) {
-          sections.push(`  INSTRUCTION: ${v.suggestedFix}`);
-        }
-      });
-
-      // Advisory note when session geometry data is present
-      const hasStructural = walls.violations.some(v =>
-        (v.type as string) === 'STRUCTURAL_CONSTRAINT_VIOLATION' ||
-        (v.type as string) === 'GEOMETRIC_TP_CONSTRAINT'
-      );
-      if (hasStructural) {
+      const longWarnings = walls.correlationExposure.longWarnings;
+      const shortWarnings = walls.correlationExposure.shortWarnings;
+      if (longWarnings.length > 0 || shortWarnings.length > 0) {
         sections.push('');
-        sections.push('SESSION GEOMETRY ADVISORY (data, not a directive):');
-        sections.push('  The above data reflects session time vs floor distances — provided so you can factor it into your reasoning.');
-        sections.push('  You have FULL AUTHORITY to trade, adjust parameters, or pass based on your assessment of the setup.');
-        sections.push('  If you pass, state your actual reason in your own words — no format is required.');
+        sections.push('CORRELATION EXPOSURE:');
+        if (longWarnings.length > 0) sections.push(`  Long risks: ${longWarnings.join('; ')}`);
+        if (shortWarnings.length > 0) sections.push(`  Short risks: ${shortWarnings.join('; ')}`);
       }
     }
 
     sections.push('');
-    sections.push('TP1/TP2 R:R WALLS (HARD ENFORCEMENT):');
-    const minTP1RR = getMinTP1RRForStyle(style);
-    if (style === 'SCALP') {
-      sections.push('  SCALP: Single TP R:R vs SL >= 1.3:1');
-    } else if (minTP1RR != null) {
-      const longMinTP1Pips = walls.long.slPips.min * minTP1RR;
-      const shortMinTP1Pips = walls.short.slPips.min * minTP1RR;
-      const minTP2RR = style === 'MICRO_INTRADAY' ? 2.0 : 2.5;
-      sections.push(`  ${style}: TP1 R:R vs SL >= ${minTP1RR.toFixed(1)}:1, TP2 R:R vs SL >= ${minTP2RR.toFixed(1)}:1`);
-      sections.push(`  ADVISORY TP1 MINIMUM: IF LONG TP1 >= ${longMinTP1Pips.toFixed(1)} pips | IF SHORT TP1 >= ${shortMinTP1Pips.toFixed(1)} pips`);
-      sections.push(`  (Derived from: SL wall min * ${minTP1RR.toFixed(1)} R:R. Advisory target — Alpha places TP1 where structure supports it.)`);
-    }
-    sections.push('  Both TP1 and TP2 should be within the TP Wall advisory range. Alpha may place them outside if structure clearly supports it, with reasoning.');
-    if (walls.wallCalibration?.wasCalibrated) {
-      const cal = walls.wallCalibration;
-      sections.push('');
-      sections.push('WALL CALIBRATION ACTIVE:');
-      sections.push(`  ATR multiplier: ${cal.originalAtrMultiple}x → ${cal.calibratedAtrMultiple}x (${cal.calibrationReason.replace(/_/g, ' ')})`);
-      if (cal.safetyCapApplied) {
-        sections.push(`  Safety cap applied: ${cal.assetClass} max ceiling enforced`);
-      }
-      if (cal.sessionExpansionApplied) {
-        sections.push('  Session time expansion active: corridor widened for short session window');
-      }
-      sections.push(`  Corridor width: ${cal.corridorWidthPips.toFixed(1)} pips available`);
-      sections.push('  Walls have been ADAPTED to current market conditions. Trade normally within the adjusted walls.');
-    }
-
+    sections.push('GEOMETRY REQUIREMENT (the only hard rule):');
+    sections.push('  BUY: takeProfit > entry > stopLoss');
+    sections.push('  SELL: takeProfit < entry < stopLoss');
     sections.push('');
-    sections.push('WALLS ARE ADVISORY INTELLIGENCE. Choose LONG, SHORT, or NO_TRADE. Place SL/TP where structure demands — use the advisory ranges as professional guidance, not restrictions.');
+    sections.push('Place SL behind your named invalidation level. Place TP at your named structural target.');
+    sections.push('R:R accountability is yours. Choose LONG, SHORT, or NO_TRADE based on whether a structural edge exists.');
 
     return sections.join('\n');
   }
