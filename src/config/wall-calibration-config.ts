@@ -118,25 +118,34 @@ export const SESSION_EXPANSION_FACTORS = {
  * downward while staying within the envelope's own range.
  *
  * HIGH: Use envelope stated floor (1.0x — no adjustment)
- * MEDIUM/NORMAL: Reduce to 75% of envelope floor
- * LOW: Reduce to 50% of envelope floor
+ * MEDIUM/NORMAL: Reduce to 65% of envelope floor
+ * LOW: Reduce to 40% of envelope floor (was 50% — reduced to accommodate late Asian session
+ *      where feasible travel for EURUSD/GBPUSD/USDJPY is only 4-6 pips. At 50% the
+ *      SCALP FOREX floor was 4.6 pips which still exceeded EURUSD travel of 4.0 pips.
+ *      At 40% the floor becomes ~3.7 pips, within reach of actual session physics.)
  *
  * This keeps the adjustment within the envelope range (since the envelope
  * defines min and max — the calibrated floor must stay above the envelope
- * minimum's lower cousin, specifically: >= envelope tpPercent.min * 0.35
+ * minimum's lower cousin, specifically: >= envelope tpPercent.min * MIN_TP_FLOOR_RATIO
  * to avoid collapsing the floor to zero).
+ *
+ * SSOT: These values are the ONLY place TP floor ratios are defined.
+ * All downstream consumers (wall-calibration-engine.ts) read from here.
  */
 export const TP_FLOOR_RATIO_BY_REGIME: Record<'low' | 'medium' | 'high', number> = {
-  low: 0.50,
-  medium: 0.75,
+  low: 0.40,
+  medium: 0.65,
   high: 1.00,
 };
 
 /**
- * Absolute minimum TP floor ratio — never compress below 35% of envelope floor.
+ * Absolute minimum TP floor ratio — never compress below 30% of envelope floor.
  * This ensures even the most calibrated-down floor has structural meaning.
+ * Reduced from 0.35 to 0.30 to accommodate extreme low-liquidity session conditions
+ * (late Asian session forex) where even 35% of the envelope floor can exceed
+ * the available session travel distance.
  */
-export const MIN_TP_FLOOR_RATIO = 0.35;
+export const MIN_TP_FLOOR_RATIO = 0.30;
 
 /**
  * Minimum corridor width required (in pips) before the calibration engine

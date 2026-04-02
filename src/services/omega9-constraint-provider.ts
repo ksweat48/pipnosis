@@ -92,6 +92,36 @@ class Omega9ConstraintProvider {
     // ADVISORY ONLY: feasibleTravelPips informs confidence scoring.
     // It does NOT limit TP or block trades - Alpha has final authority.
 
+    // STRUCTURAL GATE: Detect SL floor > feasible travel (physically impossible geometry)
+    // When the minimum stop-loss distance exceeds what the session can travel, NO valid
+    // trade geometry exists regardless of direction. This is PHYSICAL IMPOSSIBILITY —
+    // not a market quality judgment. Log it as STRUCTURAL_CONSTRAINT_VIOLATION.
+    const stopLossCalcEarly = riskAwareStopCalculator.calculateStopLoss({
+      symbol,
+      entryPrice: entry,
+      direction: direction === 'BUY' ? 'buy' : 'sell',
+      riskMode,
+      atr,
+      marketVolatility: volatilityRegime
+    });
+    const earlyFeasiblePips = (sessionTimeRemainingMinutes / 60) * this.estimateVolatilityPerHour(symbol, atr, volatilityRegime, currentSession) * 0.8;
+    const assetCategoryEarly = assetClassifier.getAssetCategory(symbol);
+    const is24HourEarly = assetClassifier.is24HourMarket(symbol);
+    if (!is24HourEarly && assetCategoryEarly !== 'forex') {
+      // For indices and metals: check if min SL floor exceeds feasible travel
+      const envelopeAssetClassEarly = this.mapAssetCategoryToEnvelope(assetCategoryEarly);
+      const mappedStyleEarly = STYLE_MAP[tradeStyle] || tradeStyle;
+      const envelopeBoundsEarly = getAssetClassEnvelopeBounds(mappedStyleEarly, envelopeAssetClassEarly, symbol, entry);
+      if (envelopeBoundsEarly.slPips.min > earlyFeasiblePips && earlyFeasiblePips > 0) {
+        console.warn(
+          `[Omega-9 STRUCTURAL_CONSTRAINT_VIOLATION] ${symbol}: Min SL floor ${envelopeBoundsEarly.slPips.min.toFixed(1)} pips ` +
+          `exceeds session feasible travel ${earlyFeasiblePips.toFixed(1)} pips. ` +
+          `GEOMETRIC IMPOSSIBILITY — cannot place minimum SL within session bounds. ` +
+          `Root cause: ${assetCategoryEarly.toUpperCase()} style floor too wide for remaining ${sessionTimeRemainingMinutes}min of ${currentSession} session.`
+        );
+      }
+    }
+
     // ✅ CRITICAL FIX: Convert ATR-based TP from PRICE UNITS to PIPS
     // BUG: atr is in PRICE_UNITS (e.g., 0.00039 for GBPUSD), not pips
     // WRONG: maxTakeProfitPips = 0.00468 (rounds to 0 pips)
@@ -323,6 +353,42 @@ class Omega9ConstraintProvider {
 
     const isInfeasible = !feasibilityStatus.isFeasible;
     const maxAchievableRR = feasibilityStatus.maxRiskRewardAchievable;
+
+    // Detect session-travel vs TP-floor infeasibility (geometric mismatch, not market quality)
+    const tpFloorExceedsTravel = feasibleTravelPips > 0 && minTakeProfitPips > feasibleTravelPips;
+    const slFloorExceedsTravel = feasibleTravelPips > 0 && constraints.minStopLossPips > feasibleTravelPips;
+
+    if (slFloorExceedsTravel) {
+      console.warn(
+        `[Omega-9 STRUCTURAL_CONSTRAINT_VIOLATION] ${symbol}: ` +
+        `Min SL floor ${constraints.minStopLossPips.toFixed(1)} pips > session feasible travel ${feasibleTravelPips.toFixed(1)} pips. ` +
+        `GEOMETRIC IMPOSSIBILITY — cannot construct valid trade geometry in ${sessionTimeRemainingMinutes}min of ${currentSession} session. ` +
+        `This is a physical constraint, NOT a market quality judgment. ` +
+        `Alpha MUST log NO_TRADE as: reason="STRUCTURAL_CONSTRAINT: SL floor ${constraints.minStopLossPips.toFixed(1)}p > session travel ${feasibleTravelPips.toFixed(1)}p"`
+      );
+      constraints.violations.push({
+        type: 'STRUCTURAL_CONSTRAINT_VIOLATION' as any,
+        severity: 'ERROR',
+        message: `STRUCTURAL IMPOSSIBILITY: Min SL (${constraints.minStopLossPips.toFixed(1)} pips) exceeds session feasible travel (${feasibleTravelPips.toFixed(1)} pips). Cannot place minimum stop-loss within session bounds. This is geometry, not market quality.`,
+        suggestedFix: `If choosing NO_TRADE, log reason as: "STRUCTURAL_CONSTRAINT: SL floor ${constraints.minStopLossPips.toFixed(1)}p > session travel ${feasibleTravelPips.toFixed(1)}p in ${sessionTimeRemainingMinutes}min ${currentSession} session"`
+      });
+    }
+
+    if (tpFloorExceedsTravel && !slFloorExceedsTravel) {
+      console.warn(
+        `[Omega-9 GEOMETRIC_CONSTRAINT] ${symbol}: ` +
+        `Min TP floor ${minTakeProfitPips.toFixed(1)} pips > session feasible travel ${feasibleTravelPips.toFixed(1)} pips. ` +
+        `GEOMETRIC CONSTRAINT — market cannot travel far enough to reach minimum TP in ${sessionTimeRemainingMinutes}min remaining. ` +
+        `This is a PHYSICAL/SESSION constraint, NOT a market quality issue. ` +
+        `Alpha MUST log NO_TRADE as: reason="GEOMETRIC_CONSTRAINT: TP floor ${minTakeProfitPips.toFixed(1)}p > session travel ${feasibleTravelPips.toFixed(1)}p"`
+      );
+      constraints.violations.push({
+        type: 'GEOMETRIC_TP_CONSTRAINT' as any,
+        severity: 'WARNING',
+        message: `GEOMETRIC CONSTRAINT: Min TP floor (${minTakeProfitPips.toFixed(1)} pips) exceeds session travel (${feasibleTravelPips.toFixed(1)} pips) in ${sessionTimeRemainingMinutes}min of ${currentSession} session. This is physics, not market quality.`,
+        suggestedFix: `If choosing NO_TRADE, log reason as: "GEOMETRIC_CONSTRAINT: TP floor ${minTakeProfitPips.toFixed(1)}p > session travel ${feasibleTravelPips.toFixed(1)}p" — NOT as "mixed signals" or "no momentum"`
+      });
+    }
 
     if (isInfeasible) {
       console.warn('[Omega-9 Constraints] ⚠️ FEASIBILITY ADVISORY: Constraint conflict detected');
@@ -901,7 +967,25 @@ Core Principle: If the market can offer some profit, you should take it.
       sections.push('CONSTRAINT NOTES:');
       walls.violations.forEach(v => {
         sections.push(`  [${v.severity}] ${v.message}`);
+        if (v.suggestedFix) {
+          sections.push(`  INSTRUCTION: ${v.suggestedFix}`);
+        }
       });
+
+      // Explicit instruction: if geometric constraint exists, mandate honest logging
+      const hasStructural = walls.violations.some(v =>
+        (v.type as string) === 'STRUCTURAL_CONSTRAINT_VIOLATION' ||
+        (v.type as string) === 'GEOMETRIC_TP_CONSTRAINT'
+      );
+      if (hasStructural) {
+        sections.push('');
+        sections.push('⚠️ GEOMETRIC CONSTRAINT DETECTED — MANDATORY HONEST LOGGING:');
+        sections.push('  The above constraint is MATHEMATICAL/PHYSICAL in nature — it has nothing to do with market quality.');
+        sections.push('  If you choose NO_TRADE due to this constraint, your reason field MUST reference the geometric/session constraint.');
+        sections.push('  DO NOT write: "mixed signals", "no momentum", "no directional bias", "consolidation", or any market quality reason.');
+        sections.push('  DO write: "GEOMETRIC_CONSTRAINT: [specific numbers from above]"');
+        sections.push('  Fabricating market reasons to explain a mathematical impossibility is an audit failure.');
+      }
     }
 
     sections.push('');

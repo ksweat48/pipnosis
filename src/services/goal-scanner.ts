@@ -535,8 +535,50 @@ class GoalScanner {
     console.log(`[Goal Scanner] ✅ ${symbol}: Passed basic filter - calling Alpha-Omega...`);
 
     try {
-      // PHASE 4 REMOVED: Scout check eliminated - no longer needed with SSOT snapshot caching
-      // Scout was redundant: snapshot cache already provides instant reuse of market analysis
+      // CANDLE PRICE INTEGRITY CHECK (Fix 4 - XAUUSD $4603 vs $4758 bug)
+      // The snapshot.price comes from the last stored candle close, which can be stale
+      // if the candle pipeline has gaps. Compare snapshot price against realtime_prices.
+      // If the gap exceeds the asset threshold, invalidate the snapshot before Alpha sees it.
+      const CANDLE_INTEGRITY_THRESHOLDS: Record<string, number> = {
+        XAUUSD: 20, XAGUSD: 20,
+        US30: 50, NAS100: 50, SPX500: 30, UK100: 30, GER40: 30,
+        BTCUSD: 300, ETHUSD: 100,
+      };
+      const integrityThresholdPips = CANDLE_INTEGRITY_THRESHOLDS[symbol] ?? 15;
+
+      try {
+        const { data: liveRow } = await supabase
+          .from('realtime_prices')
+          .select('bid, ask, broker_time')
+          .eq('symbol', symbol)
+          .order('broker_time', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (liveRow) {
+          const livePrice = (liveRow.bid + liveRow.ask) / 2;
+          const { calculatePipDistance } = await import('../utils/currencyHelpers');
+          const gapPips = Math.abs(calculatePipDistance(symbol, snapshot.price, livePrice));
+
+          if (gapPips > integrityThresholdPips) {
+            console.error(
+              `[Goal Scanner] 🚫 CANDLE_PRICE_INTEGRITY_FAIL: ${symbol} ` +
+              `snapshot.price=${snapshot.price.toFixed(5)} vs live=${livePrice.toFixed(5)} ` +
+              `(${gapPips.toFixed(1)} pips, threshold ${integrityThresholdPips} pips) — ` +
+              `invalidating snapshot, skipping this scan cycle`
+            );
+            sharedIntelligenceCoordinator.invalidateSnapshot(symbol, 'M15');
+            return {
+              symbol,
+              hasValidSetup: false,
+              reasoning: `CANDLE_PRICE_INTEGRITY_FAIL: snapshot price ${snapshot.price.toFixed(5)} diverged ${gapPips.toFixed(1)} pips from live price ${livePrice.toFixed(5)} (threshold: ${integrityThresholdPips} pips). Snapshot invalidated — fresh data on next cycle.`,
+              marketConditions,
+            };
+          }
+        }
+      } catch {
+        // Non-blocking: if live price fetch fails, proceed with scan as normal
+      }
 
       // ✅ Build FullMarketState from snapshot (NOT manual calculations)
       const marketState = this.snapshotToMarketState(snapshot);
