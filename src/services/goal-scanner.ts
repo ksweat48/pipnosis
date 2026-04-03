@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { forecastEngine, MarketConditions } from './forecast-engine';
 import { goalSessionManager } from './goal-session-manager';
+import { marketScheduleService } from './market-schedule-service';
 import { alphaTradeExecutor } from './alpha-trade-executor';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { getDefaultWatchlist } from '../config/watchlist';
@@ -191,13 +192,21 @@ class GoalScanner {
       if (closedSymbols.length > 0) {
         const cryptoOnly = watchlist.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
 
-        console.log(`[Goal Scanner] 🕒 ${closedSymbols.length} symbols closed (Forex/Indices weekend). Scanning ${watchlist.length} open markets (${cryptoOnly ? 'Crypto only' : 'Mixed'}).`);
+        console.log(`[Goal Scanner] 🕒 ${closedSymbols.length} symbols closed. Scanning ${watchlist.length} open markets (${cryptoOnly ? 'Crypto only' : 'Mixed'}).`);
 
         let marketMessage = '';
         if (cryptoOnly) {
-          marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${watchlist.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
+          const dbMarketStatus = await marketScheduleService.getMarketStatus();
+          const dbHoliday = await marketScheduleService.isHoliday();
+          if (dbMarketStatus.status === 'holiday' && dbHoliday) {
+            marketMessage = `📊 Forex markets closed for ${dbHoliday.name}. Scanning crypto markets only (${watchlist.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
+          } else if (dbMarketStatus.status === 'early_close' && dbHoliday) {
+            marketMessage = `📊 Forex markets closed early - ${dbHoliday.name}. Scanning crypto markets only (${watchlist.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
+          } else {
+            marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${watchlist.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
+          }
         } else {
-          marketMessage = `📊 Scanning ${watchlist.length} open markets. ${closedSymbols.length} symbols temporarily unavailable (weekend).`;
+          marketMessage = `📊 Scanning ${watchlist.length} open markets. ${closedSymbols.length} symbols temporarily unavailable.`;
         }
 
         await goalSessionManager.addAIMessage(

@@ -29,7 +29,7 @@ import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath
 import { getRiskPercentage, getMinConfidenceThreshold } from '../config/risk-levels';
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { postTradeAnalyzer } from './post-trade-analyzer';
-import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol, calculateSessionContext } from '../utils/marketHours';
+import { hasAnyOpenMarket, isSymbolMarketOpen, is24HourSymbol, getEstimationReferenceSymbol, calculateSessionContext } from '../utils/marketHours';
 import { scanResultsManager, type ScanCandidate } from './scan-results-manager';
 import { weekendProtectionService } from './weekend-protection-service';
 import { marketScheduleService } from './market-schedule-service';
@@ -563,33 +563,37 @@ class GoalSessionLiveEngine {
       if (import.meta.env.DEV) {
       }
 
-      // CRYPTO FIX: Check if ANY market is open BEFORE any LLM calls (crypto trades 24/7)
-      const anyMarketOpen = hasAnyOpenMarket(watchlist);
-      if (!anyMarketOpen) {
+      // CRYPTO FIX: Fetch async market status once to check DB holidays (synchronous
+      // isSymbolMarketOpen only checks weekends, not database-backed holidays like Good Friday).
+      const dbMarketStatus = await marketScheduleService.getMarketStatus();
+      const dbHoliday = await marketScheduleService.isHoliday();
+      const isForexClosedByHoliday = dbMarketStatus.status === 'holiday' || dbMarketStatus.status === 'early_close';
+
+      // Determine which symbols are truly tradeable:
+      // - Crypto (24/7) is always open
+      // - Forex/Indices require both the synchronous weekend check AND no DB holiday
+      const openMarketSymbols = watchlist.filter(symbol => {
+        if (is24HourSymbol(symbol)) return true;
+        if (isForexClosedByHoliday) return false;
+        return isSymbolMarketOpen(symbol);
+      });
+      const closedSymbols = watchlist.filter(symbol => !openMarketSymbols.includes(symbol));
+
+      if (openMarketSymbols.length === 0) {
         logger.info(LogCategory.AI_TRADING, '🛑 All markets closed - skipping scan to preserve LLM credits');
         await this.sendAIMessage('Markets closed - Scanning paused until reopen');
         return;
       }
 
-      // Filter to only trade symbols with open markets
-      const openMarketSymbols = watchlist.filter(symbol => isSymbolMarketOpen(symbol));
-      const closedSymbols = watchlist.filter(symbol => !isSymbolMarketOpen(symbol));
-
       if (openMarketSymbols.length < watchlist.length) {
-        if (import.meta.env.DEV) {
-        }
-
-        const cryptoOnly = openMarketSymbols.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
+        const cryptoOnly = openMarketSymbols.every(s => is24HourSymbol(s));
 
         let marketMessage = '';
         if (cryptoOnly && closedSymbols.length > 0) {
-          const marketStatus = await marketScheduleService.getMarketStatus();
-          const holiday = await marketScheduleService.isHoliday();
-
-          if (marketStatus.status === 'holiday' && holiday) {
-            marketMessage = `📊 Forex markets closed for ${holiday.name}. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
-          } else if (marketStatus.status === 'early_close' && holiday) {
-            marketMessage = `📊 Forex markets closed early - ${holiday.name}. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
+          if (dbMarketStatus.status === 'holiday' && dbHoliday) {
+            marketMessage = `📊 Forex markets closed for ${dbHoliday.name}. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
+          } else if (dbMarketStatus.status === 'early_close' && dbHoliday) {
+            marketMessage = `📊 Forex markets closed early - ${dbHoliday.name}. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
           } else {
             marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
           }
@@ -598,17 +602,27 @@ class GoalSessionLiveEngine {
         }
 
         if (marketMessage) {
-          if (import.meta.env.DEV) {
-          }
           await this.sendAIMessage(marketMessage);
         }
       }
 
-      // Check weekend protection - pass first open market symbol to allow crypto trading 24/7
-      // If we have any open market symbols (already filtered above), check if we can trade them
-      const canTrade = await (openMarketSymbols.length > 0
-        ? weekendProtectionService.canOpenNewTrade(openMarketSymbols[0])
-        : weekendProtectionService.canOpenNewTrade());
+      // Check weekend protection - find first tradeable symbol to confirm trading is allowed.
+      // Prioritize 24/7 symbols (crypto) first since they bypass all holiday/weekend blocks.
+      // openMarketSymbols is already holiday-aware so this is mainly a safeguard.
+      let canTrade: { allowed: boolean; reason?: string; holidayName?: string } = { allowed: false, reason: 'No tradeable symbols found' };
+      const sortedSymbols = [...openMarketSymbols].sort((a, b) => {
+        const aIs24h = is24HourSymbol(a) ? 0 : 1;
+        const bIs24h = is24HourSymbol(b) ? 0 : 1;
+        return aIs24h - bIs24h;
+      });
+      for (const sym of sortedSymbols) {
+        const result = await weekendProtectionService.canOpenNewTrade(sym);
+        if (result.allowed) {
+          canTrade = result;
+          break;
+        }
+        canTrade = result;
+      }
 
       if (!canTrade.allowed) {
         logger.info(LogCategory.AI_TRADING, `🛑 Trading disabled: ${canTrade.reason}`);
