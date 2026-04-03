@@ -3629,16 +3629,18 @@ Return PURE JSON only — all required fields from the schema in my system promp
           // Prompt compression target (CCIP-2026-0317A): reduce input to ~10k-12k tokens via
           // the professional reasoning contract rewrite, bringing effective cost to ~$0.03/scan.
           //
-          // TOKEN BUDGET — CCIP-2026-0329A (replaces CCIP-2026-0320):
-          // Production data (7-day, 543 gpt-4o calls): max completion = 1,337 tokens,
-          //   p99 = 1,249, avg = 189. max_tokens reduced from 2000 → 1500 (163-token margin).
-          // Prompt compression in alpha-identity.ts (CCIP-2026-0329A) reduces input cost.
+          // TOKEN BUDGET — CCIP-2026-0406B (replaces CCIP-2026-0329A):
+          // CCIP-2026-0329A set max_tokens=1500 based on 7-day p99=1,249 with 163-token margin.
+          // Production evidence (2026-04-05 session): SPX500 hit finish_reason=length at 1500,
+          // losing a confirmed SELL at trade_confidence=60 (visible in [Alpha Raw Response] diag).
+          // Per the INVARIANT below, max_tokens is raised from 1500 → 2000.
+          // stopLoss/takeProfit are the last fields in the JSON schema and first to be truncated.
           //
           // INVARIANT: If finish_reason === 'length' fires, TOKEN_BUDGET_EXCEEDED surfaces.
           //   Raise max_tokens if that fires — production data justifies current ceiling.
           model: 'gpt-4o',
           temperature: 0.3,
-          max_tokens: 1500,
+          max_tokens: 2000,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator',
           symbol: marketContext.symbol
@@ -3700,7 +3702,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // abort rather than silently processing a structurally incomplete response.
       const finishReason = response.choices[0]?.finish_reason;
       if (finishReason === 'length') {
-        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=1500 (gpt-4o, CCIP-2026-0329A). Raise budget if this fires repeatedly.`);
+        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=2000 (gpt-4o, CCIP-2026-0406B). Raise budget if this fires repeatedly.`);
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',
@@ -4708,6 +4710,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
         console.log(`[Alpha Coordinator] CCIP-2026-0328B: Q11=DEEP_ZONE + execute_now — advisory observation logged. Alpha's entry_mode stands as issued. Symbol=${symbol}.`);
       }
 
+      // CCIP-2026-0406A: resolvedEntryMode declared here (before CCIP-0402A block that references it).
+      // Original declaration was at the wait_condition parse boundary (line ~4890), causing a
+      // TDZ crash for any BUY/SELL decision: "Cannot access 'resolvedEntryMode' before initialization".
+      // This killed the GBPUSD SELL at confidence=65 (confirmed by [Alpha Raw Response] diagnostics,
+      // 2026-04-05 session). resolvedWaitCondition is kept at its original site because waitCondition
+      // is not parsed until after the answer_sheet advisory blocks below.
+      // SSOT: coordinator-alpha.ts is the sole parse boundary for entry_mode.
+      let resolvedEntryMode = entryMode;
+
       // CCIP-2026-0402A: Q6=NONE_YET + execute_now consistency enforcement.
       //
       // Alpha's own prompt defines the rule:
@@ -4887,7 +4898,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // using his structural reference. Code must not synthesise zones or downgrade
       // his mode. The executor will handle a missing wait_condition gracefully.
       // SSOT: coordinator-alpha.ts passes Alpha's output as-is. No synthesis.
-      let resolvedEntryMode = entryMode;
       let resolvedWaitCondition = waitCondition;
 
       if (resolvedWaitCondition) {
