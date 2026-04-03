@@ -3664,6 +3664,35 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       const content = response.choices[0]?.message?.content || '{}';
 
+      // CCIP-2026-0405-DIAG: Raw response instrumentation — log trade_confidence at the
+      // point of receipt BEFORE any parsing or post-processing. This diagnostic was added
+      // to detect the CCIP-2026-0332A degenerate pattern (confidence=45 across all symbols)
+      // and to distinguish between GPT-4o outputting 45 vs. a downstream transformation.
+      // Also logs prompt cache hit/miss status to detect stale cached system prompt delivery.
+      try {
+        const rawConfidenceMatch = content.match(/"trade_confidence"\s*:\s*(\d+)/);
+        const rawActionMatch = content.match(/"action"\s*:\s*"([^"]+)"/);
+        const cachedTokens = (response.usage as any)?.prompt_tokens_details?.cached_tokens ?? 'unknown';
+        const totalPromptTokens = response.usage?.prompt_tokens ?? 'unknown';
+        const cacheHitPct = typeof cachedTokens === 'number' && typeof totalPromptTokens === 'number' && totalPromptTokens > 0
+          ? Math.round((cachedTokens / totalPromptTokens) * 100)
+          : 'unknown';
+        console.log(
+          `[Alpha Raw Response] symbol=${marketContext.symbol} action=${rawActionMatch?.[1] ?? 'MISSING'} ` +
+          `trade_confidence=${rawConfidenceMatch?.[1] ?? 'MISSING'} ` +
+          `cache=${cacheHitPct}% (${cachedTokens}/${totalPromptTokens} tokens cached)`
+        );
+        if (rawConfidenceMatch?.[1] === '45' && rawActionMatch?.[1] === 'NO_TRADE') {
+          console.warn(
+            `[Alpha Raw Response] CCIP-2026-0332A DEGENERATE SIGNAL: GPT-4o returned NO_TRADE with ` +
+            `confidence=45 for ${marketContext.symbol} in the raw response. ` +
+            `This matches the known anchoring pattern. Cache hit=${cacheHitPct}%.`
+          );
+        }
+      } catch {
+        // Non-fatal — raw log instrumentation must never block decision flow
+      }
+
       // CCIP (2026-03-06): Detect response truncation — if finish_reason is 'length',
       // the LLM was cut off before completing its JSON. stopLoss and takeProfit appear
       // at the END of the response schema and are the first fields lost to truncation.
@@ -4418,6 +4447,30 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       // Extract new Alpha output format fields
       const tradeConfidence = parsed.trade_confidence ?? parsed.confidence ?? 0;
+
+      // CCIP-2026-0405-DIAG: Post-parse confidence log — captures the resolved confidence
+      // value and the raw fields from GPT-4o's JSON before any downstream transformation.
+      // Use this to confirm whether confidence=45 originates from GPT-4o or is introduced here.
+      console.log(
+        `[Alpha Parse] symbol=${symbol} action=${parsed.action} ` +
+        `raw.trade_confidence=${parsed.trade_confidence ?? 'MISSING'} ` +
+        `raw.confidence=${parsed.confidence ?? 'MISSING'} ` +
+        `resolved=${tradeConfidence}`
+      );
+
+      // CCIP-2026-0405-DIAG: Sentinel — detect the specific known-degenerate confidence value.
+      // confidence=45 on NO_TRADE matches the CCIP-2026-0332A anchoring pattern exactly.
+      // If this fires, cross-reference [Alpha Raw Response] logs above to confirm whether
+      // GPT-4o emitted 45 directly or it was introduced in post-processing.
+      if (action === 'NO_TRADE' && tradeConfidence === 45) {
+        console.warn(
+          `[Alpha Parse] CCIP-2026-0332A SENTINEL: NO_TRADE with confidence=45 for ${symbol}. ` +
+          `This matches the known prompt-anchoring degenerate pattern. ` +
+          `If [Alpha Raw Response] above also shows confidence=45, the anchor is in the prompt cache. ` +
+          `Prompt cache-bust token: CCIP-2026-0405-RAW-LOG-INSTRUMENTATION.`
+        );
+      }
+
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       // CCIP-2026-0319A (Fix 2): entry_mode is only valid for BUY/SELL decisions.
       // CCIP-2026-0333: entry_mode is a routing decision (immediate vs. monitored).

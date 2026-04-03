@@ -913,6 +913,36 @@ class AlphaOmegaOrchestrator {
       }
     }
 
+    // CCIP-2026-0405-DIAG: Degenerate scan detection.
+    // If ALL evaluated symbols returned NO_TRADE with an identical confidence value,
+    // this is statistically implausible for genuinely independent market analyses and
+    // indicates prompt anchoring or a stale OpenAI prompt cache serving a pre-fix prompt.
+    {
+      const evaluatedDecisions = Array.from(decisionMap.values());
+      if (evaluatedDecisions.length >= 2) {
+        const allNoTrade = evaluatedDecisions.every(d => d.action === 'NO_TRADE');
+        if (allNoTrade) {
+          const confidenceValues = evaluatedDecisions.map(d => d.confidence);
+          const uniqueConfidences = new Set(confidenceValues);
+          if (uniqueConfidences.size === 1) {
+            const sharedConfidence = confidenceValues[0];
+            console.warn(
+              `[Alpha Orchestrator] CCIP-2026-0332A DEGENERATE_SCAN_DETECTED: ` +
+              `All ${evaluatedDecisions.length} symbols returned NO_TRADE with identical ` +
+              `confidence=${sharedConfidence}. This is statistically implausible for ` +
+              `independent market analyses. Likely cause: prompt anchoring or stale ` +
+              `OpenAI prompt cache. Check [Alpha Raw Response] logs for cache hit %.`
+            );
+          } else {
+            console.log(
+              `[Alpha Orchestrator] All ${evaluatedDecisions.length} symbols returned NO_TRADE ` +
+              `(varied confidence: ${[...uniqueConfidences].join(', ')}). Genuine no-edge scan.`
+            );
+          }
+        }
+      }
+    }
+
     if (config.tracking.logDetailedTimings) {
       symbolTimings.forEach((timing, symbol) => {
         const decision = decisionMap.get(symbol);
@@ -1024,6 +1054,27 @@ class AlphaOmegaOrchestrator {
         };
         decisionMap.set(marketState.symbol, errorDecision);
         continue;
+      }
+    }
+
+    // CCIP-2026-0405-DIAG: Degenerate scan detection (sequential path).
+    {
+      const evaluatedDecisions = Array.from(decisionMap.values());
+      if (evaluatedDecisions.length >= 2) {
+        const allNoTrade = evaluatedDecisions.every(d => d.action === 'NO_TRADE');
+        if (allNoTrade) {
+          const confidenceValues = evaluatedDecisions.map(d => d.confidence);
+          const uniqueConfidences = new Set(confidenceValues);
+          if (uniqueConfidences.size === 1) {
+            const sharedConfidence = confidenceValues[0];
+            console.warn(
+              `[Alpha Orchestrator] CCIP-2026-0332A DEGENERATE_SCAN_DETECTED: ` +
+              `All ${evaluatedDecisions.length} symbols returned NO_TRADE with identical ` +
+              `confidence=${sharedConfidence}. Likely cause: prompt anchoring or stale ` +
+              `OpenAI prompt cache. Check [Alpha Raw Response] logs for cache hit %.`
+            );
+          }
+        }
       }
     }
 
