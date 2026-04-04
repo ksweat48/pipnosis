@@ -931,39 +931,21 @@ class AlphaTradeExecutor {
       };
     }
 
-    // CCIP-2026-0323C: Entry Deviation — Advisory-Only, Never Block
-    // Alpha's decision authority is the risk DISTANCE (pips), not absolute price levels.
-    // When actual fill differs from planned entry, shift SL/TP to preserve Alpha's intended
-    // risk geometry. This is NOT mutation of Alpha's decision — it is faithful execution of it.
+    // CCIP-ALPHA-GOV-LEVELS: Alpha's SL and TP are structural levels set by Alpha's professional judgment.
+    // They are executed exactly as issued. Fill price differences do not shift these levels.
+    // Alpha places SL behind specific structural features (swing highs/lows, FVGs, key levels)
+    // and TP at specific target zones — shifting those levels breaks the structural validity
+    // of the trade regardless of whether R:R is numerically preserved.
     //
-    // REMOVED (CCIP-2026-0323C): The hard-cancel ENTRY_DEVIATION_BLOCK that previously
-    // cancelled trades when fill exceeded max_entry_deviation_pips. The SL/TP shift already
-    // solves the structural validity concern correctly. The hard cancel was redundant and
-    // prevented Alpha from executing valid setups. Deviation is now always advisory-only:
-    // observed, logged, and audited — but NEVER a trade cancellation gate.
+    // Audit-only: log the fill deviation for observability but do not act on it.
     const plannedEntry = decision.entry;
     const entryDeviation = adjustedEntry - plannedEntry;
-    let executionSL = decision.stopLoss;
-    let executionTP = decision.takeProfit;
-    let executionTP1 = decision.tp1Price;
-    let executionTP2 = decision.tp2Price;
-    let slTpRecalculated = false;
 
     if (Number.isFinite(entryDeviation) && Math.abs(entryDeviation) > 1e-8) {
       const pipInfo = getCurrencyPipInfo(decision.symbol);
       const reasoningPipSize = pipInfo.pipValue;
       const deviationReasoningPips = Math.abs(entryDeviation) / reasoningPipSize;
       const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
-
-      executionSL = decision.stopLoss + entryDeviation;
-      executionTP = decision.takeProfit + entryDeviation;
-      if (decision.tp1Price != null && Number.isFinite(decision.tp1Price)) {
-        executionTP1 = decision.tp1Price + entryDeviation;
-      }
-      if (decision.tp2Price != null && Number.isFinite(decision.tp2Price)) {
-        executionTP2 = decision.tp2Price + entryDeviation;
-      }
-      slTpRecalculated = true;
 
       await supabase.from('entry_price_deviation_events').insert({
         user_id: userId,
@@ -976,26 +958,24 @@ class AlphaTradeExecutor {
         deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
         max_allowed_pips: null,
         alpha_max_deviation_pips: decision.max_entry_deviation_pips ?? null,
-        action_taken: 'SHIFTED',
+        action_taken: 'AUDIT_ONLY',
         planned_sl: decision.stopLoss,
         planned_tp: decision.takeProfit,
-        execution_sl: executionSL,
-        execution_tp: executionTP,
-      });
+        execution_sl: decision.stopLoss,
+        execution_tp: decision.takeProfit,
+      }).catch(() => {});
 
       logger.info(
         LogCategory.TRADE_EXECUTION,
-        '[AlphaTradeExecutor] SL/TP shifted to preserve Alpha risk geometry at actual fill',
+        '[AlphaTradeExecutor] Fill deviation observed — Alpha levels unchanged (structural integrity preserved)',
         {
           symbol: decision.symbol,
           plannedEntry,
           actualEntry: adjustedEntry,
           deviationReasoningPips: Math.round(deviationReasoningPips * 10) / 10,
-          originalSL: decision.stopLoss,
-          executionSL,
-          originalTP: decision.takeProfit,
-          executionTP,
-          ccip: 'CCIP-2026-0323C — advisory-only, no block'
+          sl: decision.stopLoss,
+          tp: decision.takeProfit,
+          ccip: 'CCIP-ALPHA-GOV-LEVELS — Alpha levels stand as issued'
         }
       );
     }
@@ -1016,10 +996,10 @@ class AlphaTradeExecutor {
         expectedProfitFromCoordinator: params.expectedProfitAtTP,
         impliedRRRatio: params.impliedRRRatio,
         lotSizingAuditRecord: params.lotSizingAuditRecord,
-        executionStopLoss: slTpRecalculated ? executionSL : undefined,
-        executionTakeProfit: slTpRecalculated ? executionTP : undefined,
-        executionTP1: slTpRecalculated ? executionTP1 : undefined,
-        executionTP2: slTpRecalculated ? executionTP2 : undefined,
+        executionStopLoss: undefined,
+        executionTakeProfit: undefined,
+        executionTP1: undefined,
+        executionTP2: undefined,
         canonicalStyle: params.canonicalStyle,
         rawTradeStyle: params.rawTradeStyle,
       });
@@ -1042,15 +1022,15 @@ class AlphaTradeExecutor {
     // TIER 3 FIX: Mandatory Safety Validator - ONLY allowed blocker
     // CRITICAL: This is the ONLY service that can block trades for safety reasons
     // All other checks (confidence, EQS, etc.) are advisory only
-    // CCIP (2026-02-12): Pass execution SL/TP (recalculated if needed), not Alpha's planned levels
+    // CCIP-ALPHA-GOV-LEVELS: Alpha's SL/TP stand as issued — no fill-price scaling applied
     const safetyValidation = await mandatorySafetyValidator.validate(
       userId,
       sessionId,
       decision.symbol,
       decision.action as 'BUY' | 'SELL',
       adjustedEntry,
-      executionSL,
-      executionTP,
+      decision.stopLoss,
+      decision.takeProfit,
       lotSize,
       inputs.tradeContext
     );
@@ -1983,9 +1963,10 @@ class AlphaTradeExecutor {
 
     // SSOT: goal_session_trades schema compliance (20260202)
     // Fields omega8/omega9 removed from schema - data lives in alpha_decisions table
-    // CCIP (2026-02-12): Use execution SL/TP overrides if provided (recalculated for actual fill)
-    let finalSL = executionStopLoss ?? decision.stopLoss;
-    const finalTP = executionTakeProfit ?? decision.takeProfit;
+    // CCIP-ALPHA-GOV-LEVELS: Alpha's SL/TP stand as issued. executionStopLoss/executionTakeProfit
+    // are always undefined now (fill-price scaling removed). Alpha's structural levels are final.
+    let finalSL = decision.stopLoss;
+    const finalTP = decision.takeProfit;
 
     // CCIP-2026-0320C: PROXIMITY_RISK SL Widening Guard
     // Audit trace (2026-03-20): XAUUSD SELL had SL only 2.5 pips from nearest wick (Q9=PROXIMITY_RISK).
@@ -2027,7 +2008,7 @@ class AlphaTradeExecutor {
     // CCIP GOVERNANCE (2026-02-16): Defensive guard — scalp trades never have TP2
     // coordinator-alpha.ts is SSOT, but executor enforces as defensive layer
     const isScalpTrade = canonicalStyle === 'SCALP';
-    const finalTP2 = isScalpTrade ? null : (executionTP2 ?? decision.tp2Price);
+    const finalTP2 = isScalpTrade ? null : decision.tp2Price;
 
     // CCIP-2026-0320B: TP1 Midpoint Governance Safety Net
     // Alpha is SOLE authority for TP placement (CCIP-2026-02-16).
@@ -2041,7 +2022,7 @@ class AlphaTradeExecutor {
     //   3. A full TP target exists (finalTP2 is non-null)
     // The midpoint is the standard market practice for partial profit protection.
     // This does NOT override Alpha — it fills the gap when Alpha is silent on TP1.
-    let rawTP1 = executionTP1 !== undefined ? executionTP1 : decision.tp1Price;
+    let rawTP1 = decision.tp1Price;
 
     if (!isScalpTrade && (rawTP1 == null || !Number.isFinite(rawTP1 as number)) && finalTP2 != null && Number.isFinite(finalTP2)) {
       const midpointTP1 = entryPrice + (finalTP2 - entryPrice) * 0.5;

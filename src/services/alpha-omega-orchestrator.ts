@@ -738,12 +738,22 @@ class AlphaOmegaOrchestrator {
           timeoutPromise
         ]);
 
-        // CCIP-ALPHA-GOV-001: Post-Alpha audit — log whether tp_multiplier_override was set.
-        // Alpha is required to set this on every BUY/SELL response. Absence is a governance warn.
-        if (decision.action !== 'NO_TRADE') {
-          if (decision.tp_multiplier_override == null) {
-            console.warn(`[CCIP-ALPHA-GOV-001] ${marketState.symbol}: tp_multiplier_override not set by Alpha — static 3.0x ATR base was used for proposed TP`);
-          }
+        // CCIP-ALPHA-GOV-001: Post-Alpha hard block — tp_multiplier_override is REQUIRED on every BUY/SELL.
+        // Alpha must name the ATR distance to his TP. Absence means Alpha did not commit to a structural TP.
+        // No fallback. Fail loudly so the gap in Alpha's reasoning can be identified and fixed.
+        if (decision.action !== 'NO_TRADE' && decision.tp_multiplier_override == null) {
+          console.error(`[CCIP-ALPHA-GOV-001] ${marketState.symbol}: tp_multiplier_override missing on ${decision.action} — BLOCKING trade. Alpha must set this field on every BUY/SELL response.`);
+          const blockedDecision: AlphaDecision = {
+            ...decision,
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            confidence: 0,
+            reasoning: `[CCIP-ALPHA-GOV-001] tp_multiplier_override not set — trade blocked. Alpha must measure structural TP distance in ATR multiples on every BUY/SELL.`
+          };
+          clearTimers();
+          const timing = Date.now() - symbolStartTime;
+          resolve({ symbol: marketState.symbol, decision: blockedDecision, timing });
+          return;
         }
 
         clearTimers();
@@ -1018,15 +1028,22 @@ class AlphaOmegaOrchestrator {
           imSignalMap?.get(marketState.symbol)
         );
 
-        // CCIP-ALPHA-GOV-001: Post-Alpha audit — log whether tp_multiplier_override was set.
-        // Alpha is required to set this on every BUY/SELL response. Absence is a governance warn.
-        if (decision.action !== 'NO_TRADE') {
-          if (decision.tp_multiplier_override == null) {
-            console.warn(`[CCIP-ALPHA-GOV-001] ${marketState.symbol}: tp_multiplier_override not set by Alpha — static 3.0x ATR base was used for proposed TP`);
-          }
+        // CCIP-ALPHA-GOV-001: Post-Alpha hard block — tp_multiplier_override is REQUIRED on every BUY/SELL.
+        // Alpha must name the ATR distance to his TP. Absence means Alpha did not commit to a structural TP.
+        // No fallback. Fail loudly so the gap in Alpha's reasoning can be identified and fixed.
+        if (decision.action !== 'NO_TRADE' && decision.tp_multiplier_override == null) {
+          console.error(`[CCIP-ALPHA-GOV-001] ${marketState.symbol}: tp_multiplier_override missing on ${decision.action} — BLOCKING trade. Alpha must set this field on every BUY/SELL response.`);
+          const blockedDecision: AlphaDecision = {
+            ...decision,
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            confidence: 0,
+            reasoning: `[CCIP-ALPHA-GOV-001] tp_multiplier_override not set — trade blocked. Alpha must measure structural TP distance in ATR multiples on every BUY/SELL.`
+          };
+          decisionMap.set(marketState.symbol, blockedDecision);
+        } else {
+          decisionMap.set(marketState.symbol, decision);
         }
-
-        decisionMap.set(marketState.symbol, decision);
 
         // EARLY EXIT: Stop scanning if viable trade found (single-trade mode only)
         // CCIP-MULTI-TRADE-TOP-N: earlyExitAllowed is false when multiTradeMode=true
@@ -1141,12 +1158,14 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
-   * Calculate dynamic stop loss and take profit multipliers based on market conditions.
+   * Calculate dynamic stop loss and take profit multipliers for the pre-Alpha structural proposal.
    *
-   * CCIP-ALPHA-GOV-001: Accepts optional tp_multiplier_override from Alpha's prior output.
-   * When provided, Alpha's override replaces the static base multiplier (3.0x).
-   * The system logs a WARN when falling back to the static default.
-   * Callers should pass Alpha's tp_multiplier_override when available.
+   * CCIP-ALPHA-GOV-001: This function produces proposedSL/proposedTP used ONLY for risk pre-flight
+   * validation before Alpha runs. Alpha's actual decision.takeProfit and decision.stopLoss are
+   * authoritative and are never overridden by this function's output.
+   *
+   * The alphaMultiplierOverride and isPreAlphaProposal parameters are no longer used — all calls
+   * are pre-Alpha proposals. They are kept to avoid call-site changes but have no effect.
    */
   private calculateDynamicMultipliers(
     marketState: FullMarketState,
@@ -1156,18 +1175,10 @@ class AlphaOmegaOrchestrator {
     stopLossMultiplier: number;
     takeProfitMultiplier: number;
   } {
-    const STATIC_TP_BASE = 3.0;
-    // CCIP-ALPHA-GOV-001: The warn is suppressed when this call is a pre-Alpha structural
-    // proposal (isPreAlphaProposal=true). Alpha has not run yet — absence here is expected.
-    // The governance warn fires post-Alpha in the call sites above, after makeTradeDecision
-    // returns, giving the correct audit signal: Alpha ran but did not set the field.
-    if (alphaMultiplierOverride == null && !isPreAlphaProposal) {
-      console.warn(`[CCIP-ALPHA-GOV-001] tp_multiplier_override not set by Alpha — falling back to static TP base ${STATIC_TP_BASE}x ATR`);
-    }
+    const PRE_ALPHA_TP_PROPOSAL_BASE = 3.0;
 
-    let slMultiplier = 1.8; // Base: 1.8x ATR (increased from 1.5x for more breathing room)
-    // CCIP-ALPHA-GOV-001: Use Alpha's override when provided; otherwise static base.
-    let tpMultiplier = alphaMultiplierOverride != null ? alphaMultiplierOverride : STATIC_TP_BASE;
+    let slMultiplier = 1.8;
+    let tpMultiplier = PRE_ALPHA_TP_PROPOSAL_BASE;
 
     // Adjust for volatility
     if (marketState.volatility === 'low') {
