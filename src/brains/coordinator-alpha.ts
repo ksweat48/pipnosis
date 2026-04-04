@@ -4184,8 +4184,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // no_trade_statement, the audit trail persists NULL — the system never invents text.
       if (decision.action === 'NO_TRADE') {
         const noTradeStatement: string = (decision as any).no_trade_statement || '';
+        const wordCount = noTradeStatement.trim().split(/\s+/).filter(Boolean).length;
         const isGenericPhrase = !noTradeStatement ||
-          noTradeStatement.trim().length < 60 ||
+          wordCount < 60 ||
           /^(ranging|no clear|low volatility|uncertain|choppy|unclear|sideways|no edge|insufficient)/i.test(noTradeStatement.trim());
 
         if (isGenericPhrase) {
@@ -4696,6 +4697,40 @@ Return PURE JSON only — all required fields from the schema in my system promp
           : undefined,
       } : undefined;
 
+      // CCIP-2026-0404A: Enum fallback logging for answer_sheet fields.
+      // When Alpha returns a value that doesn't match the expected enum, the field silently
+      // becomes undefined. This logs governance violations so we can detect prompt drift.
+      if (rawAnswerSheet && typeof rawAnswerSheet === 'object') {
+        const Q1_VALID = ['ALIGNED', 'CONFLICT', 'COUNTER_TREND'];
+        if (rawAnswerSheet.Q1_trend_alignment && !Q1_VALID.includes(rawAnswerSheet.Q1_trend_alignment)) {
+          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q1_trend_alignment "${rawAnswerSheet.Q1_trend_alignment}" is not a valid enum value — answer_sheet field stored as-is.`);
+        }
+        const Q8C_VALID = ['DISCOUNT', 'EQUILIBRIUM', 'PREMIUM'];
+        if (rawAnswerSheet.Q8C_price_location_zone && !Q8C_VALID.includes(rawAnswerSheet.Q8C_price_location_zone)) {
+          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q8C_price_location_zone "${rawAnswerSheet.Q8C_price_location_zone}" is not a valid enum value.`);
+        }
+        const Q8D_VALID = ['DELIVERY_BULLISH', 'DELIVERY_BEARISH', 'REBALANCING', 'UNCERTAIN'];
+        if (rawAnswerSheet.Q8D_weekly_narrative && !Q8D_VALID.includes(rawAnswerSheet.Q8D_weekly_narrative)) {
+          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q8D_weekly_narrative "${rawAnswerSheet.Q8D_weekly_narrative}" is not a valid enum value.`);
+        }
+        const KILL_ZONE_VALID = ['LONDON_OPEN', 'NY_OPEN', 'NY_PM', 'PRE_KILL_ZONE', 'OUTSIDE_KILL_ZONE'];
+        if (rawAnswerSheet.kill_zone && !KILL_ZONE_VALID.includes(rawAnswerSheet.kill_zone)) {
+          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: kill_zone "${rawAnswerSheet.kill_zone}" is not a valid enum value.`);
+        }
+        const NEWS_STATUS_VALID = ['HARD_BLACKOUT', 'POST_NEWS_VOLATILITY', 'TIER2_PROXIMITY', 'CLEAR', 'UNKNOWN'];
+        if (rawAnswerSheet.news_status && !NEWS_STATUS_VALID.includes(rawAnswerSheet.news_status)) {
+          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: news_status "${rawAnswerSheet.news_status}" is not a valid enum value.`);
+        }
+        const IM_CORR_VALID = ['CONFLUENT', 'DIVERGENT', 'UNKNOWN'];
+        if (rawAnswerSheet.intermarket_correlation && !IM_CORR_VALID.includes(rawAnswerSheet.intermarket_correlation)) {
+          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: intermarket_correlation "${rawAnswerSheet.intermarket_correlation}" is not a valid enum value.`);
+        }
+        const Q5B_VALID = ['SERVES', 'MARGINAL', 'DOES_NOT_SERVE'];
+        if (rawAnswerSheet.Q5B_objective_alignment && !Q5B_VALID.includes(rawAnswerSheet.Q5B_objective_alignment)) {
+          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q5B_objective_alignment "${rawAnswerSheet.Q5B_objective_alignment}" is not a valid enum value.`);
+        }
+      }
+
       // CCIP-2026-0328B: Q10 and Q11 entry mode corrections REMOVED.
       // Alpha has full authority over entry_mode. Q10_entry_conviction=FORCED and
       // Q11_zone_entry_quality=DEEP_ZONE are audit observations that Alpha already
@@ -4907,9 +4942,21 @@ Return PURE JSON only — all required fields from the schema in my system promp
           `est_wait=${resolvedWaitCondition.expected_wait_minutes ?? 'unspecified'}min`
         );
       } else if (resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation') {
-        console.log(
-          `[Alpha Coordinator] CCIP-2026-0328B: entry_mode="${resolvedEntryMode}" without wait_condition — Alpha's decision stands. Executor will handle gracefully. Symbol=${symbol}.`
+        console.warn(
+          `[Alpha Coordinator] CCIP-2026-0404A: entry_mode="${resolvedEntryMode}" without wait_condition — deferred entry has no monitoring zone. Executor will attempt zone inference from SL/TP geometry. Symbol=${symbol}.`
         );
+        logViolation({
+          violationType: 'WAIT_CONDITION_MISSING_ON_DEFERRED_ENTRY',
+          symbol: symbol,
+          attemptedOperation: 'deferred_entry_zone_validation',
+          callLocation: 'coordinator-alpha.wait_condition_check',
+          blocked: false,
+          errorDetails: {
+            entry_mode: resolvedEntryMode,
+            sessionId: goalContext?.sessionId || null,
+            userId: userId || null,
+          }
+        }).catch(() => {});
       }
 
       // CCIP-2026-0328A-SOVEREIGNTY: wait_pullback zone direction backstop REMOVED.
@@ -5077,7 +5124,26 @@ Return PURE JSON only — all required fields from the schema in my system promp
           lean_confidence: leanConfidence,
           // CCIP-2026-0332A: Audit fields — governance check below enforces non-null
           no_trade_statement: noTradeStatementRaw || undefined,
-          block_reason: parsed.block_reason || undefined,
+          // CCIP-2026-0404A: Validate block_reason against LEGITIMATE_BLOCK_CONDITIONS + NO_EDGE.
+          // An unrecognised block_reason indicates Alpha invented a reason not in the approved list.
+          // Advisory only — the NO_TRADE decision stands, but the violation is logged.
+          block_reason: (() => {
+            const rawBlockReason = parsed.block_reason;
+            if (!rawBlockReason) return undefined;
+            const validReasons = [...ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS, 'NO_EDGE'];
+            if (!validReasons.includes(rawBlockReason)) {
+              console.warn(`[Alpha Coordinator] CCIP-2026-0404A: block_reason "${rawBlockReason}" is not in LEGITIMATE_BLOCK_CONDITIONS. Using as-is but logging advisory violation. Symbol=${symbol}.`);
+              logViolation({
+                violationType: 'INVALID_BLOCK_REASON',
+                symbol: symbol,
+                attemptedOperation: 'no_trade_block_reason_validation',
+                callLocation: 'coordinator-alpha.block_reason_validation',
+                blocked: false,
+                errorDetails: { block_reason: rawBlockReason, sessionId: goalContext?.sessionId || null }
+              }).catch(() => {});
+            }
+            return rawBlockReason;
+          })(),
         };
       }
 

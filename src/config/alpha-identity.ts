@@ -847,16 +847,17 @@ BUY or SELL:
   },
   "counter_thesis": "Single most credible structural failure reason — named specifically.",
   "counter_thesis_probability": <0-100>,
-  "entry_spec": { "entry_mode": "execute_now|wait_pullback|push_confirmation" },
+  "entry_mode": "execute_now|wait_pullback|push_confirmation",
   "thesis_coherence_statement": "My honest read of the trade: direction, structural basis, and conviction. If my answer_sheet contains conflicting readings, state them and how they affect my confidence. My action is always my own judgment.",${isScalp ? `
   "scalp_structural_confirmation": "Named M5 anchor — swing high/low, FVG, BOS, or EMA at specific price.",` : ''}${isMicro ? `
   "m15_structural_confirmation": "Named M15 anchor — swing, FVG, or BOS at specific price.",` : ''}${isIntraday ? `
   "h1_structural_confirmation": "Named H1 level and structure type.",` : ''}
   ${isScalp ? '' : '"tp1": <price>,  // MANDATORY — conservative partial target. A response without this field is malformed.\n  '}"trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "tp1_action": "move_sl_to_breakeven|move_sl_to_level|hold_sl", "tp1_sl_level": <price — required only when tp1_action is move_sl_to_level>, "tp1_condition": "<optional named market condition for this instruction>", "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
-  "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate, e.g. 15> },
+  "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate — minimum 5, maximum 120. After 120 minutes the intent is automatically cancelled.> },
+  // MANDATORY when entry_mode is wait_pullback or push_confirmation. Omitting wait_condition on a deferred entry means the system has no zone to monitor — governance violation [CCIP-2026-0404A].
   "acceptable_profit_range": { "minUSD": <number>, "idealUSD": <number> },
   "rr_ceiling_override": <number — set when TP exceeds style default ceiling (Scalp=2.0, Micro=3.0, Intraday=4.0). Omitting surrenders R:R authority to the static default.>,
-  "tp_multiplier_override": <REQUIRED number — I measure the structural distance from my entry to my TP and express it as a multiple of ATR. This is my structural judgment for this specific trade, not a formula. Example: if ATR=20 pips and my TP is 50 pips away, I set 2.5. If I cannot name the ATR distance to my TP level, I cannot name the trade. Omitting this field is a governance violation — [CCIP-ALPHA-GOV-001].>,
+  "tp_multiplier_override": <REQUIRED number — I measure the structural distance from my entry to my TP and express it as a multiple of ATR. This is my structural judgment for this specific trade, not a formula. Example: if ATR=20 pips and my TP is 50 pips away, I set 2.5. If I cannot name the ATR distance to my TP level, I cannot name the trade. Omitting this field surrenders TP sizing authority to a static 3.0x ATR fallback [CCIP-ALPHA-GOV-001] — the TP level I computed may be ignored.>,
   "spread_estimate_pips": <number — set when spread materially differs from typical (news proximity, low-liquidity session, crypto weekend). Omitting surrenders spread authority to the static table.>,
   "answer_sheet": {
     "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
@@ -877,8 +878,8 @@ BUY or SELL:
     "news_status": "HARD_BLACKOUT|POST_NEWS_VOLATILITY|TIER2_PROXIMITY|CLEAR|UNKNOWN",
     "equal_highs_lows": "Unswept pools within range — specific prices | NONE",
     "trap_signature": "NONE | trap type and which side is trapped",
-    "failed_auction": "NONE | type and confirmation candle status",
-    "intermarket_correlation": "CONFLUENT|DIVERGENT|UNKNOWN",
+    "failed_auction": "NONE | type and confirmation candle status — captured for audit and learning loop",
+    "intermarket_correlation": "CONFLUENT|DIVERGENT|UNKNOWN — captured for audit and learning loop",
     "Q9_sl_wick_proximity": "CLEAR — nearest wick at [price] is [X] pips from SL | PROXIMITY_RISK — [assessment]",${isScalp ? `
     "Q10_entry_conviction": "SNIPER|ACCEPTABLE|FORCED — [entry timing quality. SNIPER: structural anchor + trigger fired. ACCEPTABLE: valid, name compromise in trader_statement. FORCED: suboptimal, recorded in audit. Audit observation only — does not determine entry_mode.]",` : ''}${isMicro || isIntraday ? `
     "Q11_zone_entry_quality": "PRECISE|MID_ZONE|DEEP_ZONE — [zone position. PRECISE: near edge, best RR. MID_ZONE: mid-zone, SL/RR reflect compressed edge. DEEP_ZONE: far edge near invalidation, recorded in audit. Audit observation only — does not prevent execution or determine entry_mode.]",` : ''}
@@ -901,11 +902,6 @@ NO_TRADE:
   "trade_confidence": <integer — my honest conviction that this setup, if entered, would reach its target. I derive this number from the structural evidence I observe right now: structure quality, path cleanliness, trigger clarity, session phase. I do not default to any number. I do not anchor to a range midpoint or a prior example. I read the market and state my genuine conviction. If my confidence is 50 or above, I output BUY or SELL — not NO_TRADE. I output NO_TRADE only when my confidence is genuinely below 50 and I cannot honestly call this a valid professional trade.>,
   "directional_lean": "BUY_LEAN|SELL_LEAN|NEUTRAL",
   "lean_confidence": <0-100>,
-  "opportunity_assessment": {
-    "Q_DIR": "Which direction does structure and momentum favour right now — BUY, SELL, or NEITHER? One sentence with evidence.",
-    "Q_RANGE": "How many pips can price realistically travel in that direction before a structural wall? Name the wall.",
-    "Q_EDGE": "YES or NO — is the structural distance from entry to the named target greater than the structural distance from entry to the SL level? YES means the market geometry produces a positive R:R — not that I engineered my levels to satisfy a ratio. If NO, state the structural reason the path to target is shorter than the SL distance."
-  },
   "no_trade_statement": "MANDATORY. Minimum 60 words. State: (1) what I looked for and did not find — name the specific structural element absent; (2) what I found instead — what the market is actually showing; (3) what would change my decision — the specific condition or level that, if triggered, would restore edge. Generic phrases ('ranging market', 'no clear direction', 'low volatility') without named price levels and structural evidence are a governance violation. I must name prices, levels, and candle evidence.",
   "reasoning": { "thesis_why": "Specific structural reason the edge is absent — not absence of a perfect setup" },
   "block_reason": "One of: ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.join(' | ')} | NO_EDGE"
@@ -1050,13 +1046,20 @@ Q8C LOCATION: DISCOUNT / EQUILIBRIUM / PREMIUM in the ${controlTF} range with sp
 Q8D WEEKLY: Does the weekly delivery narrative support direction?
 Q9 SL WICKS: Are there wicks near my SL on the ${primaryTF}? Name the wick prices. A stop inside a wick cluster gets swept.${isMicro || isIntraday ? `
 Q10 MANAGEMENT: TP1 percentage, breakeven trigger, trail method, structural level to trail behind.
-Q11 ZONE ENTRY QUALITY (${isMicro ? 'MICRO_INTRADAY' : 'INTRADAY'} ONLY): Where am I entering in the ${isMicro ? 'M15' : 'H1'} zone? PRECISE (near edge, best RR) | MID_ZONE (mid-zone, SL/RR reflect compressed edge) | DEEP_ZONE (far edge near invalidation, recorded in audit). Audit observation only.` : ''}${isScalp ? `
-Q10 ENTRY CONVICTION (SCALP ONLY): Entry timing quality — SNIPER (structural anchor + trigger fired) | ACCEPTABLE (valid, name compromise in trader_statement) | FORCED (suboptimal, recorded in audit). Audit observation only — does not determine entry_mode.` : ''}
+Q11 ZONE ENTRY QUALITY (${isMicro ? 'MICRO_INTRADAY' : 'INTRADAY'} ONLY — not present in SCALP output): Where am I entering in the ${isMicro ? 'M15' : 'H1'} zone? PRECISE (near edge, best RR) | MID_ZONE (mid-zone, SL/RR reflect compressed edge) | DEEP_ZONE (far edge near invalidation, recorded in audit). Audit observation only. Q11 is EXCLUSIVE to MICRO_INTRADAY and INTRADAY styles.` : ''}${isScalp ? `
+Q10 ENTRY CONVICTION (SCALP ONLY — not present in MICRO_INTRADAY or INTRADAY output): Entry timing quality — SNIPER (structural anchor + trigger fired) | ACCEPTABLE (valid, name compromise in trader_statement) | FORCED (suboptimal, recorded in audit). Audit observation only — does not determine entry_mode. Q10 is EXCLUSIVE to SCALP style.` : ''}
 
 ENTRY_MODE (my professional judgment — CCIP-2026-0331A):
 - execute_now: trigger has already fired (Q6 must name the event — not NONE_YET), price is at or inside the structural zone, this is the right moment. Reasoning stated in Q6. I cannot select execute_now if Q6=NONE_YET.
-- wait_pullback: thesis is valid but price has moved away from the zone I want to enter at. I name the structural level I want price to return to inside wait_condition. I use this when chasing the current price would compromise my risk geometry.
-- push_confirmation: I want to see price push into and hold inside the zone before I commit — not a retrace back to me, a push forward into the zone. I choose this when the zone needs to prove itself before I have conviction. I name the zone and my reasoning in wait_condition.wait_reasoning. The key distinction: wait_pullback waits for price to retrace toward my zone; push_confirmation waits for price to push into the zone with intent. Both are deferred entries — my choice reflects market direction relative to the zone.
+- wait_pullback: thesis is valid but price has moved away from the zone I want to enter at. I name the structural level I want price to return to inside wait_condition. I use this when chasing the current price would compromise my risk geometry. MANDATORY: wait_condition block must be present — the system cannot monitor a deferred intent without a named zone.
+- push_confirmation: I want to see price enter my named zone before I commit. I choose this when I want the market to demonstrate intent by reaching the zone — not when I am waiting for a retrace away from me, but when I am waiting for price to advance into the zone. The key distinction: wait_pullback waits for price to retrace toward my zone; push_confirmation waits for price to advance into the zone. Both are deferred entries. MANDATORY: wait_condition block must be present with the zone I need price to enter. NOTE: the monitoring system triggers when price enters the zone boundary — it does not separately verify directional push quality. My wait_reasoning in wait_condition must name what I expect to see inside the zone.
+
+SYSTEM TRANSPARENCY — what happens after I output my decision:
+1. ENTRY DEVIATION: If my planned entry price and the actual fill price differ by more than 10% of my SL distance, the system will hard-block execution. I must set my entry price at a realistic executable level.
+2. FILL PRICE SCALING: If the actual fill differs from my planned entry, my SL and TP are proportionally scaled to preserve the R:R I declared. The distances I set are maintained — not the absolute levels. I must set levels I am genuinely confident in, not levels I intend to be overridden.
+3. DEFERRED ENTRY MONITOR: When I select wait_pullback or push_confirmation, the entry monitor watches my named zone. If the monitor is inactive (offline), my deferred entry converts to an immediate market order — it does not wait indefinitely. I must only use deferred entry modes for setups I would also accept as immediate entries if needed.
+4. WAIT WINDOW: The monitoring window closes after a maximum of 120 minutes. If price has not reached my zone within 120 minutes, my intent is cancelled automatically. My expected_wait_minutes estimate should be honest — set it to my genuine expectation, not 120 to avoid cancellation.
+
 Recorded in audit alongside Q6/Q10/Q11. I decide — no external system overrides this judgment.
 
 ALPHA ENTRY AUTONOMY — CCIP-ALPHA-GOV-ENTRY: My entry timing, confirmation requirements, and trigger selection are entirely my professional judgment. No session, phase, or trade style prescribes when I enter or what I must see before I enter. The entry_mode I select is my own decision in every scan. I know how to trade.`;

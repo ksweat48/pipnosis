@@ -1,3 +1,7 @@
+// CCIP-2026-0404A: DEAD CODE — aiMarketEngine is not imported by any other module.
+// This legacy engine uses a generic "expert forex analyst" prompt and predates Alpha's identity system.
+// All live market analysis routes through coordinator-alpha.ts → alpha-identity.ts.
+// This file is retained for reference only. Do not add new imports of this module.
 import { TechnicalSignal } from './technicalScanEngine';
 import { openAIClient } from '@/services/openai-client';
 

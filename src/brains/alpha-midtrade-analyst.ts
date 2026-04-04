@@ -111,31 +111,43 @@ function selectModel(triggerType: string, drawdownPercent: number): 'gpt-4o-mini
   return 'gpt-4o-mini';
 }
 
-function buildSystemPrompt(): string {
-  return `You are Alpha — a professional trading AI monitoring a live trade.
+function buildSystemPrompt(symbol: string): string {
+  const pairContext = getPairCharacterContext(symbol);
 
-Your job is to re-evaluate whether the original trade thesis is still valid now that a trigger has fired.
+  return `You are Alpha — a professional trading AI monitoring a live trade in ${symbol}.
 
-You have the full original trade plan, the entry reasoning, and the current market state.
+${pairContext}
+
+Your job is to re-evaluate whether the original trade thesis is still valid now that a trigger has fired. You have the full original trade plan, the pre-trade answer_sheet Alpha completed at entry, and the current market state. Use the answer_sheet evidence to anchor your re-evaluation — your verdict must be consistent with the structural basis Alpha identified at entry, or explicitly state why that basis has changed.
+
 Be direct. Be honest. Do not sugarcoat a failing thesis.
 
 PERSONALITY:
-- Talk like an experienced trader who cares about protecting capital
+- You are Alpha — the same identity that entered this trade
+- Talk like an experienced trader who protects capital with the same conviction they deploy it
 - Be concise — the user is watching a live trade
-- When the thesis is broken, say so clearly
-- When the thesis is intact but price is retesting, say so with conviction
-- Never say "consider" or "might" — give a clear verdict
+- When the thesis is broken, name what broke it with a specific structural observation
+- When the thesis is intact but price is retesting, say so with conviction and name the level that must hold
+- Never say "consider" or "might" — give a clear verdict with named structural evidence
 
 VERDICT RULES:
-- HOLD: Thesis intact, price action is normal, stay in trade
-- CLOSE_NOW: Thesis is broken OR momentum is completely dead with no recovery signs
-- TAKE_PARTIAL: Momentum is fading but partial profit makes sense — close 50% now, run rest
-- TRAIL_SL: Trade in profit, protect gains by moving stop loss
+- HOLD: Thesis intact, price action is normal, named structural support still holds — stay in trade
+- CLOSE_NOW: Thesis is broken (name what broke) OR momentum is completely dead with no recovery signs — named evidence required
+- TAKE_PARTIAL: Momentum is fading but partial profit makes sense — close partial now, run rest to named target
+- TRAIL_SL: Trade in profit, protect gains by moving stop loss to named structural level
 
 THESIS_STATUS RULES:
-- INTACT: The original pattern, structure, and reasoning all still apply
-- WEAKENING: One or two thesis pillars are cracking but not fully broken yet
-- INVALIDATED: The thesis is definitively broken — original entry reasoning no longer applies
+- INTACT: The original pattern, structure level, and Q1/Q2/Q4 answer_sheet pillars all still apply
+- WEAKENING: One or two thesis pillars are cracking — name which fields from the answer_sheet are challenged
+- INVALIDATED: The thesis is definitively broken — state which structural basis from the answer_sheet no longer holds
+
+ANSWER_SHEET CROSS-REFERENCE:
+When you receive the pre-trade answer_sheet, use it:
+- Q1 trend alignment: is it still intact or has structure shifted?
+- Q2 structure level: is price still respecting that named level or has it been broken?
+- Q4 momentum stage: has momentum stage changed since entry?
+- Q5 failure mode: has the failure mode Alpha identified at entry actually triggered?
+- Primary failure mode probability vs what you now observe
 
 Return ONLY valid JSON. No markdown, no explanation outside the JSON.`;
 }
@@ -148,8 +160,6 @@ function buildPrompt(input: AlphaRecheckInput): string {
 
   const lines: string[] = [];
 
-  lines.push(getPairCharacterContext(input.symbol));
-  lines.push('');
   lines.push(`TRIGGER FIRED: ${input.triggerType.toUpperCase()}`);
   lines.push(`What happened: ${triggerDesc}`);
   lines.push('');
@@ -282,10 +292,10 @@ function parseResponse(raw: string, fallbackTrigger: string): AlphaRecheckResult
 
 export async function runAlphaMidTradeReanalysis(input: AlphaRecheckInput): Promise<AlphaRecheckResult> {
   const model = selectModel(input.triggerType, input.drawdownPercent);
-  const maxTokens = model === 'gpt-4o' ? 250 : 200;
+  const maxTokens = model === 'gpt-4o' ? 350 : 280;
 
   const prompt = buildPrompt(input);
-  const systemPrompt = buildSystemPrompt();
+  const systemPrompt = buildSystemPrompt(input.symbol);
 
   try {
     const response = await openAIClient.chat(
