@@ -4469,8 +4469,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
         console.warn(
           `[Alpha Parse] CCIP-2026-0332A SENTINEL: NO_TRADE with confidence=45 for ${symbol}. ` +
           `This matches the known prompt-anchoring degenerate pattern. ` +
-          `If [Alpha Raw Response] above also shows confidence=45, the anchor is in the prompt cache. ` +
-          `Prompt cache-bust token: CCIP-2026-0405-RAW-LOG-INSTRUMENTATION.`
+          `Root cause: numeric threshold anchors ("50", "50-69", "below 50") visible in prompt text. ` +
+          `CCIP-2026-0404C removed these anchors from arenaWalls, BUY/SELL schema, and NO_TRADE schema. ` +
+          `If this sentinel still fires after CCIP-2026-0404C, audit for new numeric injection vectors in coordinator-alpha.ts.`
         );
       }
 
@@ -5774,14 +5775,14 @@ Return PURE JSON only — all required fields from the schema in my system promp
     if (intelligence.sessionPhasePerformance && intelligence.sessionPhasePerformance.length > 0) {
       parts.push('\nSESSION-PHASE-STYLE WIN RATES (your empirical edge by context):');
       parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      parts.push('Format: session|phase|style → WR%(W/L) avg_pnl avg_conf');
+      parts.push('Format: session|phase|style → WR%(W/L) avg_pnl');
 
       const rows = intelligence.sessionPhasePerformance
         .slice(0, 20)
         .map(r => {
           const wr = (r.win_rate * 100).toFixed(0);
           const wrFlag = r.win_rate >= 0.60 ? ' [EDGE]' : r.win_rate <= 0.35 ? ' [AVOID]' : '';
-          return `  ${r.session_name}|${r.market_phase}|${r.trade_style} → ${wr}%(${r.wins}W/${r.losses}L) $${Number(r.avg_pnl).toFixed(2)}/trade conf=${r.avg_confidence.toFixed(0)}${wrFlag}`;
+          return `  ${r.session_name}|${r.market_phase}|${r.trade_style} → ${wr}%(${r.wins}W/${r.losses}L) $${Number(r.avg_pnl).toFixed(2)}/trade${wrFlag}`;
         });
 
       parts.push(...rows);
