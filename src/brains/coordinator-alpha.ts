@@ -120,7 +120,7 @@ import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analy
 import { MarketDataService } from '../services/market-data-service';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
 import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
-import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle, getEstimatedSpreadPips, getMinSlDistancePips } from '../config/trading-constants';
 import { wallCalibrationEngine } from '../services/wall-calibration-engine';
 import { resolveCanonicalStyle } from '../config/timeframe-hierarchy';
 
@@ -3545,6 +3545,7 @@ MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} | ${volatilityRegime.recommendation}
   Stop Quality: ${stopQuality.score}/100 | ${stopQuality.recommendation}
+  Spread (${marketContext.symbol}): ~${getEstimatedSpreadPips(marketContext.symbol).toFixed(1)} pips | Min SL distance: ${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips (1.5x spread — SL inside this cannot survive the fill and will be hard-blocked)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

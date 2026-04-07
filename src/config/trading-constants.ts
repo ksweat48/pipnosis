@@ -233,6 +233,68 @@ export const SCALING_MULTIPLIERS = {
   },
 } as const;
 
+/**
+ * SPREAD_ESTIMATES — Single Source of Truth for symbol spread estimates (in pips)
+ *
+ * SSOT GOVERNANCE (CCIP-2026-0407-SPREAD):
+ * These values are the canonical spread estimates used system-wide:
+ *   1. Omega-9 hard-block gate  (minimum SL distance enforcement)
+ *   2. Alpha's prompt context   (injected so Alpha can correctly size SL)
+ *
+ * PREVIOUS BUG: Omega-9 had a private estimateSpread() method with hardcoded values.
+ * Alpha's prompt received NO spread number — only the abstract rule.
+ * This caused Alpha to propose SLs that failed the Omega-9 check because Alpha had
+ * no concrete number to work against when sizing its stop.
+ *
+ * FIX: Both consumers now call getEstimatedSpreadPips() from this SSOT.
+ * Alpha receives the exact minimum SL distance in pips before deciding.
+ *
+ * Values are conservative estimates covering typical broker spreads at normal liquidity.
+ * They are deliberately NOT session-adjusted to avoid false confidence during low-volume hours.
+ */
+export const SPREAD_ESTIMATES: Record<string, number> = {
+  EURUSD: 1.5,
+  GBPUSD: 1.5,
+  EURGBP: 2.0,
+  EURJPY: 2.0,
+  GBPJPY: 2.5,
+  USDJPY: 2.0,
+  USDCHF: 2.0,
+  AUDUSD: 1.5,
+  NZDUSD: 2.0,
+  USDCAD: 2.0,
+  XAUUSD: 3.0,
+  XAGUSD: 4.0,
+  US30:   3.0,
+  NAS100: 2.0,
+  US100:  2.0,
+  SPX500: 1.0,
+  US500:  1.0,
+  BTCUSD: 5.0,
+  ETHUSD: 5.0,
+} as const;
+
+/**
+ * Returns the estimated spread in pips for a given symbol.
+ * Falls back to 3.0 pips for unknown symbols (conservative).
+ */
+export function getEstimatedSpreadPips(symbol: string): number {
+  if (SPREAD_ESTIMATES[symbol] !== undefined) return SPREAD_ESTIMATES[symbol];
+  if (symbol.startsWith('EUR') || symbol.startsWith('GBP')) return 1.5;
+  if (symbol.includes('JPY')) return 2.0;
+  if (symbol.startsWith('USD')) return 2.0;
+  return 3.0;
+}
+
+/**
+ * Returns the minimum SL distance in pips for a given symbol.
+ * SL must be at least 1.5× the spread to survive the fill.
+ * This is the Omega-9 hard-block threshold — Alpha must beat this.
+ */
+export function getMinSlDistancePips(symbol: string): number {
+  return getEstimatedSpreadPips(symbol) * 1.5;
+}
+
 export type RiskRewardRatio = typeof TRADING_CONSTANTS.RISK_REWARD_RATIOS[keyof typeof TRADING_CONSTANTS.RISK_REWARD_RATIOS];
 export type ConfidenceThreshold = typeof CONFIDENCE_THRESHOLDS[keyof typeof CONFIDENCE_THRESHOLDS];
 

@@ -353,8 +353,12 @@ export interface AlphaTradeManagement {
  *   FALLBACK: [CCIP-ALPHA-GOV-001] tp_multiplier_override absent — using static base 3.0x ATR.
  *
  * spread_estimate_pips: Alpha's per-trade spread estimate for current pair and session.
- *   When present, used wherever AVERAGE_SPREAD_PIPS static fallback would be used.
- *   FALLBACK: [CCIP-ALPHA-GOV-001] spread_estimate_pips absent — using static 1.0 pip default.
+ *   CCIP-2026-0407-SPREAD: The estimated spread and minimum SL distance are now INJECTED
+ *   into Alpha's prompt context under MARKET CONDITIONS before each scan. Alpha no longer
+ *   needs to derive or estimate the spread — it receives the concrete number as an input.
+ *   This field is retained for backward compatibility; if Alpha outputs it, it is logged
+ *   but the prompt-injected value is the authoritative source for SL sizing decisions.
+ *   SSOT: getEstimatedSpreadPips() / getMinSlDistancePips() in trading-constants.ts.
  *
  * tp_structural_justification: Full sentence explaining TP placement vs structure.
  *   Supplements the existing tp_structural_reference short label.

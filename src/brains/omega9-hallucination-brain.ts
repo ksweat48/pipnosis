@@ -27,7 +27,7 @@ import type { Omega9ValidationResult, OmegaVote } from '../types/omega';
 import type { AlphaDecision } from './coordinator-alpha';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { type ATRValue } from '../types/atr';
-import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getEstimatedSpreadPips } from '../config/trading-constants';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -54,17 +54,6 @@ export interface Omega9Input {
 class Omega9HallucinationBrain {
   async validate(input: Omega9Input): Promise<Omega9ValidationResult> {
     return this.performLocalValidation(input);
-  }
-
-  private estimateSpread(symbol: string): number {
-    if (symbol.startsWith('EUR') || symbol.startsWith('GBP')) return 1.5;
-    if (symbol.startsWith('USD')) return 2.0;
-    if (symbol === 'XAUUSD') return 3.0;
-    if (symbol.includes('JPY')) return 2.0;
-    if (symbol === 'NAS100' || symbol === 'US100') return 2.0;
-    if (symbol === 'SPX500' || symbol === 'US500') return 1.0;
-    if (symbol === 'BTCUSD' || symbol === 'ETHUSD') return 5.0;
-    return 3.0;
   }
 
   private performLocalValidation(input: Omega9Input): Omega9ValidationResult {
@@ -110,7 +99,7 @@ class Omega9HallucinationBrain {
     const rr = slDistance > 0 ? tpDistance / slDistance : 0;
     const slDistancePips = calculatePipDistance(marketContext.symbol, entry, sl);
     const tpDistancePips = calculatePipDistance(marketContext.symbol, entry, tp);
-    const spreadPips = this.estimateSpread(marketContext.symbol);
+    const spreadPips = getEstimatedSpreadPips(marketContext.symbol);
 
     if (slDistancePips < spreadPips * 1.5) {
       console.error(`[Omega-9] HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} < ${(spreadPips * 1.5).toFixed(1)})`);
