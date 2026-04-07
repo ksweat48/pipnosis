@@ -738,24 +738,6 @@ class AlphaOmegaOrchestrator {
           timeoutPromise
         ]);
 
-        // CCIP-ALPHA-GOV-001: Post-Alpha hard block — tp_multiplier_override is REQUIRED on every BUY/SELL.
-        // Alpha must name the ATR distance to his TP. Absence means Alpha did not commit to a structural TP.
-        // No fallback. Fail loudly so the gap in Alpha's reasoning can be identified and fixed.
-        if (decision.action !== 'NO_TRADE' && decision.tp_multiplier_override == null) {
-          console.error(`[CCIP-ALPHA-GOV-001] ${marketState.symbol}: tp_multiplier_override missing on ${decision.action} — BLOCKING trade. Alpha must set this field on every BUY/SELL response.`);
-          const blockedDecision: AlphaDecision = {
-            ...decision,
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            confidence: 0,
-            reasoning: `[CCIP-ALPHA-GOV-001] tp_multiplier_override not set — trade blocked. Alpha must measure structural TP distance in ATR multiples on every BUY/SELL.`
-          };
-          clearTimers();
-          const timing = Date.now() - symbolStartTime;
-          resolve({ symbol: marketState.symbol, decision: blockedDecision, timing });
-          return;
-        }
-
         clearTimers();
         const timing = Date.now() - symbolStartTime;
         resolve({ symbol: marketState.symbol, decision, timing });
@@ -1028,22 +1010,7 @@ class AlphaOmegaOrchestrator {
           imSignalMap?.get(marketState.symbol)
         );
 
-        // CCIP-ALPHA-GOV-001: Post-Alpha hard block — tp_multiplier_override is REQUIRED on every BUY/SELL.
-        // Alpha must name the ATR distance to his TP. Absence means Alpha did not commit to a structural TP.
-        // No fallback. Fail loudly so the gap in Alpha's reasoning can be identified and fixed.
-        if (decision.action !== 'NO_TRADE' && decision.tp_multiplier_override == null) {
-          console.error(`[CCIP-ALPHA-GOV-001] ${marketState.symbol}: tp_multiplier_override missing on ${decision.action} — BLOCKING trade. Alpha must set this field on every BUY/SELL response.`);
-          const blockedDecision: AlphaDecision = {
-            ...decision,
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            confidence: 0,
-            reasoning: `[CCIP-ALPHA-GOV-001] tp_multiplier_override not set — trade blocked. Alpha must measure structural TP distance in ATR multiples on every BUY/SELL.`
-          };
-          decisionMap.set(marketState.symbol, blockedDecision);
-        } else {
-          decisionMap.set(marketState.symbol, decision);
-        }
+        decisionMap.set(marketState.symbol, decision);
 
         // EARLY EXIT: Stop scanning if viable trade found (single-trade mode only)
         // CCIP-MULTI-TRADE-TOP-N: earlyExitAllowed is false when multiTradeMode=true

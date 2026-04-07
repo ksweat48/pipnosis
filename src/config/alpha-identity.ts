@@ -861,7 +861,7 @@ BUY or SELL:
   // MANDATORY when entry_mode is wait_pullback or push_confirmation. Omitting wait_condition on a deferred entry means the system has no zone to monitor — governance violation [CCIP-2026-0404A].
   "acceptable_profit_range": { "minUSD": <number>, "idealUSD": <number> },
   "rr_ceiling_override": <number — set when TP exceeds style default ceiling (Scalp=2.0, Micro=3.0, Intraday=4.0). Omitting surrenders R:R authority to the static default.>,
-  "tp_multiplier_override": <REQUIRED number — I measure the structural distance from my entry to my TP and express it as a multiple of ATR. This is my structural judgment for this specific trade, not a formula. Example: if ATR=20 pips and my TP is 50 pips away, I set 2.5. If I cannot name the ATR distance to my TP level, I cannot name the trade. Omitting this field is a governance violation [CCIP-ALPHA-GOV-001] — the trade will be BLOCKED. I must always set this field on every BUY or SELL response.>,
+  "tp_multiplier_override": <optional number — structural distance from entry to TP expressed as ATR multiples. Example: if ATR=20 pips and TP is 50 pips away, set 2.5. Omit if not applicable.>,
   "spread_estimate_pips": <number — set when spread materially differs from typical (news proximity, low-liquidity session, crypto weekend). Omitting surrenders spread authority to the static table.>,
   "answer_sheet": {
     "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
