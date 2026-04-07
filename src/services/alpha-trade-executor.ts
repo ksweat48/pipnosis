@@ -963,7 +963,7 @@ class AlphaTradeExecutor {
         planned_tp: decision.takeProfit,
         execution_sl: decision.stopLoss,
         execution_tp: decision.takeProfit,
-      }).catch(() => {});
+      });
 
       logger.info(
         LogCategory.TRADE_EXECUTION,

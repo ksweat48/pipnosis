@@ -2088,7 +2088,7 @@ class GoalSessionLiveEngine {
       if (isConstraintError || isReferenceError) {
         console.error('[MULTI-SYMBOL] 🚨 CRITICAL ERROR DETECTED - Logging to governance system');
         try {
-          await supabase.from('ssot_violations').insert({
+          const { error: govInsertError } = await supabase.from('ssot_violations').insert({
             violation_type: isConstraintError ? 'database_constraint_violation' : 'javascript_reference_error',
             severity: 'high',
             system_component: 'goal_session_live_engine',
@@ -2098,9 +2098,10 @@ class GoalSessionLiveEngine {
               errorName: error instanceof Error ? error.name : 'UnknownError'
             },
             user_id: config?.userId || null
-          }).catch(govError => {
-            console.error('[MULTI-SYMBOL] Failed to log to governance:', govError);
           });
+          if (govInsertError) {
+            console.error('[MULTI-SYMBOL] Failed to log to governance:', govInsertError);
+          }
         } catch (govError) {
           // Silent fail - don't break on governance logging
         }
