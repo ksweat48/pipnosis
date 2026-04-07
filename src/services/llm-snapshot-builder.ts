@@ -736,10 +736,10 @@ Should you:
     rsi: number;
     stochRsi: number;
     atr: number;
+    atrPercent: number;
     vwap: number;
     trend: string;
     momentum: number;
-    volatility: string;
     swingHigh: number;
     swingLow: number;
     macd: number;
@@ -814,11 +814,11 @@ Should you:
       ? ((closes[closes.length - 1] - closes[closes.length - 10]) / closes[closes.length - 10]) * 100
       : 0;
 
-    // Determine volatility
+    // CCIP-2026-04-07: Raw ATR context — Alpha is the sole authority on volatility interpretation.
+    // The system must NOT classify ATR as low/medium/high using static percentage thresholds.
+    // NAS100 at 21,000 with ATR=41 pips produces atrPercent=0.20% which the old classifier
+    // incorrectly labelled 'low'. Alpha receives the raw number and decides for itself.
     const atrPercent = (atr / currentCandle.close) * 100;
-    let volatility = 'medium';
-    if (atrPercent < 0.3) volatility = 'low';
-    else if (atrPercent > 0.8) volatility = 'high';
 
     const swingLevels = this.detectSwingLevels(candles);
 
@@ -856,11 +856,11 @@ Should you:
       rsi,
       stochRsi,
       atr,
+      atrPercent,
       vwap,
       vwapReliability,
       trend,
       momentum,
-      volatility,
       swingHigh: swingLevels.high,
       swingLow: swingLevels.low,
       macd: macdData.macd,

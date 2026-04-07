@@ -1,11 +1,25 @@
 /**
  * Wall Calibration Config — SSOT for Dynamic Wall Adjustment
  *
- * GOVERNANCE PRINCIPLE (CCIP-2026-02-18):
+ * GOVERNANCE PRINCIPLE (CCIP-2026-02-18, updated CCIP-2026-04-07):
  * Walls are physics — they define the safe trading corridor.
- * But physics can breathe with the market. This config defines
- * HOW the walls expand or contract based on live conditions,
- * ensuring Alpha always has a valid corridor to execute in.
+ * The wall exists to prevent physically impossible trades (e.g. TP beyond
+ * the asset's session travel), NOT to control or restrict Alpha's decisions.
+ *
+ * CCIP-2026-04-07 ARCHITECTURAL CHANGE:
+ * Removed volatility-driven wall tightening/loosening. The previous system
+ * classified ATR as 'low/medium/high' using static percentage thresholds
+ * (e.g. atrPercent < 0.3 = 'low') which incorrectly labelled NAS100 and US30
+ * as perpetually 'low volatility' due to their high nominal price. This caused:
+ *  - Wall ATR multiplier expanding to 16x (vs baseline 12x) on every scan
+ *  - TP floor compressing to 40% of envelope on every scan
+ *  - Alpha receiving false 'low volatility' context in the prompt
+ *
+ * FIX: Single fixed ATR multiplier for all regimes. Alpha receives raw ATR%
+ * and decides volatility interpretation itself. The wall remains at one
+ * position — generous enough for Alpha to execute, tight enough to prevent
+ * absurd TP placements. Session-time expansion is retained as it serves a
+ * genuine safety function (not a volatility proxy).
  *
  * ARCHITECTURE:
  * - All calibration constants live HERE — never scattered as magic numbers
@@ -13,44 +27,36 @@
  * - Any future tuning happens in this file, inherited everywhere automatically
  *
  * SAFETY PRINCIPLE:
- * Walls only EXPAND when conditions demand it (giving Alpha more space).
- * Walls never compress below the envelope minimum (style identity is preserved).
- * All expansions are bounded by per-asset-class absolute safety ceilings.
+ * Walls only EXPAND when the corridor is physically infeasible or session time
+ * is critically short. All expansions are bounded by per-asset-class safety ceilings.
  *
  * SSOT COMPLIANCE:
- * - ATR multiplier authority: this file
- * - TP floor adjustment authority: this file
+ * - ATR multiplier authority: this file (single fixed value)
  * - Calibration reason enum: this file
  */
 
+// CCIP-2026-04-07: Removed LOW_VOLATILITY_EXPANSION, NORMAL_VOLATILITY, HIGH_VOLATILITY_STANDARD.
+// Walls no longer tighten or loosen based on static volatility classification.
 export type WallCalibrationReason =
-  | 'LOW_VOLATILITY_EXPANSION'
   | 'SESSION_TIME_EXPANSION'
-  | 'NORMAL_VOLATILITY'
-  | 'HIGH_VOLATILITY_STANDARD'
   | 'CORRIDOR_INFEASIBLE_EXPANSION'
   | 'NO_ADJUSTMENT';
 
 export type AssetCalibrationClass = 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX';
 
 /**
- * ATR multiplier by volatility regime.
+ * Single fixed ATR multiplier for wall ceiling calculation.
  *
- * Logic: When volatility is low, the ATR value itself is smaller.
- * Using the same 12x multiplier on a small ATR produces a compressed
- * ceiling that blocks valid structural trades. We expand the multiplier
- * to compensate so the TP ceiling reflects what the STRUCTURE demands,
- * not what a compressed ATR measurement suggests.
+ * CCIP-2026-04-07: Replaces ATR_MULTIPLIER_BY_REGIME (which produced different
+ * multipliers for low/medium/high volatility). A single fixed multiplier ensures
+ * Alpha receives a consistent, generous wall that does not secretly vary based on
+ * a static volatility label that was incorrectly computed for high-price instruments.
  *
- * HIGH: Use default (12x) — ATR is expanded, ceiling is already wide
- * NORMAL/MEDIUM: Slightly wider (14x) — moderate compensation
- * LOW: Maximum expansion (16x) — ATR is suppressed, corridor needs room
+ * Value of 14x is the midpoint of the old range (12-16x), giving Alpha a corridor
+ * that is wide enough for all instruments across all regimes without relying on
+ * per-regime classification.
  */
-export const ATR_MULTIPLIER_BY_REGIME: Record<'low' | 'medium' | 'high', number> = {
-  low: 16,
-  medium: 14,
-  high: 12,
-};
+export const FIXED_ATR_MULTIPLIER = 14;
 
 /**
  * Absolute maximum ATR multiplier per asset class.
@@ -96,9 +102,9 @@ export const SESSION_TIME_EXPANSION_THRESHOLDS = {
 
 /**
  * Multiplier applied to the ATR multiplier when session time is short.
- * These stack on top of the regime-based multiplier.
+ * These stack on top of FIXED_ATR_MULTIPLIER.
  *
- * CRITICAL (<30min): +25% expansion on top of regime multiplier
+ * CRITICAL (<30min): +25% expansion
  * LOW (<60min): +15% expansion
  * MODERATE (<120min): +8% expansion
  */
@@ -107,45 +113,6 @@ export const SESSION_EXPANSION_FACTORS = {
   LOW: 1.15,
   MODERATE: 1.08,
 };
-
-/**
- * TP percentage floor adjustments by volatility regime.
- *
- * The envelope defines absolute percentage bounds (e.g., INTRADAY CRYPTO
- * has tpPercent { min: 3.00, max: 10.00 }). In low-volatility conditions
- * the MARKET cannot support the 3.00% floor — that minimum is calibrated
- * for active/volatile sessions. This config adjusts the effective floor
- * downward while staying within the envelope's own range.
- *
- * HIGH: Use envelope stated floor (1.0x — no adjustment)
- * MEDIUM/NORMAL: Reduce to 65% of envelope floor
- * LOW: Reduce to 40% of envelope floor (was 50% — reduced to accommodate late Asian session
- *      where feasible travel for EURUSD/GBPUSD/USDJPY is only 4-6 pips. At 50% the
- *      SCALP FOREX floor was 4.6 pips which still exceeded EURUSD travel of 4.0 pips.
- *      At 40% the floor becomes ~3.7 pips, within reach of actual session physics.)
- *
- * This keeps the adjustment within the envelope range (since the envelope
- * defines min and max — the calibrated floor must stay above the envelope
- * minimum's lower cousin, specifically: >= envelope tpPercent.min * MIN_TP_FLOOR_RATIO
- * to avoid collapsing the floor to zero).
- *
- * SSOT: These values are the ONLY place TP floor ratios are defined.
- * All downstream consumers (wall-calibration-engine.ts) read from here.
- */
-export const TP_FLOOR_RATIO_BY_REGIME: Record<'low' | 'medium' | 'high', number> = {
-  low: 0.40,
-  medium: 0.65,
-  high: 1.00,
-};
-
-/**
- * Absolute minimum TP floor ratio — never compress below 30% of envelope floor.
- * This ensures even the most calibrated-down floor has structural meaning.
- * Reduced from 0.35 to 0.30 to accommodate extreme low-liquidity session conditions
- * (late Asian session forex) where even 35% of the envelope floor can exceed
- * the available session travel distance.
- */
-export const MIN_TP_FLOOR_RATIO = 0.30;
 
 /**
  * Minimum corridor width required (in pips) before the calibration engine

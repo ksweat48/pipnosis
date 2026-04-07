@@ -70,14 +70,14 @@ class Omega9ConstraintProvider {
       resolvedPlan
     } = input;
 
-    // Calculate professional stop-loss ranges
+    // CCIP-2026-04-07: marketVolatility omitted — defaults to 'normal' (no ATR adjustment).
+    // Static volatility classification removed from the system; Alpha is the sole authority.
     const stopLossCalc = riskAwareStopCalculator.calculateStopLoss({
       symbol,
       entryPrice: entry,
       direction: direction === 'BUY' ? 'buy' : 'sell',
       riskMode,
       atr,
-      marketVolatility: volatilityRegime
     });
 
     const STYLE_MAP: Record<string, string> = { 'scalper': 'SCALP', 'micro': 'MICRO_INTRADAY', 'intraday': 'INTRADAY' };
@@ -101,7 +101,6 @@ class Omega9ConstraintProvider {
       direction: direction === 'BUY' ? 'buy' : 'sell',
       riskMode,
       atr,
-      marketVolatility: volatilityRegime
     });
     const earlyFeasiblePips = (sessionTimeRemainingMinutes / 60) * this.estimateVolatilityPerHour(symbol, atr, volatilityRegime, currentSession) * 0.8;
     const assetCategoryEarly = assetClassifier.getAssetCategory(symbol);
@@ -740,7 +739,6 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
       riskMode: input.riskMode,
       currentSession: input.currentSession,
       sessionTimeRemainingMinutes: input.sessionTimeRemainingMinutes,
-      volatilityRegime: input.volatilityRegime,
       resolvedPlan: input.resolvedPlan,
       // CCIP-ALPHA-GOV-001: Pass Alpha's per-trade R:R ceiling override through.
       rr_ceiling_override: input.rr_ceiling_override,
@@ -886,7 +884,7 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
   private estimateVolatilityPerHour(
     symbol: string,
     atr: number,
-    volatilityRegime: 'low' | 'medium' | 'high',
+    volatilityRegime: 'low' | 'medium' | 'high' | undefined,
     currentSession: string
   ): number {
     // Convert ATR from price units to pips first
@@ -948,7 +946,7 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
       baseVolatility = minimumVolatility;
     }
 
-    console.log(`[Omega-9 Volatility] ${symbol} (${assetCategory}): Base ${(atrInPips * 1.5).toFixed(1)} → Regime: ${volatilityRegime} (no multiplier) → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour (${assetCategory} floor: ${minimumVolatility})`);
+    console.log(`[Omega-9 Volatility] ${symbol} (${assetCategory}): Base ${(atrInPips * 1.5).toFixed(1)} → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour (${assetCategory} floor: ${minimumVolatility})`);
 
     return baseVolatility;
   }

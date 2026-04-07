@@ -872,16 +872,6 @@ class EventBasedLLMEngine {
   }
 
   /**
-   * Determine volatility
-   */
-  private determineVolatility(atr: number, price: number): 'low' | 'medium' | 'high' {
-    const atrPercent = (atr / price) * 100;
-    if (atrPercent < 0.3) return 'low';
-    if (atrPercent < 0.6) return 'medium';
-    return 'high';
-  }
-
-  /**
    * Calculate momentum
    */
   private calculateMomentum(closes: number[]): number {

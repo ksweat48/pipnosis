@@ -138,7 +138,8 @@ export interface Omega9ConstraintInput {
 
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   sessionTimeRemainingMinutes: number;
-  volatilityRegime: 'low' | 'medium' | 'high';
+  /** @deprecated CCIP-2026-04-07: No longer influences wall/stop math. Kept optional for log context only. */
+  volatilityRegime?: 'low' | 'medium' | 'high';
   proposedStopLoss?: number;
 
   /**
@@ -153,13 +154,7 @@ export interface Omega9ConstraintInput {
     slMinPercent?: number;
     tpMaxAtrMultiple?: number;
     minRR?: number;
-    /**
-     * CCIP-2026-03-10: Calibrated envelope TP floor in pips.
-     * Set by WallCalibrationEngine after applying TP_FLOOR_RATIO_BY_REGIME.
-     * When present, omega9ConstraintProvider uses this instead of the raw
-     * envelope minimum, preventing zero-width corridors during low-volatility
-     * sessions where ATR-derived SL is smaller than the normal envelope floor.
-     */
+    /** CCIP-2026-04-07: Envelope TP floor in pips from WallCalibrationEngine. No compression applied. */
     calibratedEnvelopeTpMinPips?: number;
   };
 }
@@ -240,7 +235,8 @@ export interface DualArenaInput {
   riskMode: LegacyRiskMode;
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   sessionTimeRemainingMinutes: number;
-  volatilityRegime: 'low' | 'medium' | 'high';
+  /** @deprecated CCIP-2026-04-07: No longer influences wall/stop math. Kept optional for log context only. */
+  volatilityRegime?: 'low' | 'medium' | 'high';
   /** CCIP-ALPHA-GOV-001: Alpha's per-trade R:R ceiling override. */
   rr_ceiling_override?: number;
   resolvedPlan?: {

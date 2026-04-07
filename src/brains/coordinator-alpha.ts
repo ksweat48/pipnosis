@@ -1305,13 +1305,9 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
       }
     }
 
-    // Detect market volatility level (needed by both SL and TP calculations)
-    let marketVolatilityLevel: 'low' | 'normal' | 'high' = 'normal';
-    if (marketContext.volatility === 'high') {
-      marketVolatilityLevel = 'high';
-    } else if (marketContext.volatility === 'low') {
-      marketVolatilityLevel = 'low';
-    }
+    // CCIP-2026-04-07: marketVolatilityLevel block removed.
+    // The stop calculator now defaults to 'normal' (no ATR adjustment).
+    // Alpha receives raw atrPercent and decides volatility interpretation itself.
 
     let stopLossAnchor: StopLossCalculation | null = null;
     let buyStopAnchor: StopLossCalculation | null = null;
@@ -1383,13 +1379,13 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
 
       buyStopAnchor = riskAwareStopCalculator.calculateStopLoss({
         symbol: marketContext.symbol, entryPrice, direction: 'buy',
-        riskMode, atr: atrForStopLoss, marketVolatility: marketVolatilityLevel,
+        riskMode, atr: atrForStopLoss,
         sweepContext: sweepContextForStop,
         tradeStyle: stopCalcStyle
       });
       sellStopAnchor = riskAwareStopCalculator.calculateStopLoss({
         symbol: marketContext.symbol, entryPrice, direction: 'sell',
-        riskMode, atr: atrForStopLoss, marketVolatility: marketVolatilityLevel,
+        riskMode, atr: atrForStopLoss,
         sweepContext: sweepContextForStop,
         tradeStyle: stopCalcStyle
       });
@@ -1532,7 +1528,6 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         riskMode,
         currentSession: sessionContext.currentSession,
         sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
-        volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
         userId: userId || undefined,
         sessionId: sessionId || undefined,
       });
@@ -1564,7 +1559,6 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         riskMode,
         currentSession: sessionContext.currentSession,
         sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
-        volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
         resolvedPlan: calibratedResolvedPlan,
       });
 
@@ -1595,7 +1589,6 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         tradeStyle,
         currentSession: sessionContext.currentSession,
         sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
-        volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
         proposedStopLoss: buyStopAnchor?.stopLossPrice,
         resolvedPlan: calibratedResolvedPlan,
       });
@@ -1720,7 +1713,7 @@ Consider in Q9: Is this cluster a risk to your SL? Should you widen to clear it,
         : '';
 
       stopLossDirective = `
-ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
+ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: ${riskMode.toUpperCase()}
 IF LONG SL Anchor: ${buyAnchorPrice.toFixed(5)} (${buyAnchorPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 IF SHORT SL Anchor: ${sellAnchorPrice.toFixed(5)} (${sellAnchorPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 EXPECTED ENVELOPE (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL expected ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP expected ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips${wallPctContext}. These are structural guidelines derived from volatility and style. You have FULL authority to place SL and TP where structure justifies it. Placements outside the envelope are logged for analysis but are not rejected. Only Omega-9 (mathematical impossibility) can veto a trade.${sweepZoneDirective}

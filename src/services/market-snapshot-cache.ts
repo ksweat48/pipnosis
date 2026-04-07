@@ -51,7 +51,7 @@ export interface MarketSnapshotData {
   // Derived Analysis
   trend: string;
   trendScore: number; // Numeric strength: -100 (strong bear) to +100 (strong bull)
-  volatility: string;
+  atrPercent: number; // CCIP-2026-04-07: Raw ATR as % of price — Alpha is sole volatility authority
   momentum: number;
   support: number[];
   resistance: number[];
@@ -339,7 +339,7 @@ class MarketSnapshotCache {
       atrEnforced: indicators.atr.value.toFixed(5),
       atrEnforcementActive: indicators.atrRaw !== indicators.atr.value,
       trend: indicators.trend,
-      volatility: indicators.volatility,
+      atrPercent: indicators.atrPercent.toFixed(3) + '%',
       advisoryCount: advisoryFlags.length,
       hash: snapshotHash
     });
@@ -411,7 +411,7 @@ class MarketSnapshotCache {
     macdSignal: number;
     trend: string;
     trendScore: number;
-    volatility: string;
+    atrPercent: number; // CCIP-2026-04-07: Raw ATR % — no static classification
     momentum: number;
   } {
     const closes = candles.map(c => c.close);
@@ -434,7 +434,11 @@ class MarketSnapshotCache {
     const momentum = this.calculateMomentum(closes);
     const trend = this.determineTrend(currentPrice, ema20, ema50, ema200);
     const trendScore = this.calculateTrendScore(currentPrice, ema20, ema50, ema200, momentum);
-    const volatility = this.determineVolatility(atr.value, currentPrice);
+    // CCIP-2026-04-07: Provide raw ATR% — Alpha is the sole volatility authority.
+    // Static thresholds (e.g. atrPercent < 0.3 → 'low') produce incorrect labels for
+    // high-price instruments like NAS100 and US30. The coordinator and wall engine
+    // must not gate on a pre-classified label.
+    const atrPercent = (atr.value / currentPrice) * 100;
 
     return {
       ema20,
@@ -449,7 +453,7 @@ class MarketSnapshotCache {
       macdSignal: signal,
       trend,
       trendScore,
-      volatility,
+      atrPercent,
       momentum
     };
   }
@@ -716,13 +720,6 @@ class MarketSnapshotCache {
     return Math.max(-100, Math.min(100, Math.round(score)));
   }
 
-  private determineVolatility(atr: number, price: number): string {
-    const atrPercent = (atr / price) * 100;
-
-    if (atrPercent < 0.5) return 'low';
-    if (atrPercent > 1.5) return 'high';
-    return 'medium';
-  }
 
   private calculateMomentum(prices: number[]): number {
     if (prices.length < 10) return 0;
