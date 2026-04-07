@@ -5662,7 +5662,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
           : i < Math.floor(totalBuckets * 2 / 3)
             ? 'MID_CONVICTION'
             : 'HIGH_CONVICTION';
-        calibLines.push(`${tier}: win_rate=${data.actualWinRate.toFixed(0)}% (n=${data.sampleSize})`);
+        const edge = data.actualWinRate >= 60 ? 'profitable edge' : data.actualWinRate >= 50 ? 'slight advantage' : data.actualWinRate >= 40 ? 'marginal performance' : 'underperforming';
+        calibLines.push(`${tier}: ${edge} (n=${data.sampleSize})`);
       }
       if (calibLines.length > 0) parts.push(`conviction_performance: ${calibLines.join(', ')}`);
     }
@@ -5692,10 +5693,16 @@ Return PURE JSON only — all required fields from the schema in my system promp
     const hasZoneData = Object.keys(zml.zoneTypeSuccessRates).length > 0 || zml.reachabilityRate > 0;
     if (hasZoneData) {
       const zParts: string[] = [];
-      Object.entries(zml.zoneTypeSuccessRates).forEach(([zoneType, rate]) => zParts.push(`${zoneType}=${(rate * 100).toFixed(0)}%`));
-      if (zml.reachabilityRate > 0) zParts.push(`reach=${(zml.reachabilityRate * 100).toFixed(0)}%`);
+      Object.entries(zml.zoneTypeSuccessRates).forEach(([zoneType, rate]) => {
+        const label = rate >= 0.60 ? 'high success' : rate >= 0.45 ? 'moderate success' : 'low success';
+        zParts.push(`${zoneType}=${label}`);
+      });
+      if (zml.reachabilityRate > 0) {
+        const reachLabel = zml.reachabilityRate >= 0.60 ? 'good reachability' : zml.reachabilityRate >= 0.40 ? 'moderate reachability' : 'poor reachability';
+        zParts.push(`reach=${reachLabel}`);
+      }
       const unreachable = Object.entries(zml.unreachableByRegime).filter(([, rate]) => rate > 0.3);
-      unreachable.forEach(([regime, rate]) => zParts.push(`${regime}_unreachable=${(rate * 100).toFixed(0)}%`));
+      unreachable.forEach(([regime]) => zParts.push(`${regime}_unreachable=often`));
       parts.push(`zones: ${zParts.join(' | ')}`);
     }
 
@@ -5727,21 +5734,26 @@ Return PURE JSON only — all required fields from the schema in my system promp
         .sort((a, b) => b.advisoryWeight - a.advisoryWeight)
         .slice(0, 5);
       if (topPatterns.length > 0) {
-        parts.push(`pattern_weights: ${topPatterns.map(p => `${p.patternId}(w=${p.advisoryWeight.toFixed(1)} WR=${(p.winRate * 100).toFixed(0)}%)`).join(' ')}`);
+        parts.push(`pattern_weights: ${topPatterns.map(p => {
+          const edge = p.winRate >= 0.60 ? 'strong-edge' : p.winRate >= 0.50 ? 'positive-edge' : p.winRate >= 0.40 ? 'neutral' : 'weak-edge';
+          return `${p.patternId}(w=${p.advisoryWeight.toFixed(1)} edge=${edge})`;
+        }).join(' ')}`);
       }
     }
 
     if (intelligence.slHuntCorrections && symbol && intelligence.slHuntCorrections[symbol]) {
       const hunt = intelligence.slHuntCorrections[symbol];
       if (hunt.totalSlHits >= 3 && hunt.huntRate >= 0.3) {
-        parts.push(`SL_HUNT (${symbol}): rate=${(hunt.huntRate * 100).toFixed(0)}% n=${hunt.totalSlHits}${hunt.recommendedWidenPct > 0 ? ` — widen SL ~${(hunt.recommendedWidenPct * 100).toFixed(0)}%` : ''}`);
+        const huntSeverity = hunt.huntRate >= 0.6 ? 'frequent' : hunt.huntRate >= 0.4 ? 'moderate' : 'occasional';
+        parts.push(`SL_HUNT (${symbol}): severity=${huntSeverity} n=${hunt.totalSlHits}${hunt.recommendedWidenPct > 0 ? ` — widen SL recommended` : ''}`);
       }
     }
 
     if (intelligence.sessionStreakState && intelligence.sessionStreakState.sessionTrades >= 2) {
       const streak = intelligence.sessionStreakState;
-      const wr = streak.sessionTrades > 0 ? ((streak.sessionWins / streak.sessionTrades) * 100).toFixed(0) : '0';
-      parts.push(`today: ${streak.sessionTrades}trades WR=${wr}% PnL=${streak.sessionPnlR >= 0 ? '+' : ''}${streak.sessionPnlR.toFixed(2)}R${streak.currentStreak >= 3 ? ` [${streak.streakType.toUpperCase()} STREAK x${streak.currentStreak}]` : ''}`);
+      const rawWr = streak.sessionTrades > 0 ? streak.sessionWins / streak.sessionTrades : 0;
+      const wrLabel = rawWr >= 0.60 ? 'winning' : rawWr >= 0.50 ? 'breakeven' : 'losing';
+      parts.push(`today: ${streak.sessionTrades}trades form=${wrLabel} PnL=${streak.sessionPnlR >= 0 ? '+' : ''}${streak.sessionPnlR.toFixed(2)}R${streak.currentStreak >= 3 ? ` [${streak.streakType.toUpperCase()} STREAK x${streak.currentStreak}]` : ''}`);
     }
 
     if (intelligence.tpDistributionStats && symbol) {
@@ -5749,7 +5761,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
       if (symStats) {
         const styleKeys = Object.keys(symStats).filter(k => symStats[k].totalTrades >= 5);
         if (styleKeys.length > 0) {
-          parts.push(`tp_dist(${symbol}): ${styleKeys.map(s => { const d = symStats[s]; return `${s}:full=${(d.tpFullRate * 100).toFixed(0)}% tp1=${(d.tp1OnlyRate * 100).toFixed(0)}% sl=${(d.slRate * 100).toFixed(0)}%(n=${d.totalTrades})`; }).join(' | ')}`);
+          parts.push(`tp_dist(${symbol}): ${styleKeys.map(s => {
+            const d = symStats[s];
+            const fullLabel = d.tpFullRate >= 0.50 ? 'frequent' : d.tpFullRate >= 0.30 ? 'occasional' : 'rare';
+            const slLabel = d.slRate >= 0.50 ? 'high' : d.slRate >= 0.30 ? 'moderate' : 'low';
+            return `${s}:full_tp=${fullLabel} sl_hit=${slLabel}(n=${d.totalTrades})`;
+          }).join(' | ')}`);
         }
       }
     }
@@ -5757,56 +5774,65 @@ Return PURE JSON only — all required fields from the schema in my system promp
     if (intelligence.counterThesisAccuracy && symbol && intelligence.counterThesisAccuracy[symbol]) {
       const ct = intelligence.counterThesisAccuracy[symbol];
       if (ct.totalTrades >= 5) {
-        const calibErr = (ct.calibrationError * 100).toFixed(0);
         const note = ct.calibrationError > 0.2 ? (ct.avgPredictedFailureRate > ct.actualFailureRate ? ' [over-cautious]' : ' [under-estimating risk]') : '';
-        parts.push(`counter_thesis_cal(${symbol}): pred=${(ct.avgPredictedFailureRate * 100).toFixed(0)}% actual=${(ct.actualFailureRate * 100).toFixed(0)}% err=${calibErr}%(n=${ct.totalTrades})${note}`);
+        parts.push(`counter_thesis_cal(${symbol}): calibration=${ct.calibrationError <= 0.1 ? 'well-calibrated' : ct.calibrationError <= 0.2 ? 'slightly-off' : 'poorly-calibrated'}(n=${ct.totalTrades})${note}`);
       }
     }
 
     // CCIP-2026-0325B: Session-phase-style performance mirror
-    // Highest-leverage learning signal: empirical win rate at the exact intersection
-    // Alpha reasons about — session × phase × style and session × phase × setup_type.
+    // CCIP-2026-0407C: Numeric win-rate percentages removed — qualitative edge labels only.
+    // Prevents GPT-4o from anchoring trade_confidence to historical win-rate numbers.
     if (intelligence.sessionPhasePerformance && intelligence.sessionPhasePerformance.length > 0) {
-      parts.push('\nSESSION-PHASE-STYLE WIN RATES (your empirical edge by context):');
+      parts.push('\nSESSION-PHASE-STYLE HISTORICAL EDGE (your empirical context profile):');
       parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      parts.push('Format: session|phase|style → WR%(W/L) avg_pnl');
+      parts.push('Format: session|phase|style → edge profile | avg_pnl');
 
       const rows = intelligence.sessionPhasePerformance
         .slice(0, 20)
         .map(r => {
-          const wr = (r.win_rate * 100).toFixed(0);
-          const wrFlag = r.win_rate >= 0.60 ? ' [EDGE]' : r.win_rate <= 0.35 ? ' [AVOID]' : '';
-          return `  ${r.session_name}|${r.market_phase}|${r.trade_style} → ${wr}%(${r.wins}W/${r.losses}L) $${Number(r.avg_pnl).toFixed(2)}/trade${wrFlag}`;
+          const edgeLabel = r.win_rate >= 0.65 ? 'strong historical edge'
+            : r.win_rate >= 0.55 ? 'positive historical edge'
+            : r.win_rate >= 0.45 ? 'neutral historical edge'
+            : r.win_rate >= 0.35 ? 'historically weak context'
+            : 'historically poor context';
+          const tradeCount = `(${r.wins}W/${r.losses}L)`;
+          return `  ${r.session_name}|${r.market_phase}|${r.trade_style} → ${edgeLabel} ${tradeCount} $${Number(r.avg_pnl).toFixed(2)}/trade`;
         });
 
       parts.push(...rows);
       parts.push('INSTRUCTION: When my active session + current Q12 phase + active style matches a row above,');
-      parts.push('I MUST reference that win rate in my thesis_coherence_statement. A row marked [AVOID]');
-      parts.push('requires an explicit structural reason to proceed — it is not a block, but it MUST be named.');
+      parts.push('I reference the edge profile as contextual information only. Edge labels describe historical');
+      parts.push('context — they do not determine my trade_confidence. My confidence comes from the structural');
+      parts.push('evidence I observe right now: structure quality, path cleanliness, trigger clarity.');
       parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     }
 
     if (intelligence.setupTypeContextPerformance && intelligence.setupTypeContextPerformance.length > 0) {
       const setupRows = intelligence.setupTypeContextPerformance.slice(0, 15);
-      parts.push('\nSETUP-TYPE WIN RATES BY CONTEXT (empirical):');
+      parts.push('\nSETUP-TYPE HISTORICAL EDGE BY CONTEXT (empirical):');
       setupRows.forEach(r => {
-        const wr = (r.win_rate * 100).toFixed(0);
-        const flag = r.win_rate >= 0.60 ? ' [STRONG]' : r.win_rate <= 0.35 ? ' [WEAK]' : '';
-        parts.push(`  ${r.session_name}|${r.market_phase}|${r.setup_type} → ${wr}%(${r.wins}W/${r.losses}L) $${Number(r.avg_pnl).toFixed(2)}/trade${flag}`);
+        const edgeLabel = r.win_rate >= 0.60 ? 'strong edge'
+          : r.win_rate >= 0.50 ? 'positive edge'
+          : r.win_rate >= 0.40 ? 'neutral edge'
+          : 'historically weak';
+        const tradeCount = `(${r.wins}W/${r.losses}L)`;
+        parts.push(`  ${r.session_name}|${r.market_phase}|${r.setup_type} → ${edgeLabel} ${tradeCount} $${Number(r.avg_pnl).toFixed(2)}/trade`);
       });
     }
 
     if (intelligence.phaseConfluenceCalibration && intelligence.phaseConfluenceCalibration.length > 0) {
       parts.push('\nCCIP-2026-0401A: PHASE-RELATIVE CONFLUENCE REQUIREMENTS (load-bearing signals only):');
       parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      parts.push('Format: phase|style → min/7 | load-bearing signals | win rate');
+      parts.push('Format: phase|style → min/7 | load-bearing signals | edge status');
       intelligence.phaseConfluenceCalibration.forEach(row => {
-        const wr = row.historical_win_rate !== null && row.sample_size >= 5
-          ? `${row.historical_win_rate.toFixed(0)}%(n=${row.sample_size})`
+        const edgeStatus = row.historical_win_rate !== null && row.sample_size >= 5
+          ? (row.historical_win_rate >= 60 ? `calibrated edge (n=${row.sample_size})`
+            : row.historical_win_rate >= 50 ? `positive tendency (n=${row.sample_size})`
+            : `building data (n=${row.sample_size})`)
           : 'no data yet';
         const lb = row.load_bearing_dimensions.join('+');
-        const edge = row.historical_win_rate !== null && row.historical_win_rate >= 60 ? ' [CALIBRATED EDGE]' : '';
-        parts.push(`  ${row.market_phase}|${row.trade_style} → ${row.min_signals_required}/7 | ${lb} | ${wr}${edge}`);
+        const edgeFlag = row.historical_win_rate !== null && row.historical_win_rate >= 60 ? ' [CALIBRATED EDGE]' : '';
+        parts.push(`  ${row.market_phase}|${row.trade_style} → ${row.min_signals_required}/7 | ${lb} | ${edgeStatus}${edgeFlag}`);
       });
       parts.push('INSTRUCTION: When Q12 phase matches a row above, apply that row\'s min_signals to my Q7 evaluation.');
       parts.push('A setup meeting min_signals with ALL load-bearing dimensions firing = TRADEABLE regardless of universal count.');
