@@ -2,13 +2,17 @@
  * Trade Priority Score (TPS) Engine
  *
  * SSOT for TPS calculation and candidate evaluation.
- * Implements intelligent EXECUTE_NOW vs WAIT arbitration with patience gates.
  *
  * Core algorithm:
  * - TPS = (confidence × 0.62) + (readiness × 0.30) + (urgency × 0.08)
- * - Patience gate: WAIT must beat NOW by margin to prevent premature execution
+ * - EXECUTE_NOW absolute priority: if any execute_now candidate exists, all wait
+ *   candidates are dropped before ranking. Confidence ranks within the surviving pool.
  * - Style-specific urgency decay curves
  * - Momentum-aware modifiers
+ *
+ * Entry mode priority hierarchy:
+ * 1. EXECUTE_NOW — take this if available, always
+ * 2. WAIT_ENTRY / WAIT_HIGHER_EDGE — only when zero execute_now candidates exist
  */
 
 import type {
@@ -23,7 +27,6 @@ import {
   READINESS_THRESHOLDS,
   calculateUrgency,
   isIntentExpired,
-  getPatienceGateMargin,
 } from '../config/tps-urgency-curves';
 import { logger } from '../lib/logger';
 
@@ -137,12 +140,15 @@ export function computeTPS(candidate: TPSCandidate): TPSEvaluation {
 }
 
 /**
- * Evaluate multiple candidates and select winner(s) with patience gate.
+ * Evaluate multiple candidates and select winner using EXECUTE_NOW absolute priority.
  *
- * Patience gate logic:
- * - If WAIT has higher TPS than NOW by required margin → choose WAIT
- * - If NOW has higher TPS or WAIT margin insufficient → choose NOW
- * - Margin requirement varies by momentum state
+ * Category-first selection rule:
+ * - If ANY candidate has entryMode === 'EXECUTE_NOW', ALL wait candidates are dropped.
+ * - Confidence (via TPS) ranks candidates within the surviving pool.
+ * - Wait candidates are only considered when zero execute_now candidates are present.
+ *
+ * This is not percentage-based. execute_now always wins as a category, regardless
+ * of the confidence gap between an execute_now and a wait candidate.
  *
  * @param candidates - Array of candidates to evaluate
  * @returns Comparison result with winner and runners-up
@@ -153,77 +159,58 @@ export function evaluateMultipleCandidates(candidates: TPSCandidate[]): TPSCompa
   }
 
   // Compute TPS for all candidates
-  const evaluations = candidates.map(computeTPS).filter(e => e.scores.total > 0);
+  const allEvaluations = candidates.map(computeTPS).filter(e => e.scores.total > 0);
 
-  if (evaluations.length === 0) {
+  if (allEvaluations.length === 0) {
     throw new Error('All candidates expired or invalid');
   }
 
-  // Sort by TPS descending
-  evaluations.sort((a, b) => b.scores.total - a.scores.total);
+  // EXECUTE_NOW ABSOLUTE PRIORITY FILTER
+  const executeNowPool = allEvaluations.filter(e => e.candidate.entryMode === 'EXECUTE_NOW');
+  const waitPool = allEvaluations.filter(e => e.candidate.entryMode !== 'EXECUTE_NOW');
+  const hasExecuteNow = executeNowPool.length > 0;
 
-  const topCandidate = evaluations[0];
-  const runnerUp = evaluations[1];
+  let evaluations: TPSEvaluation[];
+  let categoryFilterReasoning = '';
 
-  // Apply patience gate if we have both NOW and WAIT candidates
-  const hasNow = evaluations.some(e => e.candidate.entryMode === 'EXECUTE_NOW');
-  const hasWait = evaluations.some(e => e.candidate.entryMode !== 'EXECUTE_NOW');
-
-  let patienceGateTriggered = false;
-  let winner = topCandidate;
-  let comparisonReasoning = topCandidate.reasoning;
-
-  if (hasNow && hasWait && runnerUp) {
-    // Find top NOW and top WAIT
-    const topNow = evaluations.find(e => e.candidate.entryMode === 'EXECUTE_NOW');
-    const topWait = evaluations.find(e => e.candidate.entryMode !== 'EXECUTE_NOW');
-
-    if (topNow && topWait) {
-      const margin = Math.abs(topWait.scores.total - topNow.scores.total);
-      const requiredMargin = getPatienceGateMargin(topCandidate.candidate.momentumState);
-
-      // Check if WAIT wins with sufficient margin
-      if (topWait.scores.total > topNow.scores.total) {
-        if (margin >= requiredMargin) {
-          // WAIT wins with sufficient margin
-          winner = topWait;
-          patienceGateTriggered = true;
-          comparisonReasoning = `WAIT selected: TPS ${topWait.scores.total.toFixed(1)} beats NOW ${topNow.scores.total.toFixed(1)} by ${margin.toFixed(1)} (required: ${requiredMargin})`;
-          logger.info('[TPS] Patience gate: WAIT wins', {
-            waitScore: topWait.scores.total,
-            nowScore: topNow.scores.total,
-            margin,
-            requiredMargin,
-          });
-        } else {
-          // WAIT has higher score but insufficient margin → execute NOW
-          winner = topNow;
-          patienceGateTriggered = true;
-          comparisonReasoning = `NOW executed: WAIT margin ${margin.toFixed(1)} < required ${requiredMargin} (momentum: ${topCandidate.candidate.momentumState})`;
-          logger.info('[TPS] Patience gate: Insufficient margin, executing NOW', {
-            waitScore: topWait.scores.total,
-            nowScore: topNow.scores.total,
-            margin,
-            requiredMargin,
-          });
-        }
-      } else {
-        // NOW has higher score
-        winner = topNow;
-        comparisonReasoning = `NOW wins: TPS ${topNow.scores.total.toFixed(1)} > WAIT ${topWait.scores.total.toFixed(1)}`;
-      }
+  if (hasExecuteNow) {
+    evaluations = executeNowPool;
+    if (waitPool.length > 0) {
+      categoryFilterReasoning = `EXECUTE_NOW_ABSOLUTE_PRIORITY: ${waitPool.length} wait candidate(s) dropped — execute_now pool has ${executeNowPool.length} tradeable option(s)`;
+      logger.info('[TPS] EXECUTE_NOW absolute priority applied', {
+        executeNowCount: executeNowPool.length,
+        waitDropped: waitPool.length,
+        droppedSymbols: waitPool.map(e => `${e.candidate.symbol}(${e.candidate.entryMode}:${e.candidate.tradeConfidence}%)`),
+        survivingSymbols: executeNowPool.map(e => `${e.candidate.symbol}(${e.candidate.tradeConfidence}%)`),
+      });
+    } else {
+      categoryFilterReasoning = `All ${executeNowPool.length} candidate(s) are execute_now — no wait candidates present`;
     }
+  } else {
+    evaluations = waitPool;
+    categoryFilterReasoning = `No execute_now candidates — evaluating ${waitPool.length} wait candidate(s)`;
+    logger.info('[TPS] No execute_now candidates, falling back to wait pool', {
+      waitCount: waitPool.length,
+      symbols: waitPool.map(e => `${e.candidate.symbol}(${e.candidate.entryMode}:${e.candidate.tradeConfidence}%)`),
+    });
   }
 
-  const marginToSecondPlace = runnerUp
-    ? winner.scores.total - runnerUp.scores.total
-    : 0;
+  // Sort surviving pool by TPS descending (confidence dominates)
+  evaluations.sort((a, b) => b.scores.total - a.scores.total);
+
+  const winner = evaluations[0];
+  const runnerUp = evaluations[1];
+  const marginToSecondPlace = runnerUp ? winner.scores.total - runnerUp.scores.total : 0;
+
+  const comparisonReasoning = runnerUp
+    ? `${categoryFilterReasoning} | Winner: ${winner.candidate.symbol} TPS ${winner.scores.total.toFixed(1)} (margin +${marginToSecondPlace.toFixed(1)} over runner-up)`
+    : `${categoryFilterReasoning} | Winner: ${winner.candidate.symbol} TPS ${winner.scores.total.toFixed(1)} (only candidate)`;
 
   return {
     winner,
     runners: evaluations.slice(1),
     marginToSecondPlace,
-    patienceGateTriggered,
+    patienceGateTriggered: false,
     comparisonReasoning,
   };
 }
@@ -245,10 +232,24 @@ export function selectForTradeSlots(
     throw new Error(`Invalid availableSlots: ${availableSlots}, must be 1-3`);
   }
 
-  // Evaluate all candidates
-  const evaluations = candidates
+  // Evaluate all candidates and apply execute_now absolute priority
+  const allEvals = candidates
     .map(computeTPS)
-    .filter(e => e.scores.total > 0)
+    .filter(e => e.scores.total > 0);
+
+  const executeNowEvals = allEvals.filter(e => e.candidate.entryMode === 'EXECUTE_NOW');
+  const waitEvals = allEvals.filter(e => e.candidate.entryMode !== 'EXECUTE_NOW');
+  const hasExecuteNow = executeNowEvals.length > 0;
+
+  if (hasExecuteNow && waitEvals.length > 0) {
+    logger.info('[TPS] selectForTradeSlots: EXECUTE_NOW absolute priority applied', {
+      executeNowCount: executeNowEvals.length,
+      waitDropped: waitEvals.length,
+    });
+  }
+
+  // Use execute_now pool if available, otherwise fall back to wait pool
+  const evaluations = (hasExecuteNow ? executeNowEvals : waitEvals)
     .sort((a, b) => b.scores.total - a.scores.total);
 
   const assignments: TradeSlotAssignment[] = [];

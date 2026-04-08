@@ -53,20 +53,6 @@ export const TPS_WEIGHTS = {
   urgency: 0.08,
 } as const;
 
-/**
- * Patience gate configuration.
- * Prevents premature execution when waiting for better setup is warranted.
- */
-export const PATIENCE_GATE = {
-  // Minimum margin required for WAIT to beat NOW during impulse
-  impulseMarginRequired: 8.0,
-
-  // Minimum margin required for WAIT to beat NOW in normal conditions
-  normalMarginRequired: 5.0,
-
-  // Minimum margin required for WAIT to beat NOW when stalled
-  stalledMarginRequired: 3.0,
-} as const;
 
 /**
  * Entry readiness thresholds.
@@ -130,19 +116,4 @@ export function isIntentExpired(minutesSinceSignal: number, style: TradeStyle): 
   return minutesSinceSignal >= URGENCY_CONFIGS[style].expirationMinutes;
 }
 
-/**
- * Get patience gate margin requirement based on momentum.
- *
- * @param momentumState - Current market momentum
- * @returns Required TPS margin for WAIT to override NOW
- */
-export function getPatienceGateMargin(momentumState: 'IMPULSE' | 'NORMAL' | 'STALLED'): number {
-  switch (momentumState) {
-    case 'IMPULSE':
-      return PATIENCE_GATE.impulseMarginRequired;
-    case 'STALLED':
-      return PATIENCE_GATE.stalledMarginRequired;
-    default:
-      return PATIENCE_GATE.normalMarginRequired;
-  }
-}
+

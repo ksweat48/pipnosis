@@ -249,7 +249,7 @@ class BestSymbolSelector {
     }
 
     if (eligibleEvaluations.length === 0) {
-      console.log('\n[Best Symbol Selector] 🚫 No eligible symbols found - WAIT mode\n');
+      console.log('\n[Best Symbol Selector] No eligible symbols found - WAIT mode\n');
       return {
         selected: false,
         symbol: null,
@@ -262,6 +262,32 @@ class BestSymbolSelector {
           forensics: `Evaluated: ${snapshots.length} | Rejected: ${rejectedEvaluations.length} | Eligible: 0`,
         },
       };
+    }
+
+    // STAGE 1.5: EXECUTE_NOW ABSOLUTE PRIORITY FILTER
+    // If any eligible candidate is execute_now, drop all wait candidates before ranking.
+    // Alpha always uses execute_now trades first. Wait candidates are only considered
+    // when no execute_now options exist. This is category-first, not confidence-based.
+    const executeNowCandidates = eligibleEvaluations.filter(
+      e => e.omegaDecision.entry_mode === 'execute_now'
+    );
+    const waitCandidates = eligibleEvaluations.filter(
+      e => e.omegaDecision.entry_mode !== 'execute_now'
+    );
+    const hasExecuteNow = executeNowCandidates.length > 0;
+
+    if (hasExecuteNow && waitCandidates.length > 0) {
+      console.log(
+        `\n[Best Symbol Selector] EXECUTE_NOW_ABSOLUTE_PRIORITY: ${waitCandidates.length} wait candidate(s) dropped — ` +
+        `${executeNowCandidates.length} execute_now candidate(s) available: ` +
+        waitCandidates.map(e => `${e.symbol}(${e.omegaDecision.entry_mode}:${e.primaryScore}%)`).join(', ')
+      );
+      eligibleEvaluations.length = 0;
+      eligibleEvaluations.push(...executeNowCandidates);
+    } else if (!hasExecuteNow && waitCandidates.length > 0) {
+      console.log(
+        `\n[Best Symbol Selector] No execute_now candidates — evaluating ${waitCandidates.length} wait candidate(s)`
+      );
     }
 
     // STAGE 2: PRIMARY SORT BY CONFIDENCE (DESCENDING)
@@ -302,7 +328,7 @@ class BestSymbolSelector {
       : undefined;
 
     // Forensics summary
-    const forensics = `Evaluated: ${snapshots.length} | Rejected: ${rejectedEvaluations.length} | Eligible: ${eligibleEvaluations.length} | Winner: ${winner.symbol} @ ${winner.primaryScore}% | Margin: ${winnerMargin?.toFixed(1) || 'N/A'} pts | Tie-breakers: ${tieBreakersUsed ? 'YES' : 'NO'}`;
+    const forensics = `Evaluated: ${snapshots.length} | Rejected: ${rejectedEvaluations.length} | Eligible: ${eligibleEvaluations.length} | ExecuteNow priority: ${hasExecuteNow ? 'YES' : 'NO'} | Winner: ${winner.symbol} @ ${winner.primaryScore}% (${winner.omegaDecision.entry_mode || 'unknown'}) | Margin: ${winnerMargin?.toFixed(1) || 'N/A'} pts | Tie-breakers: ${tieBreakersUsed ? 'YES' : 'NO'}`;
 
     console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`[Best Symbol Selector] 🎯 SELECTION RESULT`);
@@ -637,6 +663,29 @@ class BestSymbolSelector {
       };
     }
 
+    // STAGE 1.5: EXECUTE_NOW ABSOLUTE PRIORITY FILTER (same rule as selectBestSymbol)
+    const executeNowTopN = eligibleEvaluations.filter(
+      e => e.omegaDecision.entry_mode === 'execute_now'
+    );
+    const waitTopN = eligibleEvaluations.filter(
+      e => e.omegaDecision.entry_mode !== 'execute_now'
+    );
+    const hasExecuteNowTopN = executeNowTopN.length > 0;
+
+    if (hasExecuteNowTopN && waitTopN.length > 0) {
+      console.log(
+        `\n[Top-N Selector] EXECUTE_NOW_ABSOLUTE_PRIORITY: ${waitTopN.length} wait candidate(s) dropped — ` +
+        `${executeNowTopN.length} execute_now candidate(s) available: ` +
+        waitTopN.map(e => `${e.symbol}(${e.omegaDecision.entry_mode}:${e.primaryScore}%)`).join(', ')
+      );
+      eligibleEvaluations.length = 0;
+      eligibleEvaluations.push(...executeNowTopN);
+    } else if (!hasExecuteNowTopN && waitTopN.length > 0) {
+      console.log(
+        `\n[Top-N Selector] No execute_now candidates — evaluating ${waitTopN.length} wait candidate(s)`
+      );
+    }
+
     // Primary sort by confidence descending
     eligibleEvaluations.sort((a, b) => b.primaryScore - a.primaryScore);
 
@@ -661,7 +710,7 @@ class BestSymbolSelector {
     }));
 
     const confidenceRange = `${Math.min(...eligibleEvaluations.map(e => e.primaryScore))}%-${Math.max(...eligibleEvaluations.map(e => e.primaryScore))}%`;
-    const forensics = `Evaluated: ${snapshots.length} | Rejected: ${rejectedEvaluations.length} | Eligible: ${eligibleEvaluations.length} | Selected top ${winners.length}: ${winners.map(w => `${w.symbol}@${w.evaluation.primaryScore}%`).join(', ')}`;
+    const forensics = `Evaluated: ${snapshots.length} | Rejected: ${rejectedEvaluations.length} | Eligible: ${eligibleEvaluations.length} | ExecuteNow priority: ${hasExecuteNowTopN ? 'YES' : 'NO'} | Selected top ${winners.length}: ${winners.map(w => `${w.symbol}@${w.evaluation.primaryScore}%(${w.evaluation.omegaDecision.entry_mode || 'unknown'})`).join(', ')}`;
 
     console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`[Top-N Selector] SELECTED ${winners.length}/${clampedN} requested`);
