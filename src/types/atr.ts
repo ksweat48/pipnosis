@@ -16,7 +16,7 @@
  * - Trades get blocked incorrectly due to "dead market" misdiagnosis
  */
 
-export type ATRTimeframe = 'M5' | 'M15' | 'H1' | 'H4' | 'D1';
+export type ATRTimeframe = 'M1' | 'M5' | 'M15' | 'H1' | 'H4' | 'D1';
 
 /**
  * Typed ATR value with explicit timeframe tracking
@@ -402,10 +402,10 @@ export function isValidATRValue(value: unknown): value is ATRValue {
   return (
     typeof obj.value === 'number' &&
     typeof obj.timeframe === 'string' &&
-    ['M5', 'M15', 'H1', 'H4', 'D1'].includes(obj.timeframe) &&
+    ['M1', 'M5', 'M15', 'H1', 'H4', 'D1'].includes(obj.timeframe) &&
     typeof obj.period === 'number' &&
     obj.unit === 'price' &&
-    obj.calculatedAt instanceof Date
+    (obj.calculatedAt instanceof Date || typeof obj.calculatedAt === 'string')
   );
 }
 
@@ -422,7 +422,7 @@ export function isATRValueLike(value: unknown): value is ATRValue {
   return (
     typeof obj.value === 'number' &&
     typeof obj.timeframe === 'string' &&
-    ['M5', 'M15', 'H1', 'H4', 'D1'].includes(obj.timeframe) &&
+    ['M1', 'M5', 'M15', 'H1', 'H4', 'D1'].includes(obj.timeframe) &&
     typeof obj.period === 'number' &&
     obj.unit === 'price'
   );
