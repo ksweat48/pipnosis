@@ -48,7 +48,6 @@ export interface GoalContext {
 
 interface AchievementRecord {
   id: string;
-  session_id: string;
   achieved_at: string;
   final_pnl: number;
 }
@@ -116,17 +115,6 @@ class GoalAchievementCoordinator {
     this.processingLocks.set(lockKey, true);
 
     try {
-      const { data: existingAchievement } = await supabase
-        .from('trade_achievements')
-        .select('id')
-        .eq('session_id', context.sessionId)
-        .maybeSingle();
-
-      if (existingAchievement) {
-        console.log(`[GoalAchievementCoordinator] Achievement already exists for session ${context.sessionId}`);
-        return existingAchievement as AchievementRecord;
-      }
-
       const { data: sessionData } = await supabase
         .from('goal_sessions')
         .select('target_value, risk_mode, status, goal_countdown_started_at')
