@@ -338,6 +338,26 @@ export async function getActiveEntryIntent(sessionId: string): Promise<EntryInte
     return activeIntent as EntryIntentData;
   }
 
+  // CCIP-2026-0404B: Surface very recently canceled/expired intents to the UI.
+  // When an intent is canceled within the last 5 minutes (e.g. due to near-zero timeout bug),
+  // return it so the UI can show "entry zone expired" instead of silently reverting to scanning.
+  const RECENT_EXPIRY_WINDOW_MS = 5 * 60 * 1000;
+  const recentlyExpired = allIntents.find(intent => {
+    if (!['canceled', 'abandoned', 'timeout'].includes(intent.status)) return false;
+    const createdAt = new Date(intent.created_at).getTime();
+    return (now.getTime() - createdAt) < RECENT_EXPIRY_WINDOW_MS;
+  });
+
+  if (recentlyExpired) {
+    console.log('%c[getActiveEntryIntent] ⏱️ Found recently expired intent (status=%s), surfacing for UI:', 'color: #ff9800; font-weight: bold', recentlyExpired.status, {
+      id: recentlyExpired.id,
+      status: recentlyExpired.status,
+      symbol: recentlyExpired.symbol,
+      created_at: new Date(recentlyExpired.created_at).toLocaleString()
+    });
+    return recentlyExpired as EntryIntentData;
+  }
+
   console.log('%c[getActiveEntryIntent] ⚠️ No active intents found (all are finalized or expired)', 'color: #ff9800; font-weight: bold');
   return null;
 }

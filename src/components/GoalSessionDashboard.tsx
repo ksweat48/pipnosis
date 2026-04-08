@@ -67,6 +67,14 @@ export const GoalSessionDashboard: React.FC = () => {
   // AlphaScanningFeed and promote EntryPriceMonitor to the main body.
   const { activeIntent } = useActiveEntryIntent(activeSession?.sessionId ?? null);
   const hasActiveMonitoringIntent = activeIntent?.status === 'monitoring';
+  // CCIP-2026-0404B: Surface recently expired/canceled intents so the user sees "entry zone expired"
+  // instead of a silent revert to scanning. Intent is considered "recently expired" if it was
+  // created within the last 5 minutes but canceled/abandoned before entering the zone.
+  const RECENT_EXPIRY_WINDOW_MS = 5 * 60 * 1000;
+  const hasRecentlyExpiredIntent = !hasActiveMonitoringIntent &&
+    activeIntent != null &&
+    ['canceled', 'abandoned', 'timeout'].includes(activeIntent.status) &&
+    (Date.now() - new Date(activeIntent.created_at).getTime()) < RECENT_EXPIRY_WINDOW_MS;
 
   useEffect(() => {
     if (!activeSession) return;
@@ -1801,6 +1809,22 @@ export const GoalSessionDashboard: React.FC = () => {
                 )}
               </div>
               <EntryPriceMonitor />
+            </div>
+          ) : hasRecentlyExpiredIntent ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 px-1">
+                <div className="w-2 h-2 rounded-full bg-gray-400" />
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Entry Zone Expired
+                </span>
+                {activeIntent?.symbol && (
+                  <span className="text-xs text-gray-500 font-mono">{activeIntent.symbol}</span>
+                )}
+              </div>
+              <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-4 text-sm text-gray-400">
+                The entry zone for <span className="text-gray-200 font-semibold">{activeIntent?.symbol} {activeIntent?.direction === 'long' ? 'BUY' : 'SELL'}</span> closed before price reached the zone.
+                Alpha is re-scanning for the next setup.
+              </div>
             </div>
           ) : activeSession.block_state ? (
             <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-5">

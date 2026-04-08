@@ -1634,10 +1634,24 @@ class AlphaTradeExecutor {
     // CCIP-2026-0318A: Use Alpha's estimated wait time as primary timeout source.
     // Alpha states expected_wait_minutes inside wait_condition when it defers entry.
     // Cap at 120 minutes to prevent runaway intents. Fall back to entry_intent or 60 min default.
+    // CCIP-2026-0404B: Global minimum floor of 30 minutes applied AFTER all fallbacks.
+    // This prevents near-zero timeouts caused by missing wait_condition or corrupt entry_intent values.
     const alphaExpectedWait = decision.wait_condition?.expected_wait_minutes;
-    const timeoutMinutes = alphaExpectedWait != null
+    const rawTimeoutMinutes = alphaExpectedWait != null
       ? Math.min(Math.max(alphaExpectedWait, 5), 120)
       : (decision.entry_intent?.timeout_minutes || 60);
+
+    // Hard floor: no monitored intent may expire in less than 30 minutes regardless of source.
+    const MINIMUM_MONITOR_TIMEOUT_MINUTES = 30;
+    if (rawTimeoutMinutes < MINIMUM_MONITOR_TIMEOUT_MINUTES) {
+      logger.warn(
+        LogCategory.GOVERNANCE,
+        `[AlphaTradeExecutor] CCIP-2026-0404B: Timeout too short (${rawTimeoutMinutes} min) — overriding to ${MINIMUM_MONITOR_TIMEOUT_MINUTES} min floor. ` +
+        'Likely caused by missing wait_condition.expected_wait_minutes and corrupt entry_intent.timeout_minutes.',
+        { symbol: decision.symbol, rawTimeoutMinutes, alphaExpectedWait, entryIntentTimeout: decision.entry_intent?.timeout_minutes }
+      );
+    }
+    const timeoutMinutes = Math.max(rawTimeoutMinutes, MINIMUM_MONITOR_TIMEOUT_MINUTES);
 
     const timeoutAt = new Date(now.getTime() + timeoutMinutes * 60 * 1000).toISOString();
     const direction = toLongShort(decision.action === 'BUY' ? 'buy' : 'sell');
