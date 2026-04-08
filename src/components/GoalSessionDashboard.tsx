@@ -1771,10 +1771,31 @@ export const GoalSessionDashboard: React.FC = () => {
           {hasActiveMonitoringIntent ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2 px-1">
-                <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
-                  Waiting for Entry Zone
-                </span>
+                {(() => {
+                  const advisoryVerdict = activeIntent?.market_context?.alpha_entry_advisory?.verdict;
+                  const intentEntryMode = activeIntent?.entry_mode;
+                  const isWaitPullbackMode = intentEntryMode === 'wait_pullback';
+                  const effectiveVerdict = advisoryVerdict || (isWaitPullbackMode ? 'PULLBACK_EXPECTED' : 'GOOD_ENTRY');
+                  const entryZoneReached = effectiveVerdict === 'GOOD_ENTRY' || effectiveVerdict === 'CONFIRMED';
+                  if (entryZoneReached) {
+                    return (
+                      <>
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wider">
+                          Entry Zone Reached
+                        </span>
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                      <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
+                        Waiting for Entry Zone
+                      </span>
+                    </>
+                  );
+                })()}
                 {activeIntent?.symbol && (
                   <span className="text-xs text-gray-400 font-mono">{activeIntent.symbol}</span>
                 )}

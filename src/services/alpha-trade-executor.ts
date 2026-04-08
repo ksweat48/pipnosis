@@ -2650,7 +2650,7 @@ class AlphaTradeExecutor {
       tp2_price: decision.tp2Price ?? null,
       tp2_reasoning: decision.tp2Reasoning ?? null,
       alpha_entry_advisory: {
-        verdict: alphaAdvisory?.verdict || 'GOOD_ENTRY',
+        verdict: alphaAdvisory?.verdict || (decision.entry_mode === 'wait_pullback' ? 'PULLBACK_EXPECTED' : 'GOOD_ENTRY'),
         pullback_zone_min: alphaAdvisory?.pullback_zone_min || null,
         pullback_zone_max: alphaAdvisory?.pullback_zone_max || null,
         reasoning: alphaAdvisory?.reasoning || null
