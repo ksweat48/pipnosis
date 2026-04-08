@@ -114,19 +114,23 @@ export interface StyleExecutionEnvelope {
 }
 
 /**
- * SCALP - M5 Momentum Execution
+ * SCALP - M1 Momentum Execution
  *
  * Identity:
- * - Captures ONE M5 swing leg
+ * - Captures ONE M1 swing leg
  * - Typically 3-5 candles
- * - M5 structure ONLY
+ * - M1 structure ONLY
  * - HTF is validation, not execution anchor
  * - Entry = NOW or NO TRADE
+ * - ATR for stop sizing uses M5 (not M1 — M1 ATR is too noisy for stop placement)
+ *
+ * CCIP-2026-04-08: Cascade shift — entry moved from M5 to M1.
+ * Trend confirmation M15→M5, context H1→M15.
  */
 export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
   style: 'SCALP',
-  timeframe: 'M5',
-  validationTimeframes: ['M15', 'H1'],
+  timeframe: 'M1',
+  validationTimeframes: ['M5', 'M15'],
 
   targetCandles: { min: 3, max: 5 },
 
@@ -162,12 +166,12 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
 };
 
 /**
- * MICRO_INTRADAY - M15 Tactical Execution
+ * MICRO_INTRADAY - M5 Tactical Execution
  *
  * Identity:
- * - Captures structural M15 moves
- * - Typically 4-8 M15 candles
- * - M15 structure primary, H1 for validation
+ * - Captures structural M5 moves
+ * - Typically 4-8 M5 candles
+ * - M5 structure primary, M15 for validation
  * - Pullback entry preferred
  *
  * CCIP (2026-02-17): Recalibrated percentage bounds to prevent permanent infeasibility.
@@ -188,8 +192,8 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
  */
 export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   style: 'MICRO_INTRADAY',
-  timeframe: 'M15',
-  validationTimeframes: ['H1', 'H4'],
+  timeframe: 'M5',
+  validationTimeframes: ['M15', 'H1'],
 
   targetCandles: { min: 4, max: 8 },
 
@@ -204,7 +208,7 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
     INDEX:   { tpPercent: { min: 0.25, max: 1.00 }, slPercent: { min: 0.15, max: 0.35 } },
   },
 
-  atrTimeframe: 'M15',
+  atrTimeframe: 'M5',
 
   typicalDuration: { min: 60, max: 360 },
 
@@ -213,12 +217,12 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
 };
 
 /**
- * INTRADAY - M15/H1 Swing Execution
+ * INTRADAY - M15 Swing Execution
  *
  * Identity:
  * - Captures multi-swing moves
- * - Typically 6-12 H1 candles
- * - H1 structure primary
+ * - Typically 6-12 M15 candles
+ * - M15 structure primary, H1 for validation
  * - Can wait for optimal entry
  *
  * CCIP (2026-03-10): tpPercent.max raised for all four asset classes.
@@ -234,8 +238,8 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
  */
 export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   style: 'INTRADAY',
-  timeframe: 'H1',
-  validationTimeframes: ['H4', 'D1'],
+  timeframe: 'M15',
+  validationTimeframes: ['H1', 'H4'],
 
   targetCandles: { min: 6, max: 12 },
 
@@ -253,7 +257,7 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
     INDEX:   { tpPercent: { min: 0.35, max: 1.30 }, slPercent: { min: 0.15, max: 0.40 } },
   },
 
-  atrTimeframe: 'H1',
+  atrTimeframe: 'M15',
 
   typicalDuration: { min: 120, max: 720 },
 

@@ -37,6 +37,7 @@ import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
 import { getMTFConfig, getStyleMTFConfig, resolveCanonicalStyle, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
+import { getStyleATRTimeframe } from '../config/style-execution-envelopes';
 
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
 import { validatePreFlight, createBlockedDecision } from './ssot-preflight-guard';
@@ -419,25 +420,42 @@ class AlphaOmegaOrchestrator {
     // Risk warnings are surfaced earlier in the pipeline
 
     // Build market context for Alpha
-    // CCIP-2026-03-09: atr20 is now populated from the snapshot ATR when the entry
-    // timeframe is M5 (SCALP). The snapshot is always built for the style-derived
-    // entryTimeframe — so snapshot.atr IS the M5 ATR for SCALP scans.
-    // This resolves the persistent "atr20: N/A" in Alpha's ATR legend which caused
-    // Alpha to fall back to the coarser marketState.atr for SCALP stop sizing and
-    // ATR-phase calculations, producing unreliable FRESH/DEVELOPING/EXHAUSTED readings.
+    // CCIP-2026-04-08: ATR for stop sizing is now decoupled from the entry timeframe snapshot.
+    // After the cascade shift (SCALP entry M5→M1), snapshot.atr would be M1 ATR, which is too
+    // noisy for stop placement. Instead, we resolve the style's designated ATR timeframe from
+    // the execution envelope (SSOT: style-execution-envelopes.ts) and fetch a separate snapshot
+    // when it differs from the entry timeframe.
+    //
+    // SCALP:          atrTimeframe=M5  (entry=M1)  → separate M5 ATR snapshot for atr20
+    // MICRO_INTRADAY: atrTimeframe=M5  (entry=M5)  → same snapshot, no extra fetch
+    // INTRADAY:       atrTimeframe=M15 (entry=M15) → same snapshot, no extra fetch
+    //
     // SSOT: styleAtrMap in coordinator-alpha.ts maps SCALP → atr20 field.
+    const styleAtrTimeframe = getStyleATRTimeframe(resolvedOmegaStyle) as Timeframe;
+    let atrSnapshot: MarketSnapshotData = snapshot;
+    if (styleAtrTimeframe !== entryTimeframe) {
+      try {
+        atrSnapshot = await sharedIntelligenceCoordinator.getMarketSnapshot(
+          marketState.symbol,
+          styleAtrTimeframe
+        );
+      } catch (error) {
+        console.warn(`[Alpha+Omega] Failed to fetch ATR snapshot for ${styleAtrTimeframe}, falling back to entry snapshot:`, error);
+        atrSnapshot = snapshot;
+      }
+    }
+
     const marketContext: MarketContext = {
       symbol: marketState.symbol,
       regime: marketState.trend,
       volatility: marketState.volatility,
       price: marketState.price,
       atr: marketState.atr,
-      // Populate atr20 from the snapshot ATR (style-timeframe-aligned):
-      // - SCALP uses M5 snapshot → atr20 is the M5 20-period ATR
-      // - MICRO_INTRADAY uses M15 snapshot → atr20 carries the M15 ATR (bonus: regime cross-check)
-      // - INTRADAY uses H1 snapshot → atr20 carries H1 ATR
+      // atr20 is sourced from the style's ATR timeframe snapshot (not the entry timeframe).
+      // For SCALP: M5 snapshot.atr (deliberate — M1 ATR is too noisy for stop sizing).
+      // For MICRO_INTRADAY/INTRADAY: same as entry snapshot.
       // When snapshot.atr is an ATRValue object it retains timeframe metadata for traceability.
-      atr20: snapshot.atr
+      atr20: atrSnapshot.atr
     };
 
     // CCIP-ALPHA-GOV-001: SSOT spread table — used pre-Alpha (Alpha hasn't run yet).

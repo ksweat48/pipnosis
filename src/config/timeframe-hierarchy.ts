@@ -234,14 +234,19 @@ export function getMTFConfig(riskMode: RiskMode): MultiTimeframeConfig {
  * Trade style is the authoritative source for which timeframes to analyze.
  * Risk mode MUST NOT influence timeframe selection — it only controls financial exposure.
  *
- * SCALP:          Entry M5  | Trend M15 | Context H1
- * MICRO_INTRADAY: Entry M15 | Trend H1  | Context H4
- * INTRADAY:       Entry H1  | Trend H4  | Context D1
+ * CCIP-2026-04-08: Cascade shifted down one level for all three styles.
+ * SCALP:          Entry M1  | Trend M5  | Context M15
+ * MICRO_INTRADAY: Entry M5  | Trend M15 | Context H1
+ * INTRADAY:       Entry M15 | Trend H1  | Context H4
+ *
+ * ATR NOTE: SCALP stop sizing uses M5 ATR (not M1) — M1 ATR is too noisy for
+ * stop placement. The orchestrator fetches a separate M5 ATR snapshot for SCALP.
+ * See alpha-omega-orchestrator.ts styleAtrTimeframe logic.
  */
 export const STYLE_MTF_CONFIGS: Record<CanonicalTradeStyle, MultiTimeframeConfig> = {
-  SCALP:          { entryTimeframe: 'M5',  trendTimeframe: 'M15', contextTimeframe: 'H1'  },
-  MICRO_INTRADAY: { entryTimeframe: 'M15', trendTimeframe: 'H1',  contextTimeframe: 'H4'  },
-  INTRADAY:       { entryTimeframe: 'H1',  trendTimeframe: 'H4',  contextTimeframe: 'D1'  },
+  SCALP:          { entryTimeframe: 'M1',  trendTimeframe: 'M5',  contextTimeframe: 'M15' },
+  MICRO_INTRADAY: { entryTimeframe: 'M5',  trendTimeframe: 'M15', contextTimeframe: 'H1'  },
+  INTRADAY:       { entryTimeframe: 'M15', trendTimeframe: 'H1',  contextTimeframe: 'H4'  },
 } as const;
 
 export function getStyleMTFConfig(tradeStyle: CanonicalTradeStyle): MultiTimeframeConfig {

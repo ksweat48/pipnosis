@@ -1328,12 +1328,13 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
       }
       const entryPrice = marketContext.price;
 
-      // CCIP 2026-03: Style-differentiated ATR timeframe for SL width.
-      // SCALP → M5 ATR (atr20), MICRO_INTRADAY → M15 ATR (atr), INTRADAY → M15 ATR (atr).
+      // CCIP 2026-04-08: Style-differentiated ATR timeframe for SL width (cascade shift).
+      // SCALP → M5 ATR (atr20). Entry is now M1 but ATR stays M5 (M1 ATR too noisy for stops).
+      //   atr20 is populated from a separate M5 snapshot in alpha-omega-orchestrator.ts.
+      // MICRO_INTRADAY → M5 ATR (atr). Entry is M5, ATR matches entry timeframe.
+      // INTRADAY → M15 ATR (atr). Entry is M15, ATR matches entry timeframe.
       // Note: atr100 (long-period H4-based) is not populated in marketContext and is therefore
-      // not usable for stop sizing. INTRADAY uses the same M15 ATR field as MICRO_INTRADAY as
-      // the baseline stop reference. The intradayMovePhaseContext block further refines move stage
-      // diagnosis using H1 candle-derived ATR (atrForStopLoss recalculated from H1 OHLC data).
+      // not usable for stop sizing.
       const styleAtrMap: Record<string, 'atr20' | 'atr'> = {
         SCALP: 'atr20',
         MICRO_INTRADAY: 'atr',
@@ -2189,12 +2190,14 @@ ${fakeoutBlockM15}MANDATORY JSON FIELD — Include in your response regardless o
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // SCALP M5 MOVE PHASE ADVISORY
-        // Mirrors the INTRADAY intradayMovePhaseContext and MICRO_INTRADAY
-        // microIntradayMovePhaseContext patterns on M5 primary candles.
+        // SCALP M1 MOVE PHASE ADVISORY
+        // Entry analysis runs on M1 candles (recentPrimary = M1).
+        // ATR reference is M5 (atrForStopLoss = M5 ATR via atr20) — deliberately
+        // kept at M5 to avoid noise-floor instability from M1 ATR.
+        // Phase thresholds are expressed in M5 ATR units so structural context
+        // remains consistent even though the entry candles are M1.
         // Advisory only — Alpha retains full decision authority.
-        // SSOT: atrForStopLoss resolves to marketContext.atr (M5 14-period)
-        // for SCALP via styleAtrMap. recentPrimary is already loaded above.
+        // CCIP-2026-04-08: cascade shift (entry M5→M1, ATR stays M5).
         // ═══════════════════════════════════════════════════════════════════
         if (styleName === 'SCALP' && atrForStopLoss > 0) {
           const m5AtrPips = (atrForStopLoss / pipInfo.pipValue);
@@ -2246,31 +2249,31 @@ ${fakeoutBlockM15}MANDATORY JSON FIELD — Include in your response regardless o
           }
 
           const phaseLabelM5 = m5MovePhase === 'FRESH'
-            ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from M5 swing origin). Full confidence range. Both continuation and pullback scalp entries are valid.`
+            ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from M1 swing origin). Full confidence range. Both continuation and pullback scalp entries are valid.`
             : m5MovePhase === 'DEVELOPING'
-              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from M5 swing origin). Structural space to your single SCALP TP may be narrowing. Pullback scalp entry preferred. Continuation requires explicit justification that the single TP remains achievable.`
-              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M5 swing origin). The M5 leg is extended — look for a reversal scalp or M5 structural retest entry rather than a continuation. Exhausted M5 moves often produce the cleanest reversal scalps. Document the structural basis you find and set your conviction score based on the quality of the reversal or retest setup.`;
+              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from M1 swing origin). Structural space to your single SCALP TP may be narrowing. Pullback scalp entry preferred. Continuation requires explicit justification that the single TP remains achievable.`
+              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M1 swing origin). The M1 move is extended relative to M5 ATR — look for a reversal scalp or M1 structural retest entry rather than a continuation. Exhausted moves often produce the cleanest reversal scalps. Document the structural basis you find and set your conviction score based on the quality of the reversal or retest setup.`;
 
           const fakeoutBlockM5 = fakeoutTypeM5
             ? `
-M5 FAKEOUT DETECTION:
-A ${fakeoutTypeM5} was detected ${fakeoutCandlesAgoM5} M5 candle(s) ago. A candle swept a recent M5 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5 ? 'YES — subsequent M5 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
+M1 FAKEOUT DETECTION:
+A ${fakeoutTypeM5} was detected ${fakeoutCandlesAgoM5} M1 candle(s) ago. A candle swept a recent M1 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5 ? 'YES — subsequent M1 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
 ${fakeoutTypeM5 === 'BEARISH_FAKEOUT'
-  ? 'BEARISH FAKEOUT: Price swept above a prior M5 high and rejected. This is a classic bull trap on the M5 chart. Entering LONG at current price carries fakeout-reversal risk — explicit M5 structural justification required.'
-  : 'BULLISH FAKEOUT: Price swept below a prior M5 low and rejected. This is a classic bear trap on the M5 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit M5 structural justification required.'}
+  ? 'BEARISH FAKEOUT: Price swept above a prior M1 high and rejected. This is a classic bull trap on the M1 chart. Entering LONG at current price carries fakeout-reversal risk — explicit M1 structural justification required.'
+  : 'BULLISH FAKEOUT: Price swept below a prior M1 low and rejected. This is a classic bear trap on the M1 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit M1 structural justification required.'}
 `
             : '';
 
           scalpMovePhaseContext = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SCALP M5 MOVE STAGE ADVISORY (${marketContext.symbol})
+SCALP M1 MOVE STAGE ADVISORY (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed from M5 candle data. Advisory context — your analysis takes precedence.
+Pre-computed from M1 candle data (entry TF). ATR reference is M5 (stop sizing quality).
 ACTIVE M5 ATR: ${m5AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM5}p | Developing ${freshCeilingM5}–${developingCeilingM5}p | Exhausted > ${developingCeilingM5}p
 
-Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M5 swing origin (~${atrTraveledM5.toFixed(2)}x M5 ATR)
-M5 Move Phase: ${m5MovePhase}
+Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M1 swing origin (~${atrTraveledM5.toFixed(2)}x M5 ATR)
+M1 Move Phase: ${m5MovePhase}
 Assessment: ${phaseLabelM5}
 
 ${m5MovePhase === 'DEVELOPING'
@@ -2284,7 +2287,7 @@ ${fakeoutBlockM5}MANDATORY JSON FIELDS — Include in your response regardless o
   "scalp_atr_traveled": ${atrTraveledM5.toFixed(2)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] SCALP M5 Move Phase: ${m5MovePhase} (~${atrTraveledM5.toFixed(2)}x ATR, ${distFromSwingPipsM5.toFixed(1)} pips)${fakeoutTypeM5 ? ` | Fakeout: ${fakeoutTypeM5}` : ''}`);
+          console.log(`[Alpha Coordinator] SCALP M1 Move Phase: ${m5MovePhase} (~${atrTraveledM5.toFixed(2)}x M5 ATR, ${distFromSwingPipsM5.toFixed(1)} pips from M1 swing)${fakeoutTypeM5 ? ` | Fakeout: ${fakeoutTypeM5}` : ''}`);
         }
 
         const emaContextBlock = (ema20Val > 0 || ema50Val > 0) ? `
@@ -3400,8 +3403,8 @@ MARKET DATA LEGEND — ATR FIELD REFERENCE (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ATR values in market context map to specific timeframes. When you reference "ATR" in move stage diagnosis, structural space requirements, and SL sizing, you are referring to the ACTIVE ATR for this session style.
 
-  marketContext.atr20  = SCALP primary ATR (20-period, M5-based)         — SCALP stop sizing reference              | Current: ${atr20Pips} pips
-  marketContext.atr    = MICRO/INTRADAY ATR (14-period, M15-based)        — MICRO_INTRADAY & INTRADAY stop reference | Current: ${atrPips} pips
+  marketContext.atr20  = SCALP primary ATR (20-period, M5-based)         — SCALP stop sizing reference (entry=M1, ATR stays M5) | Current: ${atr20Pips} pips
+  marketContext.atr    = MICRO/INTRADAY ATR (14-period, M5/M15-based)     — MICRO_INTRADAY (M5) & INTRADAY (M15) stop reference  | Current: ${atrPips} pips
   (atr100 is a long-period H4 regime reference field — NOT populated, NOT used for stop sizing in any style)
 
 ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips — this is your baseline ATR (using ${preferredAtrField} field)

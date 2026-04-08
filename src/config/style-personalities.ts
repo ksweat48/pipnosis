@@ -37,7 +37,7 @@ export interface StylePersonality {
     exceedsBandPenalty: number;
   };
   referenceRanges?: {
-    primaryTimeframe: 'M5' | 'M15' | 'H1' | 'H4';
+    primaryTimeframe: 'M1' | 'M5' | 'M15' | 'H1' | 'H4';
     atrTimeframe: 'M5' | 'M15' | 'H1' | 'H4';
     typicalTPPips: { low: number; mid: number; high: number };
     typicalSLPips: { low: number; mid: number; high: number };
@@ -66,7 +66,7 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       exceedsBandPenalty: 0,
     },
     referenceRanges: {
-      primaryTimeframe: 'M5',
+      primaryTimeframe: 'M1',
       atrTimeframe: 'M5',
       typicalTPPips: { low: 10, mid: 18, high: 25 },
       typicalSLPips: { low: 10, mid: 14, high: 18 },
@@ -76,7 +76,7 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
 
   MICRO_INTRADAY: {
     displayName: 'MICRO_INTRADAY',
-    mindset: 'Structural trade — H1-confirmed direction, M15 entry timing, measured patience',
+    mindset: 'Structural trade — M15-confirmed direction, M5 entry timing, measured patience',
     description: 'Medium-term trades exploiting structural moves with measured risk',
     durationBand: {
       minHours: 1.0,
@@ -94,8 +94,8 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       exceedsBandPenalty: 0,
     },
     referenceRanges: {
-      primaryTimeframe: 'M15',
-      atrTimeframe: 'M15',
+      primaryTimeframe: 'M5',
+      atrTimeframe: 'M5',
       typicalTPPips: { low: 50, mid: 80, high: 120 },
       typicalSLPips: { low: 20, mid: 28, high: 35 },
       sessionAdjustment: true,
@@ -104,7 +104,7 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
 
   INTRADAY: {
     displayName: 'INTRADAY',
-    mindset: 'Campaign positioning — H4-validated bias, H1 structural entry, full-conviction execution across every session',
+    mindset: 'Campaign positioning — H1-validated bias, M15 structural entry, full-conviction execution across every session',
     description: 'Longer intraday trades capturing larger structural moves with decisive positioning',
     durationBand: {
       minHours: 2.0,
@@ -122,8 +122,8 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       exceedsBandPenalty: 0,
     },
     referenceRanges: {
-      primaryTimeframe: 'H1',
-      atrTimeframe: 'H1',
+      primaryTimeframe: 'M15',
+      atrTimeframe: 'M15',
       typicalTPPips: { low: 100, mid: 150, high: 200 },
       typicalSLPips: { low: 35, mid: 48, high: 60 },
       sessionAdjustment: false,
