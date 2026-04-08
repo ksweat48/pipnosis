@@ -15,11 +15,13 @@
  *   push_confirmation — Alpha waiting for M5 candle close inside zone
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Zap, Clock, TrendingUp, TrendingDown,
   Target, CheckCircle, AlertCircle, X
 } from 'lucide-react';
+
+const COUNTDOWN_SECONDS = 15;
 
 export type AlphaEntryMode = 'execute_now' | 'wait_pullback' | 'push_confirmation';
 
@@ -106,6 +108,30 @@ export const AlphaIntentModal: React.FC<AlphaIntentModalProps> = ({
   reasoning,
   onDismiss,
 }) => {
+  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setCountdown(COUNTDOWN_SECONDS);
+      return;
+    }
+
+    setCountdown(COUNTDOWN_SECONDS);
+
+    const interval = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          onDismiss();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isOpen, onDismiss]);
+
   if (!isOpen) return null;
 
   const config = getModeConfig(entryMode);
@@ -232,9 +258,10 @@ export const AlphaIntentModal: React.FC<AlphaIntentModalProps> = ({
 
           <button
             onClick={onDismiss}
-            className="w-full mt-1 py-2.5 rounded-lg bg-gray-700/60 hover:bg-gray-700 text-sm font-semibold text-white transition-colors border border-gray-600/40"
+            className="w-full mt-1 py-2.5 rounded-lg bg-gray-700/60 hover:bg-gray-700 text-sm font-semibold text-white transition-colors border border-gray-600/40 flex items-center justify-center gap-2"
           >
-            Got It
+            <span>Got It</span>
+            <span className="text-xs font-mono text-gray-400 tabular-nums">({countdown})</span>
           </button>
         </div>
       </div>

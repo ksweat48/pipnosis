@@ -310,6 +310,7 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
 
   const verdict = advisory?.verdict || 'GOOD_ENTRY';
   const isPullbackExpected = !isPushConfirmMode && (verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK');
+  const isWaitHigherEdge = !isPushConfirmMode && !isPullbackExpected && (entryMode === 'WAIT_HIGHER_EDGE' || verdict === 'WAIT_HIGHER_EDGE');
   const pullbackZoneMin = advisory?.pullback_zone_min ?? intent.entry_zone_min ?? null;
   const pullbackZoneMax = advisory?.pullback_zone_max ?? intent.entry_zone_max ?? null;
 
