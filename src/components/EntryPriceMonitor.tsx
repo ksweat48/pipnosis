@@ -45,7 +45,7 @@ export const EntryPriceMonitor: React.FC = () => {
         const { data: session, error } = await supabase
           .from('goal_sessions')
           .select('id, status')
-          .eq('status', 'active')
+          .in('status', ['scanning', 'active', 'in_trade'])
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -81,7 +81,7 @@ export const EntryPriceMonitor: React.FC = () => {
           event: '*',
           schema: 'public',
           table: 'goal_sessions',
-          filter: `status=eq.active`
+          filter: `status=eq.scanning`
         },
         () => {
           debouncedLoad();

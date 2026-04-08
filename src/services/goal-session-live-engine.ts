@@ -142,6 +142,7 @@ class GoalSessionLiveEngine {
   private isStopping = false; // RACE CONDITION FIX: Track session shutdown state
   private scanCompleteNoTrade = false; // SSOT: Halt polling after full scan finds no executable trades
   private tradeExecutedInSession = false; // GOVERNANCE: Once a trade executes, no more scanning allowed
+  private hasActiveEntryIntent = false; // ENTRY-MONITOR-GUARD: Prevents NO_TRADE event and re-scanning while entry monitor is waiting for zone
 
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
@@ -243,6 +244,7 @@ class GoalSessionLiveEngine {
       this.isStopping = false; // RACE CONDITION FIX: Reset stopping flag for new session
       this.scanCompleteNoTrade = false; // SSOT: Reset scan-halt flag for new session
       this.tradeExecutedInSession = false; // GOVERNANCE: Reset trade-executed flag for new session
+      this.hasActiveEntryIntent = false; // ENTRY-MONITOR-GUARD: Reset for new session
 
       logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
 
@@ -344,6 +346,7 @@ class GoalSessionLiveEngine {
       // RACE CONDITION FIX: Set stopping flag BEFORE stopping polling
       // This prevents new operations from starting while cleanup is in progress
       this.isStopping = true;
+      this.hasActiveEntryIntent = false; // ENTRY-MONITOR-GUARD: Clear on session stop
 
       logger.info(LogCategory.AI_TRADING, `Stopping goal session: ${sessionId}`);
 
@@ -480,6 +483,34 @@ class GoalSessionLiveEngine {
     if (this.tradeExecutedInSession && this.config.maxConcurrentTrades <= 1) {
       logger.info(LogCategory.AI_TRADING, 'GOVERNANCE: Single-trade mode - trade already executed, scanning permanently halted. Start new session to scan again.');
       return;
+    }
+
+    // ENTRY-MONITOR-GUARD: If an entry intent is currently active (waiting for zone),
+    // skip the full scan cycle entirely. Re-scanning would ask Alpha again, get a
+    // NO_TRADE response (because we're still waiting for the pullback), and that would
+    // fire emitNoTradeEvent which kills the session. The autonomous-entry-monitor handles
+    // execution once price enters the zone — no scan needed here.
+    // On each polling tick, re-check the DB to see if the intent resolved so scanning
+    // can resume automatically if the monitor cancels or expires the intent.
+    if (this.hasActiveEntryIntent) {
+      if (this.activeSession) {
+        const { data: pendingIntents } = await supabase
+          .from('entry_intents')
+          .select('id, status')
+          .eq('session_id', this.activeSession)
+          .eq('status', 'monitoring')
+          .limit(1);
+        if (!pendingIntents || pendingIntents.length === 0) {
+          logger.info(LogCategory.AI_TRADING, '[Entry Monitor] Monitoring intent resolved (executed/expired/cancelled) — clearing guard, scanning may resume');
+          this.hasActiveEntryIntent = false;
+          // Fall through to normal scan cycle below
+        } else {
+          logger.debug(LogCategory.AI_TRADING, '[Entry Monitor] Active entry intent still monitoring — skipping scan cycle, waiting for zone entry');
+          return;
+        }
+      } else {
+        return;
+      }
     }
 
     if (this.processingLock) {
@@ -1361,6 +1392,18 @@ class GoalSessionLiveEngine {
       if (selectedWinners.length === 0) {
         logger.debug(LogCategory.AI_TRADING, '🚫 No symbols passed selection criteria');
 
+        // ENTRY-MONITOR-GUARD: If the entry monitor is actively waiting for zone entry,
+        // do NOT fire the no-trade event. The session is not over — we found a setup and
+        // are waiting for pullback. Firing emitNoTradeEvent here would kill the session
+        // while the monitor is still watching.
+        if (this.hasActiveEntryIntent) {
+          logger.info(
+            LogCategory.AI_TRADING,
+            '[Entry Monitor] No new winners found, but active entry intent exists — suppressing NO_TRADE event. Entry monitor remains active.'
+          );
+          return;
+        }
+
         const snapshotsBySymbol = new Map<string, SymbolSnapshot>();
         snapshotResult.snapshots.forEach(snapshot => {
           snapshotsBySymbol.set(snapshot.symbol, snapshot);
@@ -1835,9 +1878,12 @@ class GoalSessionLiveEngine {
           // Entry intent created — trade is pending zone confirmation.
           // The autonomous-entry-monitor will execute when conditions are met.
           // Mark session as having an active intent (but NOT as trade-executed yet).
+          // ENTRY-MONITOR-GUARD: Set the flag so subsequent polling cycles are
+          // suppressed until the intent resolves (executed or cancelled/expired).
+          this.hasActiveEntryIntent = true;
           logger.info(
             LogCategory.AI_TRADING,
-            `[Entry Monitor] Intent created for ${selectedSymbol} — waiting for zone entry (mode=${alphaEntryMode})`,
+            `[Entry Monitor] Intent created for ${selectedSymbol} — waiting for zone entry (mode=${alphaEntryMode}). Scan cycles suppressed until entry resolves.`,
             { symbol: selectedSymbol, entryMonitorGateActive }
           );
           return; // Exit this scan cycle — monitor will handle execution
@@ -2444,6 +2490,14 @@ class GoalSessionLiveEngine {
       }
 
       if (!result.trade && !result.trigger && this.openTrades.length === 0) {
+        // ENTRY-MONITOR-GUARD: Don't fire no-trade event if entry monitor is active.
+        if (this.hasActiveEntryIntent) {
+          logger.info(
+            LogCategory.AI_TRADING,
+            `[Entry Monitor] Single-symbol scan found no immediate setup for ${symbol}, but active entry intent exists — suppressing NO_TRADE event.`
+          );
+          return;
+        }
         logger.info(LogCategory.AI_TRADING, `Single-symbol scan complete for ${symbol} - no qualifying trade found. Showing no-trade dialog.`);
         await this.sendAIMessage(`Scanned ${symbol} - no qualifying trade setup found in current market conditions. Try again in 15 minutes or choose a different trade style.`);
         this.emitNoTradeEvent();
