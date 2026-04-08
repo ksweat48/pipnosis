@@ -1723,18 +1723,52 @@ class AlphaTradeExecutor {
       decision.wait_condition?.target_entry_zone_min != null &&
       decision.wait_condition?.target_entry_zone_max != null;
 
-    const zoneMin = hasWaitConditionZone
+    const hasEntryIntentZone =
+      decision.entry_intent?.entry_zone_min != null &&
+      decision.entry_intent?.entry_zone_max != null &&
+      decision.entry_intent.entry_zone_max > decision.entry_intent.entry_zone_min;
+
+    let rawZoneMin = hasWaitConditionZone
       ? decision.wait_condition!.target_entry_zone_min
-      : monitorPullbackMin ?? (decision.entry_intent?.entry_zone_min || decision.entry);
-    const zoneMax = hasWaitConditionZone
+      : monitorPullbackMin ?? (hasEntryIntentZone ? decision.entry_intent!.entry_zone_min : null);
+    let rawZoneMax = hasWaitConditionZone
       ? decision.wait_condition!.target_entry_zone_max
-      : monitorPullbackMax ?? (decision.entry_intent?.entry_zone_max || decision.entry);
+      : monitorPullbackMax ?? (hasEntryIntentZone ? decision.entry_intent!.entry_zone_max : null);
 
     const zoneSource = hasWaitConditionZone
       ? 'wait_condition'
       : monitorPullbackMin != null
         ? 'entry_advisory'
-        : 'entry_price_fallback';
+        : hasEntryIntentZone
+          ? 'entry_intent'
+          : 'entry_price_fallback';
+
+    // CCIP-2026-0408A: entry_price_fallback zero-width zone fix.
+    // When no explicit zone is available (CCIP-0402A downgrade: execute_now → wait_pullback
+    // without a wait_condition), both rawZoneMin/Max would collapse to the single entry price,
+    // creating a zero-width zone the server monitor can never hit exactly.
+    // Fix: construct a symmetric zone centred on the entry price using 30% of the SL distance
+    // as half-width (capped at 0.5x the full SL distance). This gives a realistic pullback band
+    // that reflects where price needs to retrace before Alpha's entry is valid.
+    if (rawZoneMin == null || rawZoneMax == null || rawZoneMax <= rawZoneMin) {
+      const entryPrice = decision.entry;
+      const slDistance = Math.abs(entryPrice - decision.stopLoss);
+      const halfWidth = slDistance > 0
+        ? Math.min(slDistance * 0.30, slDistance * 0.50)
+        : entryPrice * 0.0015;
+      rawZoneMin = entryPrice - halfWidth;
+      rawZoneMax = entryPrice + halfWidth;
+      logger.warn(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] CCIP-2026-0408A: entry_price_fallback zone synthesised from SL geometry. ' +
+        'No wait_condition or entry_advisory zone available (likely CCIP-0402A downgrade). ' +
+        'Zone centered on entry price with 30% SL distance as half-width.',
+        { symbol: decision.symbol, entryPrice, stopLoss: decision.stopLoss, slDistance, zoneMin: rawZoneMin, zoneMax: rawZoneMax }
+      );
+    }
+
+    const zoneMin = rawZoneMin;
+    const zoneMax = rawZoneMax;
 
     logger.info(
       LogCategory.GOVERNANCE,
