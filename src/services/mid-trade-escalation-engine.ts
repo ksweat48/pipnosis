@@ -338,9 +338,14 @@ class MidTradeEscalationEngine {
 
   private async loadPersistedTriggers(tradeId: string): Promise<Set<string>> {
     try {
-      const { data } = await supabase.rpc('get_fired_triggers_for_trade', { p_trade_id: tradeId });
+      const { data, error } = await supabase.rpc('get_fired_triggers_for_trade', { p_trade_id: tradeId });
+      if (error) {
+        logger.warn(LogCategory.TRADE_EXECUTION, '[EscalationEngine] get_fired_triggers_for_trade RPC error (trade may re-fire triggers this session):', { tradeId, status: (error as { code?: string }).code, message: error.message });
+        return new Set<string>();
+      }
       return new Set<string>((data || []) as string[]);
-    } catch {
+    } catch (err) {
+      logger.warn(LogCategory.TRADE_EXECUTION, '[EscalationEngine] get_fired_triggers_for_trade exception:', { tradeId, err });
       return new Set<string>();
     }
   }
