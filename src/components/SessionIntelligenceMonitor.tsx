@@ -66,6 +66,9 @@ interface PreScreenRow {
   signal_count: number;
   dominant_signal: string;
   signal_summary: string;
+  alpha_gate_met?: boolean;
+  alpha_gate_block_reason?: string;
+  matched_thesis?: string | null;
   market_phase?: string;
   load_bearing_signals?: string[];
   phase_min_signals?: number;
@@ -162,6 +165,30 @@ const SIGNAL_LABEL_MAP: Record<string, string> = {
   MOMENTUM_DIV: 'Mom. Div',
   ATR_EXPANSION: 'ATR Exp',
   ORDER_BLOCK: 'OB',
+};
+
+const THESIS_LABEL_MAP: Record<string, { label: string; short: string }> = {
+  momentum_scalp:          { label: 'Momentum Scalp',       short: 'Mom. Scalp' },
+  liquidity_sweep_reversal:{ label: 'Liquidity Sweep',       short: 'Liq. Sweep' },
+  trend_pullback:          { label: 'Trend Pullback',        short: 'Trend PB' },
+  breakout_continuation:   { label: 'Breakout',              short: 'Breakout' },
+  mean_reversion:          { label: 'Mean Reversion',        short: 'Mean Rev' },
+  failed_move:             { label: 'Failed Move',           short: 'Failed Move' },
+  range_extreme:           { label: 'Range Extreme',         short: 'Range Ext' },
+};
+
+const ALIGNMENT_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  ALIGNED:       { label: 'BOS + Sweep Aligned', color: 'text-green-400' },
+  BOTH_RULES_MET:{ label: 'Both Rules Met',       color: 'text-green-400' },
+  RULE1_ONLY:    { label: 'BOS Only',             color: 'text-yellow-400' },
+  RULE2_ONLY:    { label: 'Sweep Only',           color: 'text-yellow-400' },
+  BLOCKED:       { label: 'No Structure',         color: 'text-slate-600' },
+};
+
+const GREEN_GATE_REQUIREMENT: Record<string, string> = {
+  SCALP:          'BOS + Pin Bar / Engulf / Sweep',
+  MICRO_INTRADAY: 'BOS + EMA Stack or Sweep',
+  INTRADAY:       'BOS + EMA Stack + ChoCH / OB / FVG',
 };
 
 function getTierConfig(tier: 'GREEN' | 'YELLOW' | 'RED') {
@@ -606,19 +633,28 @@ function renderSignalRow(row: PreScreenRow) {
   const score = row.readiness_score ?? 0;
   const isWeak = tier === 'RED';
   const phaseBadge = getPhaseBadge(row.market_phase);
-  const hasPhaseContext = phaseBadge !== null && row.phase_confidence_band_min !== undefined;
+  const isGreen = tier === 'GREEN';
+
+  const thesis = row.matched_thesis ? THESIS_LABEL_MAP[row.matched_thesis] : null;
+  const alignmentCfg = row.alignment_status ? ALIGNMENT_STATUS_CONFIG[row.alignment_status] : null;
 
   return (
     <div
       key={row.id}
-      className={`rounded-lg border transition-all duration-200 ${cfg.rowBg} ${isWeak ? 'opacity-50' : ''}`}
+      className={`rounded-lg border transition-all duration-200 ${cfg.rowBg} ${isWeak ? 'opacity-40' : ''}`}
     >
-      <div className="flex items-center gap-2.5 px-3 py-2">
-        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot} ${tier !== 'RED' ? `shadow-sm ${cfg.dotGlow}` : ''}`} />
+      {/* Main row */}
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot} ${isGreen ? `shadow-sm ${cfg.dotGlow} animate-pulse` : tier === 'YELLOW' ? `shadow-sm ${cfg.dotGlow}` : ''}`} />
+
         <span className="text-[12px] font-bold text-white w-16 flex-shrink-0">{row.symbol}</span>
+
+        {/* Score */}
         <div className={`flex-shrink-0 flex items-center justify-center w-9 h-6 rounded border text-[11px] font-bold tabular-nums ${cfg.scoreBg} ${cfg.scoreText}`}>
           {score}
         </div>
+
+        {/* Direction */}
         {(isBuy || isSell) ? (
           <span className={`flex items-center gap-0.5 text-[10px] font-bold flex-shrink-0 ${isBuy ? 'text-green-400' : 'text-red-400'}`}>
             {isBuy ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
@@ -627,22 +663,50 @@ function renderSignalRow(row: PreScreenRow) {
         ) : (
           <span className="text-[10px] text-slate-600 flex-shrink-0">—</span>
         )}
+
+        {/* Thesis badge — GREEN only */}
+        {isGreen && thesis && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-px rounded text-[9px] font-bold border bg-green-500/15 border-green-500/30 text-green-300 flex-shrink-0">
+            {thesis.short}
+          </span>
+        )}
+
+        {/* Phase badge */}
         {phaseBadge && (
           <span
             className={`inline-block px-1.5 py-px rounded text-[9px] font-bold border flex-shrink-0 ${phaseBadge.bg} ${phaseBadge.text} ${phaseBadge.border}`}
-            title={`Phase: ${row.market_phase} | Needs ${row.phase_min_signals ?? 3}/7 | Band: ${row.phase_confidence_band_min ?? 50}-${row.phase_confidence_band_max ?? 65}%`}
+            title={`Phase: ${row.market_phase}`}
           >
             {phaseBadge.label}
           </span>
         )}
-        {hasPhaseContext && !isWeak && (
-          <span className="text-[9px] text-slate-500 flex-shrink-0 tabular-nums">
-            {row.phase_confidence_band_min}-{row.phase_confidence_band_max}%
-          </span>
-        )}
+
         <span className={`text-[9px] font-bold ml-auto flex-shrink-0 ${cfg.labelColor}`}>{cfg.label}</span>
       </div>
 
+      {/* Alignment status line — shows structural gate state */}
+      {alignmentCfg && !isWeak && (
+        <div className="flex items-center gap-2 px-3 pb-1.5">
+          <div className={`flex items-center gap-1 text-[9px] font-semibold ${alignmentCfg.color}`}>
+            {row.alignment_status === 'ALIGNED' || row.alignment_status === 'BOTH_RULES_MET' ? (
+              <ShieldCheck className="w-3 h-3" />
+            ) : (
+              <ShieldAlert className="w-3 h-3" />
+            )}
+            {alignmentCfg.label}
+          </div>
+          {isGreen && row.alpha_gate_met && (
+            <span className="text-[9px] text-green-400/70 font-medium">· Alpha gate passed</span>
+          )}
+          {!isGreen && row.alpha_gate_block_reason && (
+            <span className="text-[9px] text-slate-500 font-medium truncate max-w-[160px]" title={row.alpha_gate_block_reason}>
+              · {row.alpha_gate_block_reason.split('—')[0].trim()}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Signals */}
       {signals.length > 0 && (
         <div className="flex flex-wrap gap-1 px-3 pb-2">
           {signals.slice(0, 6).map((sig) => {
@@ -655,7 +719,7 @@ function renderSignalRow(row: PreScreenRow) {
                     ? 'bg-amber-500/20 border-amber-400/50 text-amber-300 shadow-sm shadow-amber-500/20'
                     : cfg.pillBg
                 }`}
-                title={isLB ? 'Load-bearing signal for this phase' : undefined}
+                title={isLB ? 'Key signal for this phase' : undefined}
               >
                 {SIGNAL_LABEL_MAP[sig] ?? sig}
                 {isLB && <span className="ml-0.5 opacity-70">*</span>}
@@ -675,8 +739,9 @@ function renderSignalRow(row: PreScreenRow) {
         </div>
       )}
 
+      {/* Summary */}
       {row.signal_summary && !isWeak && (
-        <p className={`px-3 pb-2 text-[10px] leading-snug ${cfg.summaryText}`}>
+        <p className={`px-3 pb-2.5 text-[10px] leading-snug ${cfg.summaryText}`}>
           {row.signal_summary}
         </p>
       )}
@@ -896,21 +961,36 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
         {visibleRows.length > 0 ? (
           <div className="space-y-4">
             {visibleGroups.map(({ key, label, tf, headerColor }) => {
-              const styleRows = visibleRows
+              const greenRows = visibleRows
                 .filter((r) => r.style === key && r.readiness_tier === 'GREEN')
                 .sort((a, b) => (b.readiness_score ?? 0) - (a.readiness_score ?? 0));
 
-              if (styleRows.length === 0) return null;
+              const yellowRows = activeTab === key
+                ? visibleRows
+                    .filter((r) => r.style === key && r.readiness_tier === 'YELLOW')
+                    .sort((a, b) => (b.readiness_score ?? 0) - (a.readiness_score ?? 0))
+                : [];
 
-              const bestScore = styleRows[0]?.readiness_score ?? 0;
+              const styleRows = [...greenRows, ...yellowRows];
+
+              if (styleRows.length === 0 && activeTab === 'all') return null;
+              if (greenRows.length === 0 && activeTab === 'all') return null;
+
+              const bestScore = greenRows[0]?.readiness_score ?? yellowRows[0]?.readiness_score ?? 0;
 
               return (
                 <div key={key}>
                   {/* Style group header — only shown when "All" tab is active */}
                   {activeTab === 'all' && (
-                    <div className="flex items-center gap-2 mb-2 mt-1">
+                    <div className="flex items-center gap-2 mb-2 mt-1 flex-wrap">
                       <span className={`text-[10px] font-bold uppercase tracking-wider ${headerColor}`}>{label}</span>
                       <span className="text-[10px] text-slate-600 font-mono">{tf}</span>
+                      <span
+                        className="text-[9px] text-slate-600 ml-1"
+                        title={`GREEN requires: ${GREEN_GATE_REQUIREMENT[key] ?? ''}`}
+                      >
+                        {GREEN_GATE_REQUIREMENT[key] ?? ''}
+                      </span>
                       {bestScore >= 65 && (
                         <span className="text-[9px] font-bold text-green-400 bg-green-500/15 border border-green-500/25 px-1.5 py-px rounded-full ml-auto">
                           Active Signals
@@ -919,19 +999,43 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
                     </div>
                   )}
 
-                  <div className="space-y-1.5">
-                    {styleRows.map((row) => renderSignalRow(row))}
-                  </div>
+                  {/* GREEN rows */}
+                  {greenRows.length > 0 && (
+                    <div className="space-y-1.5">
+                      {greenRows.map((row) => renderSignalRow(row))}
+                    </div>
+                  )}
+
+                  {/* YELLOW rows — shown only on single-style tab */}
+                  {yellowRows.length > 0 && (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-[9px] font-bold text-yellow-500/60 uppercase tracking-wider">Developing</span>
+                        <div className="flex-1 h-px bg-yellow-500/15" />
+                      </div>
+                      <div className="space-y-1.5">
+                        {yellowRows.map((row) => renderSignalRow(row))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Empty state for single-style tab */}
+                  {activeTab === key && greenRows.length === 0 && yellowRows.length === 0 && (
+                    <div className="py-4 text-center">
+                      <p className="text-[11px] text-slate-500">No setups meeting gate for {label} right now</p>
+                      <p className="text-[10px] text-slate-600 mt-0.5">Gate: {GREEN_GATE_REQUIREMENT[key]}</p>
+                    </div>
+                  )}
                 </div>
               );
             })}
 
             <div className="pt-2 border-t border-slate-700/30 space-y-1">
               <p className="text-[10px] text-slate-600">
-                Score = phase-weighted confluence of 10 signals. Thresholds adjust by market phase (CCIP-2026-0325C).
+                GREEN = style-specific Alpha gate passed. Thesis badge shows what Alpha is likely to see. * = key phase signal.
               </p>
               <p className="text-[10px] text-slate-600">
-                Green &ge;60-65 · Yellow &ge;30-35 · Red below threshold. Phase badge = market context. * = load-bearing signal.
+                Score &ge;60-65 + structural gate met = READY. Phase badge = market context. Stale setups auto-downgrade.
               </p>
             </div>
           </div>

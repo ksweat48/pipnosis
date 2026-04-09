@@ -2,6 +2,7 @@
  * Pre-Screen Structure Monitor — Scheduled Netlify Function
  *
  * CCIP-2026-0409A: Style Timeframe Realignment
+ * CCIP-2026-0409B: Alpha-Execution-Aligned Readiness Scoring
  *
  * Responsibility:
  * - Runs every 5 minutes (schedule: every-5-min cron)
@@ -29,6 +30,16 @@
  * - SCALP → 'SCALP' calibration
  * - MICRO_INTRADAY → 'MICRO_INTRADAY' calibration (own rows, M5-tuned)
  * - INTRADAY → 'INTRADAY' calibration (own rows, M15-tuned, independent of SWING)
+ *
+ * Alpha-Aligned GREEN Gate (CCIP-2026-0409B):
+ * GREEN tier now requires conditions that directly mirror Alpha's execution criteria:
+ * - SCALP:          BOS + at least one of PIN_BAR/ENGULFING/LIQUIDITY_SWEEP (M1 price action)
+ * - MICRO_INTRADAY: BOS + (EMA_STACK or LIQUIDITY_SWEEP) (session-level structural trend)
+ * - INTRADAY:       BOS + EMA_STACK + at least one of CHOCH/ORDER_BLOCK/FVG (structural campaign)
+ * - All styles:     direction_bias must NOT be NEUTRAL (Alpha needs directional conviction)
+ * - Narrative freshness gate: setup stale for style horizon downgrades GREEN → YELLOW
+ *   (SCALP: 30min, MICRO: 120min, INTRADAY: 360min — mirrors Alpha's Q_PRICED_IN rule)
+ * - Matched thesis type is computed and stored to explain what Alpha is likely to see
  */
 
 import type { Handler } from '@netlify/functions';
@@ -340,6 +351,160 @@ function identifyLoadBearingSignals(
 
 // ─── Full signal evaluation ───────────────────────────────────────────────────
 
+/**
+ * Style-specific GREEN gate requirements — mirrors Alpha's minimum execution criteria.
+ *
+ * SCALP (M1):  BOS required + at least one immediate price action signal
+ *              (PIN_BAR, ENGULFING, or LIQUIDITY_SWEEP).
+ *              Rationale: Alpha needs a structural break AND a rejection/sweep to confirm
+ *              on M1. Matches momentum_scalp and liquidity_sweep_reversal thesis types.
+ *
+ * MICRO_INTRADAY (M5): BOS required + (EMA_STACK or LIQUIDITY_SWEEP).
+ *              Rationale: Alpha needs trend context (EMA_STACK) OR a sweep at a session
+ *              level (LIQUIDITY_SWEEP). Matches trend_pullback and liquidity_sweep_reversal.
+ *
+ * INTRADAY (M15): BOS required + EMA_STACK required + one structural amplifier
+ *              (CHOCH, ORDER_BLOCK, or FVG).
+ *              Rationale: Alpha requires full structural context for a multi-hour campaign.
+ *              Matches trend_pullback, breakout_continuation, and mean_reversion.
+ *
+ * All styles: direction_bias must NOT be NEUTRAL (Alpha needs directional conviction to trade).
+ */
+const ALPHA_GREEN_GATE: Record<string, {
+  required: string[];
+  oneOf: string[][];
+  description: string;
+}> = {
+  SCALP: {
+    required: ['BOS'],
+    oneOf: [['PIN_BAR', 'ENGULFING', 'LIQUIDITY_SWEEP']],
+    description: 'BOS + price action confirmation (Pin Bar, Engulf, or Sweep)',
+  },
+  MICRO_INTRADAY: {
+    required: ['BOS'],
+    oneOf: [['EMA_STACK', 'LIQUIDITY_SWEEP']],
+    description: 'BOS + trend or sweep context (EMA Stack or Sweep)',
+  },
+  INTRADAY: {
+    required: ['BOS', 'EMA_STACK'],
+    oneOf: [['CHOCH', 'ORDER_BLOCK', 'FVG']],
+    description: 'BOS + EMA Stack + structural amplifier (ChoCH, OB, or FVG)',
+  },
+};
+
+/**
+ * Narrative freshness horizons — mirrors Alpha's Q_PRICED_IN rule per style.
+ * If the dominant signal pattern has been unchanged beyond this horizon, the
+ * setup is considered "priced in" and GREEN is downgraded to YELLOW.
+ * Values in minutes.
+ */
+const FRESHNESS_HORIZON_MINUTES: Record<string, number> = {
+  SCALP: 30,
+  MICRO_INTRADAY: 120,
+  INTRADAY: 360,
+};
+
+/**
+ * Maps signal combinations to Alpha thesis types.
+ * Used to tell the user WHAT Alpha is likely to see if it scans a GREEN pair.
+ * Evaluated in priority order — first match wins.
+ */
+type ThesisType =
+  | 'momentum_scalp'
+  | 'liquidity_sweep_reversal'
+  | 'trend_pullback'
+  | 'breakout_continuation'
+  | 'mean_reversion'
+  | 'failed_move'
+  | 'range_extreme';
+
+function inferAlphaThesis(
+  signals: string[],
+  style: string,
+  phase: MarketPhase,
+): ThesisType | null {
+  const has = (s: string) => signals.includes(s);
+
+  if (style === 'SCALP') {
+    if (has('LIQUIDITY_SWEEP') && has('PIN_BAR')) return 'liquidity_sweep_reversal';
+    if (has('LIQUIDITY_SWEEP') && has('ENGULFING')) return 'liquidity_sweep_reversal';
+    if (has('CHOCH') && (has('PIN_BAR') || has('ENGULFING'))) return 'failed_move';
+    if (has('BOS') && (has('MOMENTUM_DIV') || has('ATR_EXPANSION'))) return 'momentum_scalp';
+    if (has('BOS') && has('EMA_STACK')) return 'momentum_scalp';
+    return 'momentum_scalp';
+  }
+
+  if (style === 'MICRO_INTRADAY') {
+    if (has('LIQUIDITY_SWEEP') && has('CHOCH')) return 'liquidity_sweep_reversal';
+    if (has('LIQUIDITY_SWEEP') && (has('ORDER_BLOCK') || has('FVG'))) return 'liquidity_sweep_reversal';
+    if (has('EMA_STACK') && has('BOS') && phase === 'RETRACEMENT') return 'trend_pullback';
+    if (has('EMA_STACK') && has('BOS') && phase === 'EXPANSION') return 'breakout_continuation';
+    if (has('MOMENTUM_DIV') && (has('ORDER_BLOCK') || has('FVG'))) return 'mean_reversion';
+    if (has('BOS') && has('EMA_STACK')) return 'trend_pullback';
+    return 'trend_pullback';
+  }
+
+  if (style === 'INTRADAY') {
+    if (has('CHOCH') && has('ORDER_BLOCK') && phase === 'REVERSAL') return 'failed_move';
+    if (has('FVG') && has('EMA_STACK') && phase === 'RETRACEMENT') return 'trend_pullback';
+    if (has('ORDER_BLOCK') && has('MOMENTUM_DIV')) return 'mean_reversion';
+    if (phase === 'ACCUMULATION' && (has('ORDER_BLOCK') || has('FVG'))) return 'range_extreme';
+    if (has('BOS') && has('EMA_STACK') && phase === 'EXPANSION') return 'breakout_continuation';
+    if (has('BOS') && has('EMA_STACK')) return 'trend_pullback';
+    return 'trend_pullback';
+  }
+
+  return null;
+}
+
+/**
+ * Checks whether the GREEN gate conditions for a style are met.
+ * Returns the gate check result and a reason string for YELLOW/RED downgrade.
+ */
+function checkAlphaGreenGate(
+  signals: string[],
+  style: string,
+  direction_bias: 'BUY' | 'SELL' | 'NEUTRAL',
+  lastCheckedAt: Date,
+  previousCheckedAt: Date | null,
+): { passes: boolean; blockReason: string } {
+  if (direction_bias === 'NEUTRAL') {
+    return { passes: false, blockReason: 'No directional conviction — Alpha requires a clear bias' };
+  }
+
+  const gate = ALPHA_GREEN_GATE[style];
+  if (!gate) return { passes: false, blockReason: 'Unknown style' };
+
+  for (const req of gate.required) {
+    if (!signals.includes(req)) {
+      return { passes: false, blockReason: `Missing required signal: ${req} (${gate.description})` };
+    }
+  }
+
+  for (const group of gate.oneOf) {
+    const hasOne = group.some((s) => signals.includes(s));
+    if (!hasOne) {
+      return {
+        passes: false,
+        blockReason: `Needs one of: ${group.join('/')} — ${gate.description}`,
+      };
+    }
+  }
+
+  const freshnessHorizon = FRESHNESS_HORIZON_MINUTES[style] ?? 60;
+  if (previousCheckedAt) {
+    const ageMinutes = (lastCheckedAt.getTime() - previousCheckedAt.getTime()) / 60000;
+    if (ageMinutes > freshnessHorizon) {
+      return {
+        passes: false,
+        blockReason: `Setup unchanged >${freshnessHorizon}min — narrative may be priced in (${style} horizon)`,
+      };
+    }
+  }
+
+  return { passes: true, blockReason: '' };
+}
+
 interface SignalResult {
   rule1_met: boolean;
   rule2_met: boolean;
@@ -355,6 +520,9 @@ interface SignalResult {
   signal_count: number;
   dominant_signal: string;
   signal_summary: string;
+  alpha_gate_met: boolean;
+  alpha_gate_block_reason: string;
+  matched_thesis: ThesisType | null;
   market_phase: MarketPhase;
   load_bearing_signals: string[];
   phase_min_signals: number;
@@ -366,6 +534,7 @@ function evaluateAllSignals(
   candles: CandleRow[],
   calibrationMatrix: CalibrationMatrix,
   styleKey: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING',
+  previousCheckedAt: Date | null = null,
 ): SignalResult {
   const fallback: SignalResult = {
     rule1_met: false,
@@ -382,6 +551,9 @@ function evaluateAllSignals(
     signal_count: 0,
     dominant_signal: '',
     signal_summary: 'Insufficient data',
+    alpha_gate_met: false,
+    alpha_gate_block_reason: 'Insufficient candle data',
+    matched_thesis: null,
     market_phase: 'UNKNOWN',
     load_bearing_signals: [],
     phase_min_signals: 3,
@@ -586,16 +758,38 @@ function evaluateAllSignals(
   const readiness_score = Math.min(100, Math.round((rawScore / maxScore) * 100));
 
   // Phase-relative tier thresholds
-  // In phases with fewer required signals (ACCUMULATION, RETRACEMENT), 3 load-bearing
-  // signals should still reach YELLOW. We use calibration band to inform tier.
   const phaseMinSignals = calibration?.min_signals_required ?? 3;
   const phaseBandMin = calibration?.expected_confidence_band_min ?? 50;
 
   const greenThreshold = phaseBandMin >= 60 ? 60 : 65;
   const yellowThreshold = phaseMinSignals <= 3 ? 30 : 35;
 
-  const readiness_tier: 'GREEN' | 'YELLOW' | 'RED' =
+  // Base tier from signal confluence score
+  const baseTier: 'GREEN' | 'YELLOW' | 'RED' =
     readiness_score >= greenThreshold ? 'GREEN' : readiness_score >= yellowThreshold ? 'YELLOW' : 'RED';
+
+  // Alpha-aligned GREEN gate: enforce style-specific structural requirements.
+  // GREEN requires confluence score threshold AND all Alpha gate conditions.
+  // This ensures GREEN = "Alpha will likely find a trade" not just "signals are firing".
+  const now = new Date();
+  const alphaGate = checkAlphaGreenGate(
+    signals_firing,
+    styleKey === 'SWING' ? 'INTRADAY' : styleKey,
+    direction_bias,
+    now,
+    previousCheckedAt,
+  );
+
+  const readiness_tier: 'GREEN' | 'YELLOW' | 'RED' =
+    baseTier === 'GREEN' && alphaGate.passes
+      ? 'GREEN'
+      : baseTier === 'GREEN' && !alphaGate.passes
+        ? 'YELLOW'
+        : baseTier;
+
+  const matched_thesis = (readiness_tier === 'GREEN' || readiness_tier === 'YELLOW') && signals_firing.length > 0
+    ? inferAlphaThesis(signals_firing, styleKey === 'SWING' ? 'INTRADAY' : styleKey, phase)
+    : null;
 
   // ── Alignment status ──────────────────────────────────────────────────────
   let alignment_status: SignalResult['alignment_status'] = 'BLOCKED';
@@ -621,11 +815,20 @@ function evaluateAllSignals(
   if (sigCount === 0) {
     signal_summary = 'No signals detected — structure unclear';
   } else if (direction_bias === 'NEUTRAL') {
-    signal_summary = `${sigCount} signal${sigCount > 1 ? 's' : ''} — direction unclear`;
+    signal_summary = `${sigCount} signal${sigCount > 1 ? 's' : ''} — conflicting direction`;
+  } else if (readiness_tier === 'GREEN') {
+    const thesisLabel = matched_thesis ? matched_thesis.replace(/_/g, ' ') : 'setup';
+    signal_summary = `${sigCount} signals aligned ${direction_bias} — ${thesisLabel} likely`;
+  } else if (readiness_tier === 'YELLOW') {
+    if (!alphaGate.passes && alphaGate.blockReason) {
+      signal_summary = `Developing — ${alphaGate.blockReason}`;
+    } else {
+      const topSigs = signals_firing.slice(0, 3).join(', ');
+      signal_summary = `${sigCount} signal${sigCount > 1 ? 's' : ''} ${direction_bias} — structure developing (${topSigs})`;
+    }
   } else {
-    const tierWord = readiness_tier === 'GREEN' ? 'strong setup' : readiness_tier === 'YELLOW' ? 'developing setup' : 'weak setup';
-    const topSigs = signals_firing.slice(0, 3).join(', ');
-    signal_summary = `${sigCount} signal${sigCount > 1 ? 's' : ''} aligned ${direction_bias} — ${tierWord} (${topSigs})`;
+    const topSigs = signals_firing.slice(0, 2).join(', ');
+    signal_summary = topSigs ? `Weak — only ${topSigs}` : 'Insufficient structure';
   }
 
   return {
@@ -643,6 +846,9 @@ function evaluateAllSignals(
     signal_count: sigCount,
     dominant_signal,
     signal_summary,
+    alpha_gate_met: alphaGate.passes,
+    alpha_gate_block_reason: alphaGate.blockReason,
+    matched_thesis,
     market_phase: phase,
     load_bearing_signals,
     phase_min_signals: phaseMinSignals,
@@ -662,12 +868,27 @@ const handler: Handler = async () => {
     console.warn('[PreScreenMonitor] Running with flat weights — no calibration data available');
   }
 
+  // Load existing last_checked_at values to support freshness gate
+  const existingRows: Record<string, string> = {};
+  const { data: existingData } = await supabase
+    .from('pre_screen_results')
+    .select('symbol, style, last_checked_at');
+  if (existingData) {
+    for (const row of existingData as { symbol: string; style: string; last_checked_at: string }[]) {
+      existingRows[`${row.symbol}:${row.style}`] = row.last_checked_at;
+    }
+  }
+
   for (const symbol of SYMBOLS) {
     for (const [style, timeframe] of Object.entries(STYLE_TIMEFRAME_MAP)) {
       try {
         const candles = await getCandlesForSymbol(symbol, timeframe);
         const styleKey = styleToCalibrationKey(style);
-        const result = evaluateAllSignals(candles, calibrationMatrix, styleKey);
+
+        const prevCheckedAtStr = existingRows[`${symbol}:${style}`];
+        const previousCheckedAt = prevCheckedAtStr ? new Date(prevCheckedAtStr) : null;
+
+        const result = evaluateAllSignals(candles, calibrationMatrix, styleKey, previousCheckedAt);
 
         const { error } = await supabase
           .from('pre_screen_results')
@@ -705,6 +926,9 @@ const handler: Handler = async () => {
           failed++;
         } else {
           processed++;
+          if (result.readiness_tier === 'GREEN') {
+            console.log(`[PreScreenMonitor] GREEN: ${symbol}/${style} — ${result.matched_thesis ?? 'unknown thesis'} (${result.direction_bias}) score=${result.readiness_score}`);
+          }
         }
       } catch (err) {
         console.error(
