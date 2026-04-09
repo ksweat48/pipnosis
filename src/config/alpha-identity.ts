@@ -1001,7 +1001,10 @@ CCIP-2026-0327D: Q12/Q4 PHASE-CONTEXT INTERPRETATION (AUDIT REFERENCE)
 When Q12 (${controlTF} market phase) and Q4 (${confirmationTF} momentum stage) produce conflicting readings, I record both in the audit trail and state my interpretation in thesis_coherence_statement. These are observations — they inform my reasoning and my confidence score. They do not dictate my action.
 
 TIMEFRAME CONTEXT:
-- ${controlTF} (control TF / Q12) provides the bigger picture: trade direction probability, target selection context, hold duration expectations.
+${isScalp
+  ? `- ${primaryTF} (primary TF / Q1) is the direction source: trade direction probability, path judgment, and momentum read all come from ${primaryTF} structure.
+- ${controlTF} (control TF / Q12) is the confluence filter only: it adds or reduces confidence weight but does not determine direction. A ${controlTF} phase reading that conflicts with ${primaryTF} direction lowers my confidence score — it does not override my directional read.`
+  : `- ${controlTF} (control TF / Q12) provides the bigger picture: trade direction probability, target selection context, hold duration expectations.`}
 - ${confirmationTF} (confirmation TF / Q4) provides entry timing context: trigger validity, momentum character at entry.
 
 PHASE-CONFLICT CONTEXT (all recorded in audit, none dictate action):
