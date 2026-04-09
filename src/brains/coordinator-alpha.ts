@@ -2296,7 +2296,7 @@ ${primaryTfConfig.label} EMA CONTEXT (computed from candle closes):
 - EMA50: ${ema50Val > 0 ? ema50Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | Price is ${ema50Val > 0 ? (priceAboveEma50 ? 'ABOVE' : 'BELOW') : '?'} EMA50${ema50Pips !== null ? ` by ${ema50Pips.toFixed(1)} pips` : ''}${ema200Val > 0 ? `
 - EMA200: ${ema200Val.toFixed(pipInfo.decimalPlaces)} | Price is ${priceAboveEma200 ? 'ABOVE' : 'BELOW'} EMA200${ema200Pips !== null ? ` by ${ema200Pips.toFixed(1)} pips` : ''}` : ''}
 - EMA Stack: ${emaStack}${ema20Val > 0 ? ` | EMA20 is ${ema20AboveEma50 ? 'ABOVE' : 'BELOW'} EMA50` : ''} | EMA20 Slope: ${ema20SlopeDir} (${ema20Slope.toFixed(2)} pips/candle)
-EMA INTERPRETATION: body ratio >60% = directional conviction candle | body ratio <30% = indecision (inside bar / doji). Use EMA20 as the closest dynamic support/resistance. If price is within 3 pips of EMA20, this is an EMA rejection zone.` : '';
+EMA INTERPRETATION: body ratio >60% = directional conviction candle | small body relative to range = indecision (inside bar / doji). Use EMA20 as the closest dynamic support/resistance. If price is within 3 pips of EMA20, this is an EMA rejection zone.` : '';
 
         primaryTfCandlePrompt = `
 
@@ -2306,7 +2306,7 @@ ${primaryTfConfig.label} PRIMARY TIMEFRAME CANDLES (${marketContext.symbol}) —
 THIS IS YOUR PRIMARY DATA for the entry_advisory verdict. Your trade lives on the ${primaryTfConfig.label} timeframe.
 Analyze these ${primaryTfConfig.label} candles FIRST before considering M1 micro-data.
 CANDLE FORMAT: direction | OHLC | body pips | upper/lower wick pips | body% of range | wick_bias
-body ratio >60% = conviction candle | <30% = indecision | wick_bias = which side dominates (institutional rejection signal)
+body ratio >60% = conviction candle | small body relative to range = indecision | wick_bias = which side dominates (institutional rejection signal)
 
 ${primaryLines.join('\n')}
 
@@ -4458,17 +4458,18 @@ Return PURE JSON only — all required fields from the schema in my system promp
         `resolved=${tradeConfidence}`
       );
 
-      // CCIP-2026-0405-DIAG: Sentinel — detect the specific known-degenerate confidence value.
-      // confidence=45 on NO_TRADE matches the CCIP-2026-0332A anchoring pattern exactly.
-      // If this fires, cross-reference [Alpha Raw Response] logs above to confirm whether
-      // GPT-4o emitted 45 directly or it was introduced in post-processing.
-      if (action === 'NO_TRADE' && tradeConfidence === 45) {
+      // CCIP-2026-0405-DIAG: Sentinel — detect known-degenerate confidence values.
+      // confidence=45 on NO_TRADE matches the CCIP-2026-0332A anchoring pattern (numeric threshold anchors in prompt).
+      // confidence=30 on NO_TRADE matches the CCIP-2026-0409A anchoring pattern (Q8_move_position_pct FRESH=0-30% and <30%=indecision in candle format).
+      // If either fires, cross-reference [Alpha Raw Response] logs above to confirm whether
+      // GPT-4o emitted the value directly or it was introduced in post-processing.
+      if (action === 'NO_TRADE' && (tradeConfidence === 45 || tradeConfidence === 30)) {
         console.warn(
-          `[Alpha Parse] CCIP-2026-0332A SENTINEL: NO_TRADE with confidence=45 for ${symbol}. ` +
-          `This matches the known prompt-anchoring degenerate pattern. ` +
-          `Root cause: numeric threshold anchors ("50", "50-69", "below 50") visible in prompt text. ` +
-          `CCIP-2026-0404C removed these anchors from arenaWalls, BUY/SELL schema, and NO_TRADE schema. ` +
-          `If this sentinel still fires after CCIP-2026-0404C, audit for new numeric injection vectors in coordinator-alpha.ts.`
+          `[Alpha Parse] SENTINEL: NO_TRADE with confidence=${tradeConfidence} for ${symbol}. ` +
+          `This matches a known prompt-anchoring degenerate pattern. ` +
+          `confidence=45: root cause was numeric threshold anchors ("50", "50-69", "below 50") — fixed by CCIP-2026-0404C. ` +
+          `confidence=30: root cause was Q8_move_position_pct FRESH=0-30% and body ratio <30%=indecision anchors — fixed by CCIP-2026-0409A. ` +
+          `If this sentinel fires after those fixes, audit for new numeric injection vectors in alpha-identity.ts and coordinator-alpha.ts.`
         );
       }
 

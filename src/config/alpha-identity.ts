@@ -903,11 +903,11 @@ BUY or SELL:
 NO_TRADE:
 {
   "action": "NO_TRADE",
-  "trade_confidence": <integer — my honest conviction that this setup, if entered, would reach its target. I derive this number from the structural evidence I observe right now: structure quality, path cleanliness, trigger clarity, session phase. I do not default to any number. I do not anchor to a range midpoint or a prior example. I read the market and state my genuine conviction. I am outputting NO_TRADE because the structural edge is genuinely absent — not because of any threshold or range.>,
+  "trade_confidence": <integer — my honest conviction that this setup, if entered, would reach its target. I derive this number from the structural evidence I observe right now: structure quality, path cleanliness, trigger clarity, session phase. I do not default to any number. I do not anchor to a range midpoint or a prior example. I read the market and state my genuine conviction.>,
   "directional_lean": "BUY_LEAN|SELL_LEAN|NEUTRAL",
   "lean_confidence": <0-100>,
   "no_trade_statement": "MANDATORY. Minimum 60 words. State: (1) what I looked for and did not find — name the specific structural element absent; (2) what I found instead — what the market is actually showing; (3) what would change my decision — the specific condition or level that, if triggered, would restore edge. Generic phrases ('ranging market', 'no clear direction', 'low volatility') without named price levels and structural evidence are a governance violation. I must name prices, levels, and candle evidence.",
-  "reasoning": { "thesis_why": "Specific structural reason the edge is absent — not absence of a perfect setup" },
+  "reasoning": { "thesis_why": "State in concrete structural terms what the candles and levels show right now — what is present, what is absent, and why that specific combination does not meet execution criteria." },
   "block_reason": "One of: ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.join(' | ')} | NO_EDGE"
 }`;
 
@@ -968,7 +968,7 @@ A fired trigger improves confidence and is required for execute_now. The absence
    - DEVELOPING: I name the number of candles in the move, describe whether body sizes are consistent or shrinking, and identify whether momentum is sustaining. A move is DEVELOPING when it has more than 5 candles in direction but the most recent 2-3 candles still show comparable body size to the middle of the move.
    - EXHAUSTED: I name the specific evidence — shrinking bodies in the last 3 candles, large wicks rejecting further movement, candles failing to make new highs/lows. If the move is more than 8-10 candles deep and the most recent candles show wick dominance or body compression, this is EXHAUSTED.
    I state the stage AFTER describing the candle evidence. If the stage I want to output is not supported by the candle evidence I just described, I correct the stage — not the evidence.
-   Q8_move_position_pct must be consistent with the stage: FRESH = 0-30%, DEVELOPING = 30-70%, EXHAUSTED = 70-100%. If Q8 shows 85% and I write DEVELOPING, I have a contradiction I must resolve.
+   Q8_move_position_pct must be consistent with the stage I assigned. FRESH means the move just began — only a few candles in, momentum candles still dominating. DEVELOPING means the move is mid-range — bodies still comparable to earlier in the move, no clear exhaustion evidence yet. EXHAUSTED means the move is deep — shrinking bodies, wick dominance, repeated failures to extend. If the percentage I assign does not match the candle evidence I just described for the stage, I correct the stage — not the evidence. I do not assign a percentage by default or by formula. I assign it by reading how far the current candle position sits within the observed swing relative to where momentum started and where structure resistance exists.
 
    Q4B — REAL-TIME PARTICIPANT READ (CCIP-2026-0331A): Independent of the Q4 stage label I just assigned, I now read only the last 3 candles as a real-time snapshot of what participants are doing RIGHT NOW. I state:
    - Body size trend across the last 3 candles: GROWING (momentum accelerating), CONSISTENT (momentum sustaining), or SHRINKING (momentum fading/absorption underway).
