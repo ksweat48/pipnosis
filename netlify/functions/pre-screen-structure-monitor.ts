@@ -1,7 +1,7 @@
 /**
  * Pre-Screen Structure Monitor — Scheduled Netlify Function
  *
- * CCIP-2026-0325C: Phase-Aware Confluence Calibration
+ * CCIP-2026-0409A: Style Timeframe Realignment
  *
  * Responsibility:
  * - Runs every 5 minutes (schedule: every-5-min cron)
@@ -18,19 +18,17 @@
  * - SYMBOLS array is the single source of truth — derived from DEFAULT_WATCHLIST
  * - No business logic duplication with Alpha — this is a READINESS INDICATOR only
  *
- * Phase-Aware Scoring:
- * - Market phase is detected from candle evidence (same evidence Alpha reads)
- * - Signal weights are multiplied by phase-specific calibration multipliers
- * - readiness_score reflects context-relative quality, not flat signal accumulation
- * - A 3/7 confluence in ACCUMULATION at a boundary scores higher than 3/7 mid-trend
- * - The 50% Alpha confidence threshold is unchanged — the score reflects what Alpha sees
+ * Timeframe Governance (CCIP-2026-0409A):
+ * - SCALP:          M1  — fastest signals, immediate price action
+ * - MICRO_INTRADAY: M5  — near-term structure, faster than intraday
+ * - INTRADAY:       M15 — intraday structural context
+ * Each style now uses its canonical controlling timeframe. Indicators are
+ * computed exclusively on that timeframe's candle data.
  *
- * Key change from flat scoring:
- * - ACCUMULATION: STRUCTURE, LIQUIDITY, TIMING signals carry 1.8x weight
- * - EXPANSION: TREND (BOS+EMA_STACK), MOMENTUM carry 1.8x weight
- * - DISTRIBUTION: CHOCH carries 2x weight; EMA_STACK reduced to 0.7x
- * - RETRACEMENT: FVG and ORDER_BLOCK (zone proximity) elevated to 1.5x
- * - REVERSAL: CHOCH elevated to 1.8–1.9x; existing 4/7 minimum governance preserved
+ * Calibration Keys (CCIP-2026-0409A):
+ * - SCALP → 'SCALP' calibration
+ * - MICRO_INTRADAY → 'MICRO_INTRADAY' calibration (own rows, M5-tuned)
+ * - INTRADAY → 'INTRADAY' calibration (own rows, M15-tuned, independent of SWING)
  */
 
 import type { Handler } from '@netlify/functions';
@@ -48,17 +46,20 @@ const SYMBOLS = [
 ];
 
 const STYLE_TIMEFRAME_MAP: Record<string, string> = {
-  SCALP: 'M15',
-  MICRO_INTRADAY: 'H1',
-  INTRADAY: 'H4',
+  SCALP: 'M1',
+  MICRO_INTRADAY: 'M5',
+  INTRADAY: 'M15',
 };
 
 /**
- * Maps MICRO_INTRADAY and INTRADAY to 'SWING' for calibration lookup.
- * SCALP has its own calibration row. SWING covers both longer styles.
+ * Maps each style to its own calibration key.
+ * CCIP-2026-0409A: MICRO_INTRADAY and INTRADAY each have independent calibration rows.
  */
-function styleToCalibrationKey(style: string): 'SCALP' | 'SWING' {
-  return style === 'SCALP' ? 'SCALP' : 'SWING';
+function styleToCalibrationKey(style: string): 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING' {
+  if (style === 'SCALP') return 'SCALP';
+  if (style === 'MICRO_INTRADAY') return 'MICRO_INTRADAY';
+  if (style === 'INTRADAY') return 'INTRADAY';
+  return 'SWING';
 }
 
 const CANDLE_COUNT = 60;
@@ -295,7 +296,7 @@ const DIMENSION_TO_SIGNAL_MAP: Record<string, string[]> = {
 function getPhaseWeights(
   calibrationMatrix: CalibrationMatrix,
   phase: MarketPhase,
-  styleKey: 'SCALP' | 'SWING',
+  styleKey: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING',
 ): { weights: Record<string, number>; calibration: PhaseCalibrationRow | null } {
   if (phase === 'UNKNOWN' || !calibrationMatrix[phase]) {
     return { weights: { ...BASE_SIGNAL_WEIGHTS }, calibration: null };
@@ -364,7 +365,7 @@ interface SignalResult {
 function evaluateAllSignals(
   candles: CandleRow[],
   calibrationMatrix: CalibrationMatrix,
-  styleKey: 'SCALP' | 'SWING',
+  styleKey: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING',
 ): SignalResult {
   const fallback: SignalResult = {
     rule1_met: false,

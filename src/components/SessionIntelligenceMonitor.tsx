@@ -123,7 +123,7 @@ const STYLE_TAB_CONFIG: StyleTabConfig[] = [
   {
     key: 'SCALP',
     label: 'Scalp',
-    tf: 'M15',
+    tf: 'M1',
     headerColor: 'text-amber-400',
     badgeBg: 'bg-amber-500/20 border-amber-500/50',
     badgeText: 'text-amber-400',
@@ -132,7 +132,7 @@ const STYLE_TAB_CONFIG: StyleTabConfig[] = [
   {
     key: 'MICRO_INTRADAY',
     label: 'Micro',
-    tf: 'H1',
+    tf: 'M5',
     headerColor: 'text-cyan-400',
     badgeBg: 'bg-cyan-500/20 border-cyan-500/50',
     badgeText: 'text-cyan-400',
@@ -141,7 +141,7 @@ const STYLE_TAB_CONFIG: StyleTabConfig[] = [
   {
     key: 'INTRADAY',
     label: 'Intraday',
-    tf: 'H4',
+    tf: 'M15',
     headerColor: 'text-emerald-400',
     badgeBg: 'bg-emerald-500/20 border-emerald-500/50',
     badgeText: 'text-emerald-400',
