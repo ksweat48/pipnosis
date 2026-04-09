@@ -2435,6 +2435,7 @@ class GoalSessionLiveEngine {
         progressPercentage: goalSession.progress_percentage || 0,
         timeframe: goalSession.timeframe,
         riskMode: goalSession.risk_mode,
+        tradeStyle: goalSession.trade_style,
         tradesRemaining: this.config.maxConcurrentTrades - this.openTrades.length
       } : undefined;
 
