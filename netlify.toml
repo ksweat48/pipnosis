@@ -137,6 +137,14 @@
 [functions."backfill-all-timeframes-new-pairs"]
   timeout = 900
 
+# Market Behavior Scanner (every 3 minutes)
+# Detects raw candle behaviors (engulfing, compression, EMA shifts, etc.)
+# to alert users when a pair is worth paying attention to — NOT a trade signal
+# Alpha remains the sole trade decision authority
+[functions."market-behavior-scanner"]
+  timeout = 60
+  schedule = "*/3 * * * *"
+
 # Pre-Screen Structure Monitor (every 5 minutes)
 # Evaluates BOS and sweep-wick structural gates for 9 symbols × 3 styles
 # Zero external API calls — pure forex_candles database reads

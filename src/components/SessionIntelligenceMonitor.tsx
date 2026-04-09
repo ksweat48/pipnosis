@@ -1,24 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SessionIntelligenceMonitor
 //
-// SSOT Authority: sole UI owner of the Real-Time Intelligence panel.
-// Responsibility: display Signal Readiness (pre_screen_results) and
-//                 session quality context to the user.
+// SSOT Authority: sole UI owner of the Market Attention panel.
+// Responsibility: display market behavior signals per pair/style and guide
+//                 users to scan Alpha when the market is showing activity.
 //
-// CCIP Governance:
-//   - The old "Scan Now / Ready to Trade" alpha-preview-scanner pipeline has
-//     been removed from this component. That pipeline (alpha-preview-scanner +
-//     platform-scan-manager) remains in the service layer for potential future
-//     use but is no longer consumed here.
-//   - Signal Readiness is now the primary and only content. It is powered
-//     exclusively by pre_screen_results (written by the server-side
-//     pre-screen-structure-monitor Netlify function every 5 minutes).
-//   - Style tabs (Scalp / Micro / Intraday) now control which style group is
-//     displayed inside Signal Readiness, replacing the old scan-result filter.
-//   - No database schema changes are required — pre_screen_results and
-//     structural_alerts are unchanged.
-//   - This refactor is SSOT-compliant: one UI owner, one data source per
-//     concern, no duplicated logic.
+// CCIP Governance (2026-04-09 Redesign):
+//   - Replaced indicator-based readiness scoring (GREEN/YELLOW/RED) with
+//     raw market behavior signal detection (HOT/ACTIVE/QUIET).
+//   - Alpha is the SOLE trade decision authority. This panel's job is ONLY
+//     to alert users: "Something interesting is happening — go ask Alpha."
+//   - Data source: market_behavior_signals table (server-side, every 3 min).
+//   - Session quality banner and market closed banner preserved.
+//   - Structural alerts section preserved.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect } from 'react';
@@ -34,46 +28,39 @@ import {
   Activity,
   MapPin,
   Bitcoin,
-  ShieldCheck,
-  ShieldAlert,
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Flame,
+  Radio,
+  Minus,
+  BarChart2,
+  RefreshCw,
+  Maximize2,
+  Minimize2,
+  ArrowRight,
 } from 'lucide-react';
 import { calculateSessionContext, getForexMarketStatus, isCryptoSymbol } from '@/utils/marketHours';
 import { supabase } from '@/lib/supabase';
+import type { SignalKey, HeatLevel, TradingStyle } from '@/config/market-behavior-signals';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface PreScreenRow {
+interface MarketBehaviorRow {
   id: string;
   symbol: string;
-  style: string;
+  style: TradingStyle;
   controlling_timeframe: string;
-  alignment_status: 'ALIGNED' | 'RULE1_ONLY' | 'RULE2_ONLY' | 'BOTH_RULES_MET' | 'BLOCKED';
-  direction_bias: 'BUY' | 'SELL' | 'NEUTRAL';
-  rule1_met: boolean;
-  rule2_met: boolean;
-  rule1_detail: string;
-  rule2_detail: string;
-  last_checked_at: string;
-  signals_firing: string[];
-  bull_signals: string[];
-  bear_signals: string[];
-  readiness_score: number;
-  readiness_tier: 'GREEN' | 'YELLOW' | 'RED';
+  firing_signals: SignalKey[];
+  signal_details: Record<string, { direction: 'BUY' | 'SELL' | 'NEUTRAL'; description: string }>;
+  attention_score: number;
+  heat_level: HeatLevel;
+  direction_lean: 'BUY' | 'SELL' | 'NEUTRAL';
+  dominant_behavior: string;
   signal_count: number;
-  dominant_signal: string;
-  signal_summary: string;
-  alpha_gate_met?: boolean;
-  alpha_gate_block_reason?: string;
-  matched_thesis?: string | null;
-  market_phase?: string;
-  load_bearing_signals?: string[];
-  phase_min_signals?: number;
-  phase_confidence_band_min?: number;
-  phase_confidence_band_max?: number;
+  last_scanned_at: string;
+  expires_at: string;
 }
 
 interface StructuralAlertRow {
@@ -86,7 +73,7 @@ interface StructuralAlertRow {
   created_at: string;
 }
 
-type SignalTab = 'all' | 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+type SignalTab = 'all' | TradingStyle;
 type TimeQuality = 'prime' | 'good' | 'slow';
 
 interface SessionTimeQualityInfo {
@@ -108,12 +95,10 @@ interface TimelineZone {
   label: string;
 }
 
-// ─── Style tab config (Scalp / Micro / Intraday) ─────────────────────────────
-// Maps pre_screen_results.style values to display config.
-// SSOT: this is the canonical tab → style mapping for Signal Readiness.
+// ─── Style tab config ─────────────────────────────────────────────────────────
 
 interface StyleTabConfig {
-  key: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+  key: TradingStyle;
   label: string;
   tf: string;
   headerColor: string;
@@ -152,86 +137,100 @@ const STYLE_TAB_CONFIG: StyleTabConfig[] = [
   },
 ];
 
-// ─── Signal display ───────────────────────────────────────────────────────────
+// ─── Heat level config ────────────────────────────────────────────────────────
 
-const SIGNAL_LABEL_MAP: Record<string, string> = {
-  BOS: 'BOS',
-  LIQUIDITY_SWEEP: 'Sweep',
-  CHOCH: 'ChoCH',
-  FVG: 'FVG',
-  PIN_BAR: 'Pin Bar',
-  ENGULFING: 'Engulf',
-  EMA_STACK: 'EMA Stack',
-  MOMENTUM_DIV: 'Mom. Div',
-  ATR_EXPANSION: 'ATR Exp',
-  ORDER_BLOCK: 'OB',
-};
-
-const THESIS_LABEL_MAP: Record<string, { label: string; short: string }> = {
-  momentum_scalp:          { label: 'Momentum Scalp',       short: 'Mom. Scalp' },
-  liquidity_sweep_reversal:{ label: 'Liquidity Sweep',       short: 'Liq. Sweep' },
-  trend_pullback:          { label: 'Trend Pullback',        short: 'Trend PB' },
-  breakout_continuation:   { label: 'Breakout',              short: 'Breakout' },
-  mean_reversion:          { label: 'Mean Reversion',        short: 'Mean Rev' },
-  failed_move:             { label: 'Failed Move',           short: 'Failed Move' },
-  range_extreme:           { label: 'Range Extreme',         short: 'Range Ext' },
-};
-
-const ALIGNMENT_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  ALIGNED:       { label: 'BOS + Sweep Aligned', color: 'text-green-400' },
-  BOTH_RULES_MET:{ label: 'Both Rules Met',       color: 'text-green-400' },
-  RULE1_ONLY:    { label: 'BOS Only',             color: 'text-yellow-400' },
-  RULE2_ONLY:    { label: 'Sweep Only',           color: 'text-yellow-400' },
-  BLOCKED:       { label: 'No Structure',         color: 'text-slate-600' },
-};
-
-const GREEN_GATE_REQUIREMENT: Record<string, string> = {
-  SCALP:          'BOS + Pin Bar / Engulf / Sweep',
-  MICRO_INTRADAY: 'BOS + EMA Stack or Sweep',
-  INTRADAY:       'BOS + EMA Stack + ChoCH / OB / FVG',
-};
-
-function getTierConfig(tier: 'GREEN' | 'YELLOW' | 'RED') {
-  switch (tier) {
-    case 'GREEN':
+function getHeatConfig(heat: HeatLevel) {
+  switch (heat) {
+    case 'HOT':
       return {
-        dot: 'bg-green-400',
-        dotGlow: 'shadow-green-400/60',
-        rowBg: 'bg-green-500/8 border-green-500/20',
-        scoreBg: 'bg-green-500/20 border-green-500/40',
-        scoreText: 'text-green-300',
-        pillBg: 'bg-green-500/15 border-green-500/30 text-green-300',
-        label: 'READY',
-        labelColor: 'text-green-400',
-        summaryText: 'text-green-300',
+        dot: 'bg-red-400',
+        dotGlow: 'shadow-red-400/70',
+        rowBg: 'bg-red-500/8 border-red-500/25',
+        scoreBg: 'bg-red-500/20 border-red-500/40',
+        scoreText: 'text-red-300',
+        pillBg: 'bg-red-500/15 border-red-500/25 text-red-300',
+        label: 'HOT',
+        labelColor: 'text-red-400',
+        labelBg: 'bg-red-500/15 border-red-500/30',
+        summaryText: 'text-red-300/90',
+        scanBtnBg: 'bg-red-500/20 border-red-500/40 text-red-300 hover:bg-red-500/30',
+        opacity: '',
       };
-    case 'YELLOW':
+    case 'ACTIVE':
       return {
-        dot: 'bg-yellow-400',
-        dotGlow: 'shadow-yellow-400/60',
-        rowBg: 'bg-yellow-500/6 border-yellow-500/15',
-        scoreBg: 'bg-yellow-500/20 border-yellow-500/40',
-        scoreText: 'text-yellow-300',
-        pillBg: 'bg-yellow-500/15 border-yellow-500/30 text-yellow-300',
-        label: 'DEVELOPING',
-        labelColor: 'text-yellow-400',
-        summaryText: 'text-yellow-300/80',
+        dot: 'bg-amber-400',
+        dotGlow: 'shadow-amber-400/60',
+        rowBg: 'bg-amber-500/6 border-amber-500/20',
+        scoreBg: 'bg-amber-500/20 border-amber-500/35',
+        scoreText: 'text-amber-300',
+        pillBg: 'bg-amber-500/15 border-amber-500/25 text-amber-300',
+        label: 'ACTIVE',
+        labelColor: 'text-amber-400',
+        labelBg: 'bg-amber-500/15 border-amber-500/30',
+        summaryText: 'text-amber-300/80',
+        scanBtnBg: 'bg-amber-500/20 border-amber-500/35 text-amber-300 hover:bg-amber-500/30',
+        opacity: '',
       };
-    case 'RED':
+    case 'QUIET':
     default:
       return {
         dot: 'bg-slate-600',
         dotGlow: '',
-        rowBg: 'bg-slate-800/20 border-slate-700/20',
+        rowBg: 'bg-slate-800/20 border-slate-700/15',
         scoreBg: 'bg-slate-700/30 border-slate-600/30',
         scoreText: 'text-slate-500',
-        pillBg: 'bg-slate-700/30 border-slate-600/20 text-slate-500',
-        label: 'WEAK',
-        labelColor: 'text-slate-500',
-        summaryText: 'text-slate-500',
+        pillBg: 'bg-slate-700/25 border-slate-600/20 text-slate-500',
+        label: 'QUIET',
+        labelColor: 'text-slate-600',
+        labelBg: 'bg-slate-700/30 border-slate-600/20',
+        summaryText: 'text-slate-600',
+        scanBtnBg: 'bg-slate-700/30 border-slate-600/20 text-slate-500 cursor-default',
+        opacity: 'opacity-35',
       };
   }
 }
+
+// ─── Signal pill icon mapping ─────────────────────────────────────────────────
+
+const SIGNAL_ICON_MAP: Partial<Record<SignalKey, React.ReactNode>> = {
+  LARGE_ENGULFING:     <BarChart2 className="w-2.5 h-2.5" />,
+  CONSECUTIVE_TREND:   <TrendingUp className="w-2.5 h-2.5" />,
+  STRONG_CLOSE:        <Zap className="w-2.5 h-2.5" />,
+  MOMENTUM_SPIKE:      <Flame className="w-2.5 h-2.5" />,
+  VELOCITY_CANDLE:     <ArrowRight className="w-2.5 h-2.5" />,
+  COMPRESSION_FORMING: <Minimize2 className="w-2.5 h-2.5" />,
+  COMPRESSION_BREAK:   <Maximize2 className="w-2.5 h-2.5" />,
+  INSIDE_BAR_BREAK:    <Maximize2 className="w-2.5 h-2.5" />,
+  CLOSE_ABOVE_20EMA:   <TrendingUp className="w-2.5 h-2.5" />,
+  CLOSE_BELOW_20EMA:   <TrendingDown className="w-2.5 h-2.5" />,
+  EMA_SLOPE_CHANGE:    <RefreshCw className="w-2.5 h-2.5" />,
+  PRICE_EMA_REJECTION: <Minus className="w-2.5 h-2.5" />,
+  SWING_BREAK:         <BarChart2 className="w-2.5 h-2.5" />,
+  WICK_REJECTION:      <Minus className="w-2.5 h-2.5" />,
+  OUTSIDE_BAR:         <Maximize2 className="w-2.5 h-2.5" />,
+  ATR_SPIKE:           <Activity className="w-2.5 h-2.5" />,
+  RANGE_EXPANSION:     <Maximize2 className="w-2.5 h-2.5" />,
+};
+
+const SIGNAL_LABEL_MAP: Record<SignalKey, string> = {
+  LARGE_ENGULFING:     'Engulfing',
+  CONSECUTIVE_TREND:   'Consec. Trend',
+  STRONG_CLOSE:        'Strong Close',
+  MOMENTUM_SPIKE:      'Mom. Spike',
+  VELOCITY_CANDLE:     'Velocity',
+  COMPRESSION_FORMING: 'Compressing',
+  COMPRESSION_BREAK:   'Breakout',
+  INSIDE_BAR_BREAK:    'IB Break',
+  CLOSE_ABOVE_20EMA:   'Close > EMA',
+  CLOSE_BELOW_20EMA:   'Close < EMA',
+  EMA_SLOPE_CHANGE:    'EMA Turn',
+  PRICE_EMA_REJECTION: 'EMA Reject',
+  SWING_BREAK:         'Swing Break',
+  WICK_REJECTION:      'Wick Reject',
+  OUTSIDE_BAR:         'Outside Bar',
+  ATR_SPIKE:           'ATR Spike',
+  RANGE_EXPANSION:     'Range Exp.',
+};
 
 // ─── Session time quality ─────────────────────────────────────────────────────
 
@@ -250,33 +249,21 @@ function getQualityColors(quality: TimeQuality) {
   switch (quality) {
     case 'prime':
       return {
-        dot: 'bg-green-400',
-        border: 'border-green-500/50',
-        bg: 'bg-green-500/10',
-        text: 'text-green-400',
-        badge: 'bg-green-500/20 border-green-500/40',
-        badgeText: 'text-green-300',
-        timelineBar: 'bg-green-500/70',
+        dot: 'bg-green-400', border: 'border-green-500/50', bg: 'bg-green-500/10',
+        text: 'text-green-400', badge: 'bg-green-500/20 border-green-500/40',
+        badgeText: 'text-green-300', timelineBar: 'bg-green-500/70',
       };
     case 'good':
       return {
-        dot: 'bg-yellow-400',
-        border: 'border-yellow-500/50',
-        bg: 'bg-yellow-500/10',
-        text: 'text-yellow-400',
-        badge: 'bg-yellow-500/20 border-yellow-500/40',
-        badgeText: 'text-yellow-300',
-        timelineBar: 'bg-yellow-500/70',
+        dot: 'bg-yellow-400', border: 'border-yellow-500/50', bg: 'bg-yellow-500/10',
+        text: 'text-yellow-400', badge: 'bg-yellow-500/20 border-yellow-500/40',
+        badgeText: 'text-yellow-300', timelineBar: 'bg-yellow-500/70',
       };
     case 'slow':
       return {
-        dot: 'bg-red-400',
-        border: 'border-red-500/40',
-        bg: 'bg-red-500/8',
-        text: 'text-red-400',
-        badge: 'bg-red-500/20 border-red-500/40',
-        badgeText: 'text-red-300',
-        timelineBar: 'bg-red-500/50',
+        dot: 'bg-red-400', border: 'border-red-500/40', bg: 'bg-red-500/8',
+        text: 'text-red-400', badge: 'bg-red-500/20 border-red-500/40',
+        badgeText: 'text-red-300', timelineBar: 'bg-red-500/50',
       };
   }
 }
@@ -328,11 +315,8 @@ function computeSessionTimeQuality(): SessionTimeQualityInfo {
   }
 
   const qualityLabels: Record<TimeQuality, string> = {
-    prime: 'Prime Time',
-    good: 'Good Window',
-    slow: 'Slow Period',
+    prime: 'Prime Time', good: 'Good Window', slow: 'Slow Period',
   };
-
   const qualityDescriptions: Record<TimeQuality, string> = {
     prime: 'Optimal trading window. Highest volume, tightest spreads, best probability.',
     good: 'Decent liquidity. Valid setups possible — expect slightly wider spreads.',
@@ -389,14 +373,12 @@ const SessionTimeline: React.FC<{ currentUtcMinutes: number }> = ({ currentUtcMi
             />
           );
         })}
-
         <div
           className="absolute top-0 bottom-0 w-0.5 bg-white z-10 shadow-lg"
           style={{ left: `${cursorPct}%` }}
         >
           <div className="absolute -top-0.5 -left-1 w-2.5 h-2.5 bg-white rounded-full shadow-md" />
         </div>
-
         <div className="absolute inset-0 flex">
           {[0, 4, 8, 12, 16, 20].map((h) => (
             <div
@@ -407,14 +389,12 @@ const SessionTimeline: React.FC<{ currentUtcMinutes: number }> = ({ currentUtcMi
           ))}
         </div>
       </div>
-
       <div className="flex justify-between mt-1">
         {[0, 4, 8, 12, 16, 20].map((h) => (
           <span key={h} className="text-[9px] text-gray-600 font-mono">{String(h).padStart(2, '0')}:00</span>
         ))}
         <span className="text-[9px] text-gray-600 font-mono">24:00</span>
       </div>
-
       <div className="flex items-center gap-3 mt-1.5">
         {(['prime', 'good', 'slow'] as TimeQuality[]).map((q) => {
           const c = getQualityColors(q);
@@ -450,10 +430,8 @@ const SessionQualityBanner: React.FC = () => {
 
   const colors = getQualityColors(info.quality);
   const sessionCtx = calculateSessionContext();
-
   const sessionStartLocalStr = utcHourToLocalDisplay(info.sessionStartUtc);
   const sessionEndLocalStr = utcHourToLocalDisplay(info.sessionEndUtc);
-
   const sessionDurationMinutes = (info.sessionEndUtc - info.sessionStartUtc) * 60;
   const elapsedMinutes = info.currentUtcMinutes - info.sessionStartUtc * 60;
   const sessionProgressPct = Math.min(100, Math.max(0, (elapsedMinutes / sessionDurationMinutes) * 100));
@@ -494,7 +472,6 @@ const SessionQualityBanner: React.FC = () => {
             </div>
           </div>
         </div>
-
         <div className="text-right flex-shrink-0 ml-3">
           <div className={`text-xs font-semibold ${colors.text}`}>
             {countdown > 0 ? `${formatMinutesAsCountdown(countdown)} left` : 'Window ending'}
@@ -502,7 +479,6 @@ const SessionQualityBanner: React.FC = () => {
           <div className="text-[10px] text-gray-500">in this window</div>
         </div>
       </div>
-
       <div className="mb-2.5">
         <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] text-gray-500">Session progress</span>
@@ -515,11 +491,7 @@ const SessionQualityBanner: React.FC = () => {
           />
         </div>
       </div>
-
-      <p className={`text-[11px] leading-relaxed ${colors.text}`}>
-        {info.description}
-      </p>
-
+      <p className={`text-[11px] leading-relaxed ${colors.text}`}>{info.description}</p>
       <SessionTimeline currentUtcMinutes={info.currentUtcMinutes} />
     </div>
   );
@@ -533,23 +505,19 @@ function computeMinutesToForexReopen(): number {
   const m = estTime.getMinutes();
   const totalMins = h * 60 + m;
   const sundayOpenMins = 17 * 60;
-
   if (day === 6) {
     const minsUntilSundayMidnight = (24 * 60) - totalMins;
     return minsUntilSundayMidnight + sundayOpenMins;
   }
   if (day === 0) {
-    if (totalMins < sundayOpenMins) {
-      return sundayOpenMins - totalMins;
-    }
+    if (totalMins < sundayOpenMins) return sundayOpenMins - totalMins;
     return 0;
   }
   if (day === 5) {
     const fridayCloseMins = 17 * 60;
     if (totalMins >= fridayCloseMins) {
       const minsUntilSatMidnight = (24 * 60) - totalMins;
-      const satMins = 24 * 60;
-      return minsUntilSatMidnight + satMins + sundayOpenMins;
+      return minsUntilSatMidnight + 24 * 60 + sundayOpenMins;
     }
   }
   return 0;
@@ -559,9 +527,7 @@ const MarketClosedBanner: React.FC = () => {
   const [minsToReopen, setMinsToReopen] = useState(computeMinutesToForexReopen);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMinsToReopen(computeMinutesToForexReopen());
-    }, 30000);
+    const interval = setInterval(() => setMinsToReopen(computeMinutesToForexReopen()), 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -593,7 +559,6 @@ const MarketClosedBanner: React.FC = () => {
           <div className="text-[10px] text-slate-600">to reopen</div>
         </div>
       </div>
-
       <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-slate-700/30 border border-slate-600/30">
         <Bitcoin className="w-4 h-4 text-amber-400 flex-shrink-0" />
         <p className="text-[11px] text-slate-300 leading-snug">
@@ -605,145 +570,169 @@ const MarketClosedBanner: React.FC = () => {
   );
 };
 
-// ─── Phase badge config ───────────────────────────────────────────────────────
+// ─── Behavior card row ────────────────────────────────────────────────────────
 
-const PHASE_BADGE_CONFIG: Record<string, { bg: string; text: string; border: string; label: string }> = {
-  ACCUMULATION:  { bg: 'bg-sky-500/15',    text: 'text-sky-300',    border: 'border-sky-500/30',    label: 'ACCUM' },
-  EXPANSION:     { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-emerald-500/30', label: 'EXPAN' },
-  DISTRIBUTION:  { bg: 'bg-orange-500/15', text: 'text-orange-300', border: 'border-orange-500/30', label: 'DIST' },
-  RETRACEMENT:   { bg: 'bg-amber-500/15',  text: 'text-amber-300',  border: 'border-amber-500/30',  label: 'RETRACE' },
-  REVERSAL:      { bg: 'bg-rose-500/15',   text: 'text-rose-300',   border: 'border-rose-500/30',   label: 'REVERSAL' },
-  UNKNOWN:       { bg: 'bg-slate-700/30',  text: 'text-slate-500',  border: 'border-slate-600/30',  label: '?' },
-};
+function BehaviorRow({ row }: { row: MarketBehaviorRow }) {
+  const [expanded, setExpanded] = useState(false);
+  const cfg = getHeatConfig(row.heat_level);
+  const isBuy = row.direction_lean === 'BUY';
+  const isSell = row.direction_lean === 'SELL';
+  const isHot = row.heat_level === 'HOT';
+  const isActive = row.heat_level === 'ACTIVE';
+  const isQuiet = row.heat_level === 'QUIET';
+  const signals = row.firing_signals ?? [];
+  const stale = new Date() > new Date(row.expires_at);
 
-function getPhaseBadge(phase: string | undefined) {
-  if (!phase || phase === 'UNKNOWN' || !PHASE_BADGE_CONFIG[phase]) return null;
-  return PHASE_BADGE_CONFIG[phase];
-}
-
-// ─── Signal Readiness rows renderer ─────────────────────────────────────────
-
-function renderSignalRow(row: PreScreenRow) {
-  const tier = (row.readiness_tier ?? 'RED') as 'GREEN' | 'YELLOW' | 'RED';
-  const cfg = getTierConfig(tier);
-  const signals = Array.isArray(row.signals_firing) ? row.signals_firing : [];
-  const loadBearing = Array.isArray(row.load_bearing_signals) ? row.load_bearing_signals : [];
-  const isBuy = row.direction_bias === 'BUY';
-  const isSell = row.direction_bias === 'SELL';
-  const score = row.readiness_score ?? 0;
-  const isWeak = tier === 'RED';
-  const phaseBadge = getPhaseBadge(row.market_phase);
-  const isGreen = tier === 'GREEN';
-
-  const thesis = row.matched_thesis ? THESIS_LABEL_MAP[row.matched_thesis] : null;
-  const alignmentCfg = row.alignment_status ? ALIGNMENT_STATUS_CONFIG[row.alignment_status] : null;
+  const ageLabel = (() => {
+    const mins = Math.round((Date.now() - new Date(row.last_scanned_at).getTime()) / 60000);
+    if (mins <= 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    return `${Math.floor(mins / 60)}h ago`;
+  })();
 
   return (
     <div
-      key={row.id}
-      className={`rounded-lg border transition-all duration-200 ${cfg.rowBg} ${isWeak ? 'opacity-40' : ''}`}
+      className={`rounded-xl border transition-all duration-200 ${cfg.rowBg} ${cfg.opacity} ${stale ? 'opacity-50' : ''}`}
     >
       {/* Main row */}
-      <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot} ${isGreen ? `shadow-sm ${cfg.dotGlow} animate-pulse` : tier === 'YELLOW' ? `shadow-sm ${cfg.dotGlow}` : ''}`} />
+      <div
+        className={`flex items-center gap-2.5 px-3 py-2.5 ${!isQuiet ? 'cursor-pointer' : ''}`}
+        onClick={() => !isQuiet && setExpanded(v => !v)}
+      >
+        {/* Heat dot */}
+        <div
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot} ${
+            isHot ? `shadow-sm ${cfg.dotGlow} animate-pulse` : isActive ? `shadow-sm ${cfg.dotGlow}` : ''
+          }`}
+        />
 
+        {/* Symbol */}
         <span className="text-[12px] font-bold text-white w-16 flex-shrink-0">{row.symbol}</span>
 
-        {/* Score */}
-        <div className={`flex-shrink-0 flex items-center justify-center w-9 h-6 rounded border text-[11px] font-bold tabular-nums ${cfg.scoreBg} ${cfg.scoreText}`}>
-          {score}
+        {/* Attention score */}
+        <div
+          className={`flex-shrink-0 flex items-center justify-center w-9 h-6 rounded border text-[11px] font-bold tabular-nums ${cfg.scoreBg} ${cfg.scoreText}`}
+          title={`Attention score: ${row.attention_score}`}
+        >
+          {row.attention_score}
         </div>
 
-        {/* Direction */}
+        {/* Direction lean */}
         {(isBuy || isSell) ? (
-          <span className={`flex items-center gap-0.5 text-[10px] font-bold flex-shrink-0 ${isBuy ? 'text-green-400' : 'text-red-400'}`}>
+          <span className={`flex items-center gap-0.5 text-[10px] font-bold flex-shrink-0 ${isBuy ? 'text-emerald-400' : 'text-rose-400'}`}>
             {isBuy ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-            {row.direction_bias}
+            {row.direction_lean}
           </span>
         ) : (
           <span className="text-[10px] text-slate-600 flex-shrink-0">—</span>
         )}
 
-        {/* Thesis badge — GREEN only */}
-        {isGreen && thesis && (
-          <span className="inline-flex items-center gap-1 px-1.5 py-px rounded text-[9px] font-bold border bg-green-500/15 border-green-500/30 text-green-300 flex-shrink-0">
-            {thesis.short}
+        {/* Signal count pill */}
+        {signals.length > 0 && (
+          <span className={`text-[9px] font-semibold px-1.5 py-px rounded border flex-shrink-0 ${cfg.pillBg}`}>
+            {signals.length} signal{signals.length !== 1 ? 's' : ''}
           </span>
         )}
 
-        {/* Phase badge */}
-        {phaseBadge && (
-          <span
-            className={`inline-block px-1.5 py-px rounded text-[9px] font-bold border flex-shrink-0 ${phaseBadge.bg} ${phaseBadge.text} ${phaseBadge.border}`}
-            title={`Phase: ${row.market_phase}`}
-          >
-            {phaseBadge.label}
+        {/* Heat badge */}
+        <span
+          className={`ml-auto text-[9px] font-bold px-1.5 py-px rounded border flex-shrink-0 ${cfg.labelBg} ${cfg.labelColor}`}
+        >
+          {cfg.label}
+        </span>
+
+        {/* Expand chevron */}
+        {!isQuiet && signals.length > 0 && (
+          <span className="text-slate-600 flex-shrink-0">
+            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </span>
         )}
-
-        <span className={`text-[9px] font-bold ml-auto flex-shrink-0 ${cfg.labelColor}`}>{cfg.label}</span>
       </div>
 
-      {/* Alignment status line — shows structural gate state */}
-      {alignmentCfg && !isWeak && (
-        <div className="flex items-center gap-2 px-3 pb-1.5">
-          <div className={`flex items-center gap-1 text-[9px] font-semibold ${alignmentCfg.color}`}>
-            {row.alignment_status === 'ALIGNED' || row.alignment_status === 'BOTH_RULES_MET' ? (
-              <ShieldCheck className="w-3 h-3" />
-            ) : (
-              <ShieldAlert className="w-3 h-3" />
-            )}
-            {alignmentCfg.label}
-          </div>
-          {isGreen && row.alpha_gate_met && (
-            <span className="text-[9px] text-green-400/70 font-medium">· Alpha gate passed</span>
-          )}
-          {!isGreen && row.alpha_gate_block_reason && (
-            <span className="text-[9px] text-slate-500 font-medium truncate max-w-[160px]" title={row.alpha_gate_block_reason}>
-              · {row.alpha_gate_block_reason.split('—')[0].trim()}
-            </span>
-          )}
+      {/* Dominant behavior line */}
+      {!isQuiet && row.dominant_behavior && row.dominant_behavior !== 'No signals detected' && (
+        <div className={`px-3 pb-1.5 text-[10px] leading-snug ${cfg.summaryText}`}>
+          {row.dominant_behavior}
         </div>
       )}
 
-      {/* Signals */}
-      {signals.length > 0 && (
+      {/* Signal pills */}
+      {!isQuiet && signals.length > 0 && (
         <div className="flex flex-wrap gap-1 px-3 pb-2">
           {signals.slice(0, 6).map((sig) => {
-            const isLB = loadBearing.includes(sig);
+            const detail = row.signal_details?.[sig];
+            const dirColor = detail?.direction === 'BUY'
+              ? 'text-emerald-400'
+              : detail?.direction === 'SELL'
+              ? 'text-rose-400'
+              : '';
             return (
               <span
                 key={sig}
-                className={`inline-block px-1.5 py-px rounded text-[9px] font-semibold border transition-all ${
-                  isLB
-                    ? 'bg-amber-500/20 border-amber-400/50 text-amber-300 shadow-sm shadow-amber-500/20'
-                    : cfg.pillBg
-                }`}
-                title={isLB ? 'Key signal for this phase' : undefined}
+                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border text-[9px] font-semibold transition-all ${cfg.pillBg} ${dirColor || ''}`}
+                title={detail?.description}
               >
+                {SIGNAL_ICON_MAP[sig]}
                 {SIGNAL_LABEL_MAP[sig] ?? sig}
-                {isLB && <span className="ml-0.5 opacity-70">*</span>}
               </span>
             );
           })}
           {signals.length > 6 && (
-            <span className="inline-block px-1.5 py-px rounded text-[9px] text-slate-500 border border-slate-700/30">
+            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] text-slate-500 border border-slate-700/30">
               +{signals.length - 6}
-            </span>
-          )}
-          {loadBearing.length > 0 && (
-            <span className="inline-block px-1.5 py-px text-[9px] text-amber-500/60 ml-0.5">
-              * key signal
             </span>
           )}
         </div>
       )}
 
-      {/* Summary */}
-      {row.signal_summary && !isWeak && (
-        <p className={`px-3 pb-2.5 text-[10px] leading-snug ${cfg.summaryText}`}>
-          {row.signal_summary}
-        </p>
+      {/* Expanded signal detail */}
+      {expanded && signals.length > 0 && (
+        <div className="px-3 pb-3 space-y-1.5 border-t border-slate-700/20 pt-2 mt-0.5">
+          {signals.map((sig) => {
+            const detail = row.signal_details?.[sig];
+            if (!detail) return null;
+            const dirBadge = detail.direction === 'BUY'
+              ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400'
+              : detail.direction === 'SELL'
+              ? 'bg-rose-500/15 border-rose-500/25 text-rose-400'
+              : 'bg-slate-700/30 border-slate-600/20 text-slate-500';
+            return (
+              <div key={sig} className="flex items-start gap-2">
+                <span className={`inline-flex items-center gap-0.5 px-1 py-px rounded border text-[8px] font-bold flex-shrink-0 mt-px ${dirBadge}`}>
+                  {detail.direction !== 'NEUTRAL' && (detail.direction === 'BUY'
+                    ? <TrendingUp className="w-2 h-2" />
+                    : <TrendingDown className="w-2 h-2" />
+                  )}
+                  {SIGNAL_LABEL_MAP[sig] ?? sig}
+                </span>
+                <span className="text-[10px] text-slate-400 leading-snug">{detail.description}</span>
+              </div>
+            );
+          })}
+          <div className="text-[9px] text-slate-600 pt-0.5">Scanned {ageLabel}</div>
+        </div>
+      )}
+
+      {/* Scan Alpha CTA — HOT and ACTIVE only */}
+      {isHot && (
+        <div className="px-3 pb-3 pt-0.5">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-red-500/10 border border-red-500/25">
+            <Flame className="w-3 h-3 text-red-400 flex-shrink-0" />
+            <span className="text-[10px] text-red-300 font-semibold">
+              Market is showing strong activity — scan Alpha for a trade opportunity
+            </span>
+          </div>
+        </div>
+      )}
+      {isActive && (
+        <div className="px-3 pb-3 pt-0.5">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-amber-500/8 border border-amber-500/20">
+            <Radio className="w-3 h-3 text-amber-400 flex-shrink-0" />
+            <span className="text-[10px] text-amber-300/80 font-medium">
+              Behaviors developing — worth watching, consider scanning Alpha
+            </span>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -761,15 +750,14 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   userId: _userId,
 }) => {
   const [activeTab, setActiveTab] = useState<SignalTab>('all');
-  const [preScreenRows, setPreScreenRows] = useState<PreScreenRow[]>([]);
-  const [preScreenLastChecked, setPreScreenLastChecked] = useState<string>('');
+  const [behaviorRows, setBehaviorRows] = useState<MarketBehaviorRow[]>([]);
+  const [lastScanned, setLastScanned] = useState<string>('');
   const [structuralAlerts, setStructuralAlerts] = useState<StructuralAlertRow[]>([]);
   const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [isForexMarketClosed, setIsForexMarketClosed] = useState(
     () => !getForexMarketStatus().isOpen
   );
 
-  // Market hours check (updates every minute)
   useEffect(() => {
     const interval = setInterval(() => {
       setIsForexMarketClosed(!getForexMarketStatus().isOpen);
@@ -777,39 +765,39 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     return () => clearInterval(interval);
   }, []);
 
-  // Pre-screen results subscription (SSOT: pre_screen_results table)
+  // market_behavior_signals subscription
   useEffect(() => {
     supabase
-      .from('pre_screen_results')
+      .from('market_behavior_signals')
       .select('*')
-      .order('last_checked_at', { ascending: false })
+      .order('attention_score', { ascending: false })
       .then(({ data }) => {
         if (data && data.length > 0) {
-          setPreScreenRows(data as PreScreenRow[]);
-          const latest = data[0].last_checked_at;
-          const mins = Math.round((Date.now() - new Date(latest).getTime()) / 60000);
-          setPreScreenLastChecked(mins <= 1 ? 'just now' : `${mins}m ago`);
+          setBehaviorRows(data as MarketBehaviorRow[]);
+          const latest = data.reduce((a: MarketBehaviorRow, b: MarketBehaviorRow) =>
+            new Date(b.last_scanned_at) > new Date(a.last_scanned_at) ? b : a
+          );
+          const mins = Math.round((Date.now() - new Date(latest.last_scanned_at).getTime()) / 60000);
+          setLastScanned(mins <= 1 ? 'just now' : `${mins}m ago`);
         }
       });
 
     const channel = supabase
-      .channel('pre_screen_results_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pre_screen_results' }, (payload) => {
+      .channel('market_behavior_signals_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'market_behavior_signals' }, (payload) => {
         if (payload.new) {
-          setPreScreenRows((prev) => {
-            const updated = payload.new as PreScreenRow;
-            const idx = prev.findIndex(
-              (r) => r.symbol === updated.symbol && r.style === updated.style && r.controlling_timeframe === updated.controlling_timeframe
-            );
+          const updated = payload.new as MarketBehaviorRow;
+          setBehaviorRows((prev) => {
+            const idx = prev.findIndex(r => r.symbol === updated.symbol && r.style === updated.style);
             if (idx >= 0) {
               const next = [...prev];
               next[idx] = updated;
-              return next;
+              return next.sort((a, b) => b.attention_score - a.attention_score);
             }
-            return [updated, ...prev];
+            return [updated, ...prev].sort((a, b) => b.attention_score - a.attention_score);
           });
-          const mins = Math.round((Date.now() - new Date((payload.new as PreScreenRow).last_checked_at).getTime()) / 60000);
-          setPreScreenLastChecked(mins <= 1 ? 'just now' : `${mins}m ago`);
+          const mins = Math.round((Date.now() - new Date(updated.last_scanned_at).getTime()) / 60000);
+          setLastScanned(mins <= 1 ? 'just now' : `${mins}m ago`);
         }
       })
       .subscribe();
@@ -817,7 +805,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Structural alerts subscription (session-scoped)
+  // Structural alerts (session-scoped)
   useEffect(() => {
     if (!sessionId) return;
 
@@ -848,32 +836,42 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     return () => { supabase.removeChannel(channel); };
   }, [sessionId]);
 
-  // Derive per-style counts for tab badges
+  // Filter by market hours
   const visibleRows = isForexMarketClosed
-    ? preScreenRows.filter((r) => isCryptoSymbol(r.symbol))
-    : preScreenRows;
+    ? behaviorRows.filter(r => isCryptoSymbol(r.symbol))
+    : behaviorRows;
 
+  // Filter by active tab
+  const filteredRows = activeTab === 'all'
+    ? visibleRows
+    : visibleRows.filter(r => r.style === activeTab);
+
+  // Tab counts — HOT + ACTIVE
   const getTabCounts = () => {
     const counts: Record<string, number> = { SCALP: 0, MICRO_INTRADAY: 0, INTRADAY: 0 };
     for (const row of visibleRows) {
-      if (row.readiness_tier === 'GREEN') {
+      if (row.heat_level === 'HOT' || row.heat_level === 'ACTIVE') {
         if (counts[row.style] !== undefined) counts[row.style]++;
       }
     }
     return counts;
   };
-
   const tabCounts = getTabCounts();
-  const totalGreen = visibleRows.filter((r) => r.readiness_tier === 'GREEN').length;
-  const totalSignals = visibleRows.reduce((sum, r) => sum + (r.signal_count ?? 0), 0);
+  const totalHot = visibleRows.filter(r => r.heat_level === 'HOT').length;
+  const totalActive = visibleRows.filter(r => r.heat_level === 'ACTIVE').length;
 
-  // Rows to display based on active tab
-  const getVisibleStyleGroups = (): StyleTabConfig[] => {
-    if (activeTab === 'all') return STYLE_TAB_CONFIG;
-    return STYLE_TAB_CONFIG.filter((s) => s.key === activeTab);
+  // Group rows by style for "all" tab
+  const getGroupedRows = (): Array<{ config: StyleTabConfig; rows: MarketBehaviorRow[] }> => {
+    return STYLE_TAB_CONFIG.map(cfg => ({
+      config: cfg,
+      rows: filteredRows
+        .filter(r => r.style === cfg.key)
+        .sort((a, b) => b.attention_score - a.attention_score),
+    }));
   };
 
-  const visibleGroups = getVisibleStyleGroups();
+  const grouped = getGroupedRows();
+  const hasAnyData = filteredRows.length > 0;
 
   return (
     <div className="relative group">
@@ -885,16 +883,14 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-blue-500/20 rounded-lg">
-              <ShieldCheck className="w-6 h-6 text-blue-400" />
+              <Radio className="w-6 h-6 text-blue-400" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Signal Readiness</h3>
+              <h3 className="text-lg font-bold text-white">Market Attention</h3>
               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                <p className="text-sm text-blue-300">
-                  {totalSignals > 0 ? `${totalSignals} signals` : '10 signals'} · 5-min refresh
-                </p>
-                {preScreenLastChecked && (
-                  <span className="text-[11px] text-blue-400/60">· {preScreenLastChecked}</span>
+                <p className="text-sm text-blue-300">Candle behavior · 3-min scan</p>
+                {lastScanned && (
+                  <span className="text-[11px] text-blue-400/60">· {lastScanned}</span>
                 )}
               </div>
             </div>
@@ -902,140 +898,108 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
           {/* Summary badges */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {totalGreen > 0 && (
-              <span className="text-[10px] font-bold text-green-400 bg-green-500/15 border border-green-500/30 px-2 py-0.5 rounded-full">
-                {totalGreen} ready
+            {totalHot > 0 && (
+              <span className="text-[10px] font-bold text-red-400 bg-red-500/15 border border-red-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Flame className="w-2.5 h-2.5" />
+                {totalHot} hot
+              </span>
+            )}
+            {totalActive > 0 && (
+              <span className="text-[10px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                {totalActive} active
               </span>
             )}
           </div>
         </div>
 
-        {/* Session / Market context banner */}
+        {/* Context banner */}
         {isForexMarketClosed ? <MarketClosedBanner /> : <SessionQualityBanner />}
 
-        {/* Style tabs — Scalp / Micro / Intraday */}
-        {visibleRows.length > 0 && (
-          <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-0.5">
-            <button
-              onClick={() => setActiveTab('all')}
-              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0 ${
-                activeTab === 'all'
-                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                  : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              All
-            </button>
+        {/* Style tabs */}
+        <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-0.5">
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0 ${
+              activeTab === 'all'
+                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            All
+          </button>
 
-            {STYLE_TAB_CONFIG.map((cfg) => {
-              const count = tabCounts[cfg.key] ?? 0;
-              const isActive = activeTab === cfg.key;
-              return (
-                <button
-                  key={cfg.key}
-                  onClick={() => setActiveTab(cfg.key)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0 ${
-                    isActive
-                      ? `${cfg.badgeBg} ${cfg.badgeText}`
-                      : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  {cfg.icon}
-                  {cfg.label}
-                  {count > 0 && (
-                    <span
-                      className={`ml-0.5 px-1.5 py-0 rounded-full text-[10px] ${
-                        isActive ? cfg.badgeText : 'text-gray-500'
-                      } ${isActive ? 'bg-white/10' : 'bg-gray-700/50'}`}
-                    >
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
+          {STYLE_TAB_CONFIG.map((cfg) => {
+            const count = tabCounts[cfg.key] ?? 0;
+            const isActive = activeTab === cfg.key;
+            return (
+              <button
+                key={cfg.key}
+                onClick={() => setActiveTab(cfg.key)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0 ${
+                  isActive
+                    ? `${cfg.badgeBg} ${cfg.badgeText}`
+                    : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {cfg.icon}
+                {cfg.label}
+                {count > 0 && (
+                  <span
+                    className={`ml-0.5 px-1.5 py-0 rounded-full text-[10px] ${
+                      isActive ? cfg.badgeText : 'text-gray-500'
+                    } ${isActive ? 'bg-white/10' : 'bg-gray-700/50'}`}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
 
-        {/* Signal Readiness content */}
-        {visibleRows.length > 0 ? (
+        {/* Signal cards */}
+        {hasAnyData ? (
           <div className="space-y-4">
-            {visibleGroups.map(({ key, label, tf, headerColor }) => {
-              const greenRows = visibleRows
-                .filter((r) => r.style === key && r.readiness_tier === 'GREEN')
-                .sort((a, b) => (b.readiness_score ?? 0) - (a.readiness_score ?? 0));
+            {activeTab === 'all' ? (
+              grouped.map(({ config, rows }) => {
+                // In "all" tab, only show groups with HOT or ACTIVE pairs
+                const notableRows = rows.filter(r => r.heat_level !== 'QUIET');
+                if (notableRows.length === 0) return null;
 
-              const yellowRows = activeTab === key
-                ? visibleRows
-                    .filter((r) => r.style === key && r.readiness_tier === 'YELLOW')
-                    .sort((a, b) => (b.readiness_score ?? 0) - (a.readiness_score ?? 0))
-                : [];
-
-              const styleRows = [...greenRows, ...yellowRows];
-
-              if (styleRows.length === 0 && activeTab === 'all') return null;
-              if (greenRows.length === 0 && activeTab === 'all') return null;
-
-              const bestScore = greenRows[0]?.readiness_score ?? yellowRows[0]?.readiness_score ?? 0;
-
-              return (
-                <div key={key}>
-                  {/* Style group header — only shown when "All" tab is active */}
-                  {activeTab === 'all' && (
-                    <div className="flex items-center gap-2 mb-2 mt-1 flex-wrap">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${headerColor}`}>{label}</span>
-                      <span className="text-[10px] text-slate-600 font-mono">{tf}</span>
-                      <span
-                        className="text-[9px] text-slate-600 ml-1"
-                        title={`GREEN requires: ${GREEN_GATE_REQUIREMENT[key] ?? ''}`}
-                      >
-                        {GREEN_GATE_REQUIREMENT[key] ?? ''}
+                return (
+                  <div key={config.key}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${config.headerColor}`}>
+                        {config.label}
                       </span>
-                      {bestScore >= 65 && (
-                        <span className="text-[9px] font-bold text-green-400 bg-green-500/15 border border-green-500/25 px-1.5 py-px rounded-full ml-auto">
-                          Active Signals
-                        </span>
-                      )}
+                      <span className="text-[10px] text-slate-600 font-mono">{config.tf}</span>
+                      <div className="flex-1 h-px bg-slate-700/30" />
                     </div>
-                  )}
-
-                  {/* GREEN rows */}
-                  {greenRows.length > 0 && (
-                    <div className="space-y-1.5">
-                      {greenRows.map((row) => renderSignalRow(row))}
+                    <div className="space-y-2">
+                      {notableRows.map(row => (
+                        <BehaviorRow key={`${row.symbol}-${row.style}`} row={row} />
+                      ))}
                     </div>
-                  )}
+                  </div>
+                );
+              })
+            ) : (
+              // Single style tab — show all rows sorted by score
+              <div className="space-y-2">
+                {filteredRows
+                  .filter(r => r.style === activeTab)
+                  .sort((a, b) => b.attention_score - a.attention_score)
+                  .map(row => (
+                    <BehaviorRow key={`${row.symbol}-${row.style}`} row={row} />
+                  ))}
+              </div>
+            )}
 
-                  {/* YELLOW rows — shown only on single-style tab */}
-                  {yellowRows.length > 0 && (
-                    <div className="mt-3">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-[9px] font-bold text-yellow-500/60 uppercase tracking-wider">Developing</span>
-                        <div className="flex-1 h-px bg-yellow-500/15" />
-                      </div>
-                      <div className="space-y-1.5">
-                        {yellowRows.map((row) => renderSignalRow(row))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Empty state for single-style tab */}
-                  {activeTab === key && greenRows.length === 0 && yellowRows.length === 0 && (
-                    <div className="py-4 text-center">
-                      <p className="text-[11px] text-slate-500">No setups meeting gate for {label} right now</p>
-                      <p className="text-[10px] text-slate-600 mt-0.5">Gate: {GREEN_GATE_REQUIREMENT[key]}</p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            <div className="pt-2 border-t border-slate-700/30 space-y-1">
+            {/* Footer note */}
+            <div className="pt-2 border-t border-slate-700/30">
               <p className="text-[10px] text-slate-600">
-                GREEN = style-specific Alpha gate passed. Thesis badge shows what Alpha is likely to see. * = key phase signal.
-              </p>
-              <p className="text-[10px] text-slate-600">
-                Score &ge;60-65 + structural gate met = READY. Phase badge = market context. Stale setups auto-downgrade.
+                HOT = strong market behavior detected. Scan Alpha when a pair is hot — Alpha makes all trade decisions.
+                Score reflects candle energy, not trade quality.
               </p>
             </div>
           </div>
@@ -1043,29 +1007,29 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
           <div className="rounded-lg p-5 border border-blue-500/20 bg-blue-900/10 text-center">
             <div className="flex flex-col items-center gap-3">
               <div className="p-3 bg-blue-500/15 rounded-full">
-                <ShieldCheck className="w-6 h-6 text-blue-400" />
+                <Radio className="w-6 h-6 text-blue-400" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-blue-200 mb-1">
-                  Awaiting signal data
+                  {activeTab === 'all' ? 'Markets are quiet right now' : 'No active signals for this style'}
                 </p>
                 <p className="text-xs text-blue-300/70 max-w-xs mx-auto">
-                  Signal Readiness updates every 5 minutes. Data will appear shortly.
+                  Market behavior data updates every 3 minutes. HOT and ACTIVE pairs will appear here when candle behaviors are detected.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Session Structural Alerts (session-scoped, collapsible) */}
+        {/* Session Structural Alerts */}
         {sessionId && structuralAlerts.length > 0 && (
           <div className="mt-3 rounded-xl border border-slate-700/40 bg-slate-900/40 overflow-hidden">
             <button
               className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/40 transition-colors"
-              onClick={() => setAlertsExpanded((v) => !v)}
+              onClick={() => setAlertsExpanded(v => !v)}
             >
               <div className="flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-orange-400" />
+                <AlertTriangle className="w-4 h-4 text-orange-400" />
                 <span className="text-sm font-semibold text-white">Session Structural Alerts</span>
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500/20 border border-orange-500/30 text-[10px] font-bold text-orange-400 ml-1">
                   {structuralAlerts.length}
@@ -1079,12 +1043,16 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
                 {structuralAlerts.map((alert) => {
                   const isBlocked = alert.rule_type.includes('BLOCKED') || alert.rule_type.includes('MISSING');
                   const isQualified = alert.rule_type.includes('BOS') || alert.rule_type.includes('SWEEP');
-                  const alertBg = isBlocked ? 'bg-red-500/8 border-red-500/15' : isQualified ? 'bg-green-500/8 border-green-500/15' : 'bg-slate-700/30 border-slate-600/20';
+                  const alertBg = isBlocked
+                    ? 'bg-red-500/8 border-red-500/15'
+                    : isQualified
+                    ? 'bg-green-500/8 border-green-500/15'
+                    : 'bg-slate-700/30 border-slate-600/20';
                   const alertIcon = isBlocked
                     ? <AlertTriangle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
                     : isQualified
-                      ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
-                      : <Activity className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />;
+                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+                    : <Activity className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />;
                   const mins = Math.round((Date.now() - new Date(alert.created_at).getTime()) / 60000);
                   const timeLabel = mins <= 1 ? 'just now' : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
                   return (
