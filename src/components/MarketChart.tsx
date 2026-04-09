@@ -105,6 +105,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }>({});
   const bidLineRef = useRef<any>(null);
   const askLineRef = useRef<any>(null);
+  const midLineRef = useRef<any>(null);
   const daySeparatorOverlayRef = useRef<HTMLDivElement>(null);
   const daySeparatorRafRef = useRef<number | null>(null);
   const sessionBandsOverlayRef = useRef<HTMLDivElement>(null);
@@ -508,7 +509,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         minMove: chartMinMove,
       },
       lastValueVisible: true,
-      priceLineVisible: true,
+      priceLineVisible: false,
     });
 
     const vwapSeries = chart.addSeries(LineSeries, {
@@ -2278,11 +2279,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     };
   }, [tradeLines]);
 
-  // BID/ASK Price Lines Effect
+  // BID/ASK/MID Price Lines Effect
   useEffect(() => {
     if (!chartRef.current || !candlestickSeriesRef.current) return;
 
-    // Remove existing bid/ask lines
     if (bidLineRef.current) {
       candlestickSeriesRef.current.removePriceLine(bidLineRef.current);
       bidLineRef.current = null;
@@ -2291,14 +2291,18 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       candlestickSeriesRef.current.removePriceLine(askLineRef.current);
       askLineRef.current = null;
     }
+    if (midLineRef.current) {
+      candlestickSeriesRef.current.removePriceLine(midLineRef.current);
+      midLineRef.current = null;
+    }
 
-    // Create new bid/ask lines if we have prices
     if (bidPrice !== null && askPrice !== null) {
-      // BID Line (red/orange - price you SELL at or close LONG at)
+      const midPrice = (bidPrice + askPrice) / 2;
+
       bidLineRef.current = candlestickSeriesRef.current.createPriceLine({
         price: bidPrice,
         color: '#f97316',
-        lineWidth: 2,
+        lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: false,
         title: '',
@@ -2307,8 +2311,17 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       askLineRef.current = candlestickSeriesRef.current.createPriceLine({
         price: askPrice,
         color: '#06b6d4',
-        lineWidth: 2,
+        lineWidth: 1,
         lineStyle: LineStyle.Dashed,
+        axisLabelVisible: false,
+        title: '',
+      });
+
+      midLineRef.current = candlestickSeriesRef.current.createPriceLine({
+        price: midPrice,
+        color: '#ffffff',
+        lineWidth: 1,
+        lineStyle: LineStyle.Solid,
         axisLabelVisible: false,
         title: '',
       });
@@ -2321,6 +2334,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         }
         if (askLineRef.current) {
           candlestickSeriesRef.current.removePriceLine(askLineRef.current);
+        }
+        if (midLineRef.current) {
+          candlestickSeriesRef.current.removePriceLine(midLineRef.current);
         }
       }
     };
