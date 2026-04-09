@@ -25,7 +25,7 @@ export interface MarketState {
   vwapReliability?: number; // SSOT: 0-1 score of real volume vs synthetic
   trend: string;
   momentum: number;
-  volatility: string;
+  volatility?: string;
   swingHigh: number;
   swingLow: number;
   macd?: number;

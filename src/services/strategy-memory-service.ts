@@ -21,7 +21,7 @@ export interface StrategyMemoryRecord {
   conditions: string[];
   entry_logic: string;
   market_regime: string;
-  volatility: string;
+  volatility?: string;
   trades_executed: number;
   win_rate: number;
   total_pnl: number;
@@ -53,7 +53,7 @@ export interface MarketContext {
   symbol: string;
   timeframe: string;
   regime: string;
-  volatility: string;
+  volatility?: string;
   price: number;
   ema50: number;
   ema200: number;
@@ -74,8 +74,7 @@ class StrategyMemoryService {
   async loadMemory(
     userId: string,
     symbol: string,
-    currentRegime: string,
-    currentVolatility: string
+    currentRegime: string
   ): Promise<StrategyMemory> {
     // Get recent strategies (last 10)
     const { data: recentStrategies } = await supabase
@@ -86,15 +85,14 @@ class StrategyMemoryService {
       .order('planned_at', { ascending: false })
       .limit(10);
 
-    // Get best performers in current regime
+    // Get best performers in current regime (regime only — volatility is raw ATR data, not a label)
     const { data: bestInRegime } = await supabase
       .from('alpha_strategy_memory')
       .select('*')
       .eq('user_id', userId)
       .eq('symbol', symbol)
       .eq('market_regime', currentRegime)
-      .eq('volatility', currentVolatility)
-      .gte('trades_executed', 3) // Minimum sample size
+      .gte('trades_executed', 3)
       .gte('win_rate', 0.65)
       .order('win_rate', { ascending: false })
       .limit(3);
@@ -113,8 +111,7 @@ class StrategyMemoryService {
     // Generate regime insights
     const regimeInsights = this.analyzeRegimePerformance(
       recentStrategies || [],
-      currentRegime,
-      currentVolatility
+      currentRegime
     );
 
     // Generate memory summary for LLM
@@ -294,18 +291,16 @@ class StrategyMemoryService {
    */
   private analyzeRegimePerformance(
     strategies: any[],
-    currentRegime: string,
-    currentVolatility: string
+    currentRegime: string
   ): RegimeInsights {
     const regimeStrategies = strategies.filter(
       s => s.market_regime === currentRegime &&
-           s.volatility === currentVolatility &&
            s.trades_executed >= 3
     );
 
     if (regimeStrategies.length === 0) {
       return {
-        currentRegime: `${currentRegime} / ${currentVolatility} vol`,
+        currentRegime,
         bestStrategyMode: null,
         bestWinRate: 0,
         totalExperience: 0,
@@ -347,7 +342,7 @@ class StrategyMemoryService {
     const totalTrades = regimeStrategies.reduce((sum, s) => sum + s.trades_executed, 0);
 
     return {
-      currentRegime: `${currentRegime} / ${currentVolatility} vol`,
+      currentRegime,
       bestStrategyMode: bestMode,
       bestWinRate,
       totalExperience: totalTrades,

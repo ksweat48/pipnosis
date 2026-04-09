@@ -70,7 +70,7 @@ export interface FullMarketState {
   atr: number;
   vwap: number;
   trend: string;
-  volatility: string;
+  volatility?: string;
   momentum: number;
   support: number[];
   resistance: number[];

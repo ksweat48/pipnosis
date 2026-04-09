@@ -147,8 +147,7 @@ class LLMStrategyBrain {
         const memory = await strategyMemoryService.loadMemory(
           userId,
           snapshot.sym,
-          snapshot.trend,
-          snapshot.vol
+          snapshot.trend
         );
 
         if (memory.memorySummary) {

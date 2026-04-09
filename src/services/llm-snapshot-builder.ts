@@ -866,8 +866,7 @@ Should you:
       macd: macdData.macd,
       macdSignal: macdData.signal,
       omegaSensors,
-      dataQuality,
-      volatility: 'medium' as string
+      dataQuality
     };
   }
 }
