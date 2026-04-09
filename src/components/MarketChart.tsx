@@ -2297,7 +2297,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         price: midPrice,
         color: '#ffffff',
         lineWidth: 1,
-        lineStyle: LineStyle.Solid,
+        lineStyle: LineStyle.Dotted,
         axisLabelVisible: false,
         title: '',
       });
