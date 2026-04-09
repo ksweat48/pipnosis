@@ -271,7 +271,7 @@ class EventBasedLLMEngine {
               symbol: config.symbol,
               timeframe: config.timeframe,
               regime: marketState.trend,
-              volatility: marketState.volatility,
+              volatility: (marketState as any).volatility ?? 'medium',
               price: marketState.price,
               ema50: marketState.ema50,
               ema200: marketState.ema200,
