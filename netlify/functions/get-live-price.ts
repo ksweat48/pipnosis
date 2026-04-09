@@ -47,9 +47,10 @@ interface MetaApiPrice {
   bid: number;
   ask: number;
   time?: string;
+  brokerTime?: string;
 }
 
-async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: number; timestamp: string; source: string }> {
+async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: number; timestamp: string; brokerTime?: string; source: string }> {
   const token = process.env.METAAPI_TOKEN;
   const accountId = process.env.METAAPI_ACCOUNT_ID;
   const region = process.env.METAAPI_REGION || 'london';
@@ -128,10 +129,12 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
       throw new Error(`Invalid numeric values: bid=${data.bid}, ask=${data.ask}`);
     }
 
+    const brokerTime = data.time || new Date().toISOString();
     return {
       bid: parseFloat(String(data.bid)),
       ask: parseFloat(String(data.ask)),
-      timestamp: data.time || new Date().toISOString(),
+      timestamp: brokerTime,
+      brokerTime,
       source: 'metaapi-live'
     };
   } catch (error) {
@@ -438,7 +441,7 @@ async function getFallbackPrice(symbol: string): Promise<{ bid: number; ask: num
 }
 
 
-async function savePriceToDatabase(symbol: string, bid: number, ask: number, source: string): Promise<void> {
+async function savePriceToDatabase(symbol: string, bid: number, ask: number, source: string, brokerTime?: string): Promise<void> {
   try {
     const supabase = getSupabaseAdmin();
     const mid = (bid + ask) / 2;
@@ -453,7 +456,7 @@ async function savePriceToDatabase(symbol: string, bid: number, ask: number, sou
         ask: ask.toString(),
         mid: mid.toString(),
         spread: spread.toString(),
-        broker_time: new Date().toISOString(),
+        broker_time: brokerTime || new Date().toISOString(),
         source: source
       });
 
@@ -539,7 +542,7 @@ export const handler: Handler = async (event) => {
         console.log(`[get-live-price][${requestId}] ✓ Live MetaAPI price fetched: ${priceData.bid}/${priceData.ask}`);
       }
 
-      await savePriceToDatabase(symbol, priceData.bid, priceData.ask, priceData.source);
+      await savePriceToDatabase(symbol, priceData.bid, priceData.ask, priceData.source, (priceData as any).brokerTime);
     } catch (metaError) {
       console.error(`[get-live-price][${requestId}] ❌ Level 1 failed:`, metaError instanceof Error ? metaError.message : String(metaError));
 

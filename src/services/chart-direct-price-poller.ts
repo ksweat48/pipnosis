@@ -357,16 +357,13 @@ class ChartDirectPricePoller {
           // Use the actual source from API response (supports multi-source crypto feeds)
           const actualSource = data.activeSource || data.source || 'metaapi';
 
+          const brokerTime = data.brokerTime || data.broker_time || data.timestamp || undefined;
           results.push({
             symbol,
             bid: data.bid,
             ask: data.ask,
-            // CCIP-2026-04-02: Use broker_time from API response when available.
-            // If the MetaAPI endpoint returns a broker_time, it is authoritative server time.
-            // timestamp remains as client fallback for legacy consumers; brokerTime is the
-            // SSOT for candle slot alignment in updateCurrentCandleFromTick.
-            timestamp: new Date().toISOString(),
-            brokerTime: data.brokerTime || data.broker_time || undefined,
+            timestamp: brokerTime || new Date().toISOString(),
+            brokerTime,
             midPrice,
             source: actualSource
           });

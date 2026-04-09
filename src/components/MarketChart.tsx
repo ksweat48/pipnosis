@@ -802,12 +802,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return;
       }
 
-      // FIX: Allow ticks for the current candle by checking >= instead of >
-      const expectedMinTime = lastHistoricalTime + (getTimeframeMinutes(timeframe) * 60);
-      if (candleTimeSeconds < expectedMinTime && lastHistoricalTime > 0 && candleTimeSeconds !== lastHistoricalTime) {
-        console.warn(`[Chart][${symbol}] ⏭️ REJECTING tick: candle time ${candleTimeSeconds} < expected min time ${expectedMinTime}`);
-        return;
-      }
 
 
       if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
@@ -837,19 +831,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           return;
         }
 
-        let mergedHigh = Number(currentCandleRef.current.high);
-        let mergedLow = Number(currentCandleRef.current.low);
-
-        const chartData = candlestickSeriesRef.current?.data();
-        if (chartData && chartData.length > 0) {
-          const existingCandle = chartData.find(c => c.time === timeValue);
-          if (existingCandle) {
-            mergedHigh = Math.max(mergedHigh, Number(existingCandle.high));
-            mergedLow = Math.min(mergedLow, Number(existingCandle.low));
-            currentCandleRef.current.high = mergedHigh;
-            currentCandleRef.current.low = mergedLow;
-          }
-        }
+        const mergedHigh = Number(currentCandleRef.current.high);
+        const mergedLow = Number(currentCandleRef.current.low);
 
         const safeCandle: CandleData = {
           time: timeValue,
@@ -945,13 +928,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     // STRICT OVERLAP PREVENTION: Reject any candle with timestamp <= last historical
     if (latestCandle.time <= lastHistoricalTime) {
       console.warn(`[Chart] OVERLAP PREVENTED: Rejecting polled candle at ${new Date(latestCandle.time * 1000).toISOString()} (last historical: ${new Date(lastHistoricalTime * 1000).toISOString()})`);
-      return;
-    }
-
-    // Validate this is at least one full interval after last historical
-    const expectedMinTime = lastHistoricalTime + (getTimeframeMinutes(timeframe) * 60);
-    if (latestCandle.time < expectedMinTime && lastHistoricalTime > 0) {
-      console.warn(`[Chart] GAP VIOLATION: Rejecting candle at ${latestCandle.time}, expected >= ${expectedMinTime}`);
       return;
     }
 

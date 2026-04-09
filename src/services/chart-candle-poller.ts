@@ -661,8 +661,33 @@ class ChartCandlePoller {
       }
 
       if (!prices || prices.length === 0) {
-        console.log(`[ChartPoller] ⚠️ No ticks found for forming candle since ${currentCandleStart.toISOString()}`);
-        return null; // No forming candle data
+        console.log(`[ChartPoller] ⚠️ No ticks in current period for ${symbol} since ${currentCandleStart.toISOString()} - trying recent fallback`);
+
+        const lookbackMs = intervalMs * 3;
+        const { data: recentTick, error: recentError } = await supabase
+          .from('realtime_prices')
+          .select('bid, ask, created_at, broker_time')
+          .eq('symbol', symbol)
+          .gte('broker_time', new Date(anchorTimeMs - lookbackMs).toISOString())
+          .order('broker_time', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (recentError || !recentTick) {
+          console.log(`[ChartPoller] ⚠️ No recent ticks found for ${symbol} - no forming candle`);
+          return null;
+        }
+
+        const mid = (parseFloat(recentTick.bid) + parseFloat(recentTick.ask)) / 2;
+        console.log(`[ChartPoller] 📍 Using most-recent tick as forming candle anchor for ${symbol}: ${mid.toFixed(5)}`);
+        return sanitizeCandleData({
+          time: Math.floor(currentCandleStartMs / 1000),
+          open: mid,
+          high: mid,
+          low: mid,
+          close: mid,
+          symbol
+        });
       }
 
       console.log(`[ChartPoller] ✅ Found ${prices.length} ticks for forming candle between ${prices[0].created_at} and ${prices[prices.length - 1].created_at}`);
