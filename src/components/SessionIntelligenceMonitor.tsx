@@ -791,7 +791,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   const getTabCounts = () => {
     const counts: Record<string, number> = { SCALP: 0, MICRO_INTRADAY: 0, INTRADAY: 0 };
     for (const row of visibleRows) {
-      if (row.readiness_tier === 'GREEN' || row.readiness_tier === 'YELLOW') {
+      if (row.readiness_tier === 'GREEN') {
         if (counts[row.style] !== undefined) counts[row.style]++;
       }
     }
@@ -800,7 +800,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
   const tabCounts = getTabCounts();
   const totalGreen = visibleRows.filter((r) => r.readiness_tier === 'GREEN').length;
-  const totalYellow = visibleRows.filter((r) => r.readiness_tier === 'YELLOW').length;
   const totalSignals = visibleRows.reduce((sum, r) => sum + (r.signal_count ?? 0), 0);
 
   // Rows to display based on active tab
@@ -841,11 +840,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             {totalGreen > 0 && (
               <span className="text-[10px] font-bold text-green-400 bg-green-500/15 border border-green-500/30 px-2 py-0.5 rounded-full">
                 {totalGreen} ready
-              </span>
-            )}
-            {totalYellow > 0 && (
-              <span className="text-[10px] font-bold text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded-full">
-                {totalYellow} developing
               </span>
             )}
           </div>
@@ -903,7 +897,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
           <div className="space-y-4">
             {visibleGroups.map(({ key, label, tf, headerColor }) => {
               const styleRows = visibleRows
-                .filter((r) => r.style === key)
+                .filter((r) => r.style === key && r.readiness_tier === 'GREEN')
                 .sort((a, b) => (b.readiness_score ?? 0) - (a.readiness_score ?? 0));
 
               if (styleRows.length === 0) return null;
