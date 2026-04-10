@@ -362,11 +362,10 @@ class AlphaThoughtStream {
    * each candidate's individual Alpha reasoning before the final decision.
    * Called once per evaluated symbol. SSOT: uses existing comparing step type.
    *
-   * LANGUAGE RULE (CCIP-2026-CONFIDENCE-SSOT):
+   * LANGUAGE RULE (CCIP-2026-0410A):
    * trade_confidence always means "confidence this trade reaches its target".
-   * - NO_TRADE always has confidence < 50 (Alpha cannot reach the floor, so chooses no trade).
-   * - BUY/SELL has confidence >= 50 (Alpha is confident enough to execute).
-   * - The message always reflects confidence IN the trade, not confidence in waiting.
+   * No numeric floor exists. Alpha reports his confidence honestly.
+   * BUY/SELL = Alpha found profitable edge and executes. NO_TRADE = no edge found.
    */
   async emitSymbolReasoning(
     sessionId: string,
@@ -377,17 +376,12 @@ class AlphaThoughtStream {
     reasoning: string
   ): Promise<void> {
     const actionLabel = action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'NO_TRADE';
-    const MINIMUM_TRADE_CONFIDENCE = 50;
 
     let message: string;
     if (actionLabel === 'NO_TRADE') {
-      message = `${symbol}: Structural edge insufficient for execution. No trade.`;
+      message = `${symbol}: No profitable structural edge found. No trade.`;
     } else {
-      if (confidence < MINIMUM_TRADE_CONFIDENCE) {
-        message = `${symbol}: ${actionLabel} — structural conviction did not reach execution quality.`;
-      } else {
-        message = `${symbol}: ${actionLabel} — structural conviction confirmed.`;
-      }
+      message = `${symbol}: ${actionLabel} — ${confidence}% conviction. Executing.`;
     }
 
     await this.emitThought(sessionId, userId, 'comparing', message, {
@@ -402,11 +396,10 @@ class AlphaThoughtStream {
   /**
    * Emit final decision thought.
    *
-   * LANGUAGE RULE (CCIP-2026-0328B):
-   * - No trade: "I scanned all pairs. I did not find a trade I was confident enough to take. Waiting for the next cycle."
-   * - Trade found (confidence >= 50): "I am X% confident in [SYMBOL] [BUY/SELL]. Executing now."
-   * - Trade found (confidence < 50): "I am only X% confident in [SYMBOL] [BUY/SELL]. Executing now."
-   *   (below-50 execution is unusual but valid in advisory-only mode — language rule still applies)
+   * LANGUAGE RULE (CCIP-2026-0410A):
+   * - No trade: "I scanned all pairs. No profitable structural edge found this cycle. Waiting."
+   * - Trade found: "I am X% confident in [SYMBOL] [BUY/SELL]. Executing now."
+   * Alpha reports his confidence factually. No floor qualifier is applied.
    */
   async emitFinalDecision(
     sessionId: string,
@@ -420,14 +413,14 @@ class AlphaThoughtStream {
       reasoning: string;
     }
   ): Promise<void> {
-    const MINIMUM_TRADE_CONFIDENCE = 50;
     let message: string;
 
     if (!result.selected || !result.symbol) {
-      message = `I scanned all pairs. I did not find a trade I was confident enough to take. Waiting for the next cycle.`;
+      message = `I scanned all pairs. No profitable structural edge found this cycle. Waiting for the next scan.`;
     } else {
       const actionStr = result.action === 'BUY' || result.action === 'SELL' ? result.action : 'trade';
-      message = `Structural conviction confirmed on ${result.symbol} ${actionStr}. Executing now.`;
+      const confStr = result.confidence != null ? `I am ${result.confidence}% confident in ` : '';
+      message = `${confStr}${result.symbol} ${actionStr}. Executing now.`;
     }
 
     await this.emitThought(sessionId, userId, 'final_decision', message, {

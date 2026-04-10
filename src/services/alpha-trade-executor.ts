@@ -799,11 +799,9 @@ class AlphaTradeExecutor {
     direction: 'buy' | 'sell',
     currentRegimeSnapshot?: any
   ): Promise<{ valid: boolean; reason?: string }> {
-    // Hard confidence floor — the only confidence gate (SSOT: alpha-identity.ts)
-    // A trade below 50 has less than coin-flip structural edge. This is physics, not judgment.
-    if (confidence < 50) {
-      return { valid: false, reason: 'Confidence too low (< 50%)' };
-    }
+    // CCIP-2026-0410A: Confidence floor removed. Alpha executes when he sees edge.
+    // His stated confidence is reported for audit and learning — it never gates execution.
+    // The only execution gates are data integrity and geometric validity (LEGITIMATE_BLOCK_CONDITIONS).
 
     // Trade slots check
     // SSOT: max_concurrent_trades column is authoritative (set at session creation).

@@ -333,20 +333,22 @@ export interface AlphaDecision {
   thesis_coherence_statement?: string;
   arena_chosen?: 'LONG' | 'SHORT' | 'NO_TRADE';
   /**
-   * CCIP-2026-0327C: NO_TRADE transparency fields.
+   * CCIP-2026-0410A / CCIP-2026-0327C: NO_TRADE transparency fields.
    *
    * execution_status: What category of outcome this decision represents.
-   *   EXECUTED — trade was taken (BUY/SELL with confidence >= 50)
-   *   BLOCKED_BY_FLOOR — Alpha said BUY/SELL but confidence < 50 (below MINIMUM_TRADE_CONFIDENCE)
-   *   NO_TRADE_GENUINE — Alpha said NO_TRADE with patience conviction >= 50 (clearly saw no edge)
-   *   NO_TRADE_LEAN — Alpha said NO_TRADE but had a directional lean < 50 patience conviction
+   *   EXECUTED — trade was taken (Alpha called BUY/SELL — no confidence gate exists)
+   *   NO_TRADE_GENUINE — Alpha said NO_TRADE (genuinely found no profitable structural edge)
+   *   NO_TRADE_LEAN — Alpha said NO_TRADE but had a directional lean
+   *
+   * BLOCKED_BY_FLOOR is permanently retired. Alpha's confidence never blocks execution.
+   * Alpha executes any trade he calls. The only valid non-execution outcome is Alpha's own NO_TRADE.
    *
    * directional_lean: Alpha's directional opinion when no trade was taken.
    *   Only meaningful when action=NO_TRADE. Tells us if Alpha was leaning a direction.
    *
    * lean_confidence: How strong was the lean (0-100). 0 when NEUTRAL.
    */
-  execution_status?: 'EXECUTED' | 'BLOCKED_BY_FLOOR' | 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN';
+  execution_status?: 'EXECUTED' | 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN';
   directional_lean?: 'BUY_LEAN' | 'SELL_LEAN' | 'NEUTRAL';
   lean_confidence?: number;
   wall_violations?: string[];

@@ -3,19 +3,19 @@
  *
  * CCIP-GOVERNANCE-2026-03-20: PENALTY SYSTEM PERMANENTLY REMOVED
  * CCIP-2026-0328B: ADAPTIVE FLOOR ENFORCEMENT REMOVED — ADVISORY ONLY
+ * CCIP-2026-0410A: CONFIDENCE EXECUTION GATE PERMANENTLY REMOVED
  *
  * Alpha's stated confidence IS the execution value. Period.
  * No domain authority may add to, subtract from, or multiply Alpha's confidence.
  * No penalties, no advisory adjustments, no reward bonuses that alter the number.
- * No adaptive floor may block execution — the floor is advisory context passed to
- * Alpha in his briefing, not a code-layer gate.
+ * No confidence number — at any level — may block Alpha's execution.
  *
- * The ONLY hard execution gate based on confidence is ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (50).
- * Any confidence >= 50 is a valid professional trade. Code does not impose a higher floor.
+ * Alpha executes when he identifies profitable structural edge. His confidence is
+ * reported for audit, transparency, and learning purposes ONLY.
  *
  * This engine now exists solely to:
  * 1. Validate that Alpha's confidence is in the valid range (0-100)
- * 2. Log an advisory observation if confidence is below the adaptive floor (informational)
+ * 2. Log an advisory observation against the adaptive floor (informational only)
  * 3. Write an audit trail row for governance dashboards
  *
  * What has been permanently removed:
@@ -27,12 +27,13 @@
  * - applyDomainPenalties() method
  * - checkDomainIsolation() method
  * - ConfidenceModifier type exported for external use
- * - passes_threshold as an execution gate (now advisory observation only)
+ * - passes_threshold as an execution gate (advisory observation only)
+ * - MINIMUM_TRADE_CONFIDENCE as an execution gate (CCIP-2026-0410A)
  *
  * SSOT AUTHORITY CHAIN:
  * Alpha LLM → states confidence (0-100)
  * This engine → validates range (0-100), logs advisory floor observation, logs audit row
- * Orchestrator → uses Alpha's confidence as-is; only hard gate is >= 50
+ * Orchestrator → uses Alpha's confidence as-is; no confidence gate exists
  */
 
 import { supabase } from '../lib/supabase';
@@ -129,7 +130,7 @@ class ConfidenceCalculationEngine {
     if (!passesAdvisoryFloor) {
       console.log(
         `[ConfidenceEngine] ADVISORY: Alpha confidence=${finalConfidence} below adaptive floor=${executionThreshold}. ` +
-        `Trade proceeds — floor is advisory only per CCIP-2026-0328B. Hard gate is MINIMUM_TRADE_CONFIDENCE.`
+        `Trade proceeds — no confidence gate exists per CCIP-2026-0410A.`
       );
     } else {
       console.log(
@@ -151,9 +152,8 @@ class ConfidenceCalculationEngine {
     try {
       if (!input.user_id) return;
 
-      // CCIP-2026-0328B: Legacy penalty tombstone fields removed. All zeros were
-      // placeholders from the old penalty system. Only meaningful fields remain.
-      // execution_decision is always EXECUTE for confidence >= 50 regardless of floor.
+      // CCIP-2026-0410A: No execution gate exists. Alpha executes any BUY/SELL.
+      // execution_decision is always EXECUTE when Alpha calls a direction.
       await supabase.from('confidence_calculation_audit').insert({
         trade_id: input.trade_id,
         session_id: input.session_id,
@@ -161,10 +161,10 @@ class ConfidenceCalculationEngine {
         final_clamped_confidence: result.final_confidence,
         execution_threshold: result.execution_threshold,
         passes_threshold: result.passes_threshold,
-        execution_decision: result.base_confidence >= 50 ? 'EXECUTE' : 'WAIT',
+        execution_decision: 'EXECUTE',
         governance_compliant: true,
-        ccip_phase: 'alpha_sovereignty_ccip_2026_0328b',
-        audit_notes: 'No penalties. Floor is advisory only. Hard gate is MINIMUM_TRADE_CONFIDENCE.',
+        ccip_phase: 'alpha_sovereignty_ccip_2026_0410a',
+        audit_notes: 'No penalties. No confidence floor gate. Alpha executes on stated edge.',
         user_id: input.user_id
       });
     } catch {

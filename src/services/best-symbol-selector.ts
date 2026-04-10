@@ -182,28 +182,16 @@ class BestSymbolSelector {
         gate: 'ADVERSARIAL_CHECK',
       });
 
-      // Gate 5: Meets minimum confidence threshold
-      if (decision.confidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
-        eligibilityChecks.push({
-          passed: false,
-          reason: `Confidence ${decision.confidence}% below threshold ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`,
-          gate: 'CONFIDENCE_THRESHOLD',
-        });
-        rejectedEvaluations.push({
-          symbol: snapshot.symbol,
-          reason: `Confidence ${decision.confidence}% < ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`,
-          gate: 'CONFIDENCE_THRESHOLD',
-        });
-        continue;
-      }
-
+      // CCIP-2026-0410A: Confidence threshold gate permanently removed.
+      // Alpha's confidence is reported for audit and learning — never blocks execution.
+      // Alpha executes when he identifies profitable structural edge, regardless of confidence number.
       eligibilityChecks.push({
         passed: true,
-        reason: `Confidence ${decision.confidence}% ≥ ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`,
+        reason: `Confidence ${decision.confidence}% — Alpha stated edge (no floor gate per CCIP-2026-0410A)`,
         gate: 'CONFIDENCE_THRESHOLD',
       });
 
-      // Gate 6: Valid trade geometry (SL/TP on correct sides)
+      // Gate 5: Valid trade geometry (SL/TP on correct sides)
       const geometryCheck = this.validateTradeGeometry(decision);
       if (!geometryCheck.valid) {
         eligibilityChecks.push({
@@ -612,12 +600,8 @@ class BestSymbolSelector {
         gate: 'ADVERSARIAL_CHECK',
       });
 
-      if (decision.confidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
-        eligibilityChecks.push({ passed: false, reason: `Confidence ${decision.confidence}% below threshold ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`, gate: 'CONFIDENCE_THRESHOLD' });
-        rejectedEvaluations.push({ symbol: snapshot.symbol, reason: `Confidence ${decision.confidence}% < ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`, gate: 'CONFIDENCE_THRESHOLD' });
-        continue;
-      }
-      eligibilityChecks.push({ passed: true, reason: `Confidence ${decision.confidence}% >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`, gate: 'CONFIDENCE_THRESHOLD' });
+      // CCIP-2026-0410A: Confidence threshold gate permanently removed.
+      eligibilityChecks.push({ passed: true, reason: `Confidence ${decision.confidence}% — Alpha stated edge (no floor gate per CCIP-2026-0410A)`, gate: 'CONFIDENCE_THRESHOLD' });
 
       const geometryCheck = this.validateTradeGeometry(decision);
       if (!geometryCheck.valid) {

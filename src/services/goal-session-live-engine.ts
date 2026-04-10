@@ -88,7 +88,8 @@ export interface NoTradeRejectionContext {
     action: string;
     reasoning: string;
     confidence: number;
-    execution_status?: 'EXECUTED' | 'BLOCKED_BY_FLOOR' | 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN';
+    // CCIP-2026-0410A: BLOCKED_BY_FLOOR retired.
+    execution_status?: 'EXECUTED' | 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN';
     directional_lean?: 'BUY_LEAN' | 'SELL_LEAN' | 'NEUTRAL';
     lean_confidence?: number;
   }[];
@@ -1269,11 +1270,10 @@ class GoalSessionLiveEngine {
       try {
         const eligibleEvaluations = allEvaluations;
 
-        // CCIP-2026-0327C: Include ALL decisions (including NO_TRADE) in allCandidates so
-        // users can see what Alpha was thinking for every symbol. execution_status provides
-        // the three-state breakdown: EXECUTED, BLOCKED_BY_FLOOR, NO_TRADE_GENUINE, NO_TRADE_LEAN.
-        // The .filter() that previously stripped NO_TRADE has been removed — silence is gone.
-        const minConfGate = config.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
+        // CCIP-2026-0410A / CCIP-2026-0327C: Include ALL decisions (including NO_TRADE) in
+        // allCandidates so users can see what Alpha was thinking for every symbol.
+        // execution_status: EXECUTED (Alpha called BUY/SELL), NO_TRADE_GENUINE, NO_TRADE_LEAN.
+        // BLOCKED_BY_FLOOR is retired — no confidence number gates Alpha's execution.
         const allCandidates: ScanCandidate[] = eligibleEvaluations.length > 0
           ? eligibleEvaluations.map(evaluation => ({
               symbol: evaluation.symbol,
@@ -1293,11 +1293,12 @@ class GoalSessionLiveEngine {
                 const snapshot = filteredSnapshots.find(s => s.symbol === symbol);
                 const action = dec!.action;
                 const confidence = dec?.confidence || 0;
+                // CCIP-2026-0410A: BLOCKED_BY_FLOOR retired. Alpha calls BUY/SELL = EXECUTED, always.
                 let executionStatus: ScanCandidate['execution_status'];
                 if (action === 'BUY' || action === 'SELL') {
-                  executionStatus = confidence >= minConfGate ? 'EXECUTED' : 'BLOCKED_BY_FLOOR';
+                  executionStatus = 'EXECUTED';
                 } else {
-                  executionStatus = dec?.execution_status ?? (confidence >= 50 ? 'NO_TRADE_GENUINE' : 'NO_TRADE_LEAN');
+                  executionStatus = dec?.execution_status ?? (confidence > 0 ? 'NO_TRADE_GENUINE' : 'NO_TRADE_LEAN');
                 }
                 return {
                   symbol,
@@ -1316,11 +1317,10 @@ class GoalSessionLiveEngine {
 
         const topCandidate = allCandidates.find(c => c.execution_status === 'EXECUTED') || allCandidates[0] || null;
         const topCandidateDecision = topCandidate ? filteredDecisions.get(topCandidate.symbol) : null;
+        // CCIP-2026-0410A: No confidence gate — rejection reason is only structural
         const rejectionReason = selectedWinners.length === 0
           ? 'No symbols passed selection criteria'
-          : (topCandidateDecision && topCandidateDecision.confidence < minConfGate
-            ? `Confidence ${topCandidateDecision.confidence}% below threshold ${minConfGate}%`
-            : null);
+          : null;
 
         await scanResultsManager.storeScanResult({
           sessionId: activeSession!,
