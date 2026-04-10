@@ -11,7 +11,9 @@
  * - TP on wrong side of entry
  * - Zero distance (SL or TP at entry)
  * - Stop inside spread (impossible to survive)
+ * - TP within spread (profit consumed before realisation)
  * - R:R below catastrophic threshold
+ * - R:R below minimum profitable floor (1:1)
  *
  * WHAT OMEGA-9 DOES NOT DO:
  * - No confidence adjustments
@@ -121,6 +123,31 @@ class Omega9HallucinationBrain {
         confidence_adjustment: 0,
         corrections: NO_CORRECTIONS,
         reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 < ${CATASTROPHIC_RR}:1 minimum)`
+      };
+    }
+
+    // TP must clear the spread — a TP at or inside the spread cannot net a profit
+    if (tpDistancePips <= spreadPips) {
+      console.error(`[Omega-9] HARD BLOCK: TP inside spread (${tpDistancePips.toFixed(2)} pips <= ${spreadPips.toFixed(2)} pips spread) — no net profit possible`);
+      return {
+        pass: false,
+        flags: ['HARD_BLOCK_TP_INSIDE_SPREAD'],
+        confidence_adjustment: 0,
+        corrections: NO_CORRECTIONS,
+        reasoning: `HARD BLOCK: TP distance (${tpDistancePips.toFixed(2)} pips) is at or within the spread (${spreadPips.toFixed(2)} pips). The spread alone consumes the entire target — no net profit is possible.`
+      };
+    }
+
+    // Minimum profitable R:R floor — 1:1 is break-even, below that is guaranteed negative expectancy
+    const minRR = input.safetyRules.minRR;
+    if (rr < minRR) {
+      console.error(`[Omega-9] HARD BLOCK: R:R below minimum floor (${rr.toFixed(3)}:1 < ${minRR}:1) — risking ${slDistancePips.toFixed(1)} pips to make ${tpDistancePips.toFixed(1)} pips`);
+      return {
+        pass: false,
+        flags: ['HARD_BLOCK_RR_BELOW_MINIMUM'],
+        confidence_adjustment: 0,
+        corrections: NO_CORRECTIONS,
+        reasoning: `HARD BLOCK: R:R ${rr.toFixed(3)}:1 is below the ${minRR}:1 minimum. Risking ${slDistancePips.toFixed(1)} pips to make ${tpDistancePips.toFixed(1)} pips produces negative expectancy. A profitable trader needs to make at least as much as they risk.`
       };
     }
 
