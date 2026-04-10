@@ -11,7 +11,6 @@ import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
 import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-live-engine';
 import { v4 as uuidv4 } from 'uuid';
-import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { alphaExecutionPlanner } from './alpha-execution-planner';
 import { TradeStyle } from '../config/trade-styles';
 import { extractSymbolsFromPrompt, getSymbolSelectionSource } from '../utils/symbol-prompt-parser';
@@ -140,8 +139,6 @@ class SmartGoalSessionManager {
 
     this.activeSessions.set(sessionId, session);
 
-    const minConfidence = getMinConfidenceThreshold(effectiveRiskMode);
-
     // Calculate dual take profit targets
     const dualTargets = await alphaExecutionPlanner.calculateDualTargets(
       config.goalAmount,
@@ -165,7 +162,6 @@ class SmartGoalSessionManager {
       tp2_target: sessionTP2,
       tp2_suppressed: isScalpStyle ? 'CCIP: Scalp trades use TP1 only' : false,
       tp_reasoning: dualTargets.reasoning,
-      min_confidence: minConfidence
     });
 
     // SSOT: Compute and store risk_percentage at session creation time.
@@ -189,7 +185,6 @@ class SmartGoalSessionManager {
       trade_style: config.tradeStyle,
       dollar_risk: config.dollarRisk,
       risk_percentage: riskPercentageAtCreation, // SSOT: SL risk tolerance % — stored once at creation
-      min_confidence: minConfidence,
       status: 'scanning',
       starting_balance: accountBalance,
       current_progress: 0,
@@ -627,9 +622,6 @@ class SmartGoalSessionManager {
       // BUG FIXED: was incorrectly set to 2 while DB stored 3 — trades 3 was never reached.
       const maxConcurrentTrades = multiTradeEnabled ? 3 : 1;
 
-      // Calculate minimum confidence threshold based on risk mode
-      const minConfidence = getMinConfidenceThreshold(config.riskMode);
-
       const liveConfig: GoalSessionLiveConfig = {
         goalSessionId: sessionId,
         userId,
@@ -642,7 +634,6 @@ class SmartGoalSessionManager {
         multiTradeMode: multiTradeEnabled,
         initialBalance: accountBalance,
         autoExecute: config.autoExecute,
-        minConfidence,
         dollarRisk: config.dollarRisk,
         tradeStyle: config.tradeStyle,
         specificSymbols: config.specificSymbols,

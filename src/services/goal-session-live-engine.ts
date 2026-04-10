@@ -26,7 +26,7 @@ import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
 import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
 import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
-import { getRiskPercentage, getMinConfidenceThreshold } from '../config/risk-levels';
+import { getRiskPercentage } from '../config/risk-levels';
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { hasAnyOpenMarket, isSymbolMarketOpen, is24HourSymbol, getEstimationReferenceSymbol, calculateSessionContext } from '../utils/marketHours';
@@ -2676,9 +2676,7 @@ class GoalSessionLiveEngine {
             confidence: trade.confidence,
             blockReason: executionResult.blockReason,
             error: executionResult.error,
-            confidence_vs_threshold: `${trade.confidence}% vs ${getMinConfidenceThreshold(
-              this.config.riskMode
-            )}%`
+            confidence: `${trade.confidence}% (no threshold gate — Alpha sovereignty)`
           }
         );
 
@@ -3903,7 +3901,7 @@ This learning will carry forward to improve future sessions!
       return `Asian session is typically range-bound with lower follow-through. London open (08:00 UTC) often produces the clearest structural setups.${bestCandidateSuffix}`;
     }
 
-    if (avgConf > 0 && avgConf < getMinConfidenceThreshold()) {
+    if (avgConf > 0 && avgConf < 60) {
       return `Alpha scanned all ${totalPairs} pairs and found no qualifying structural setups this cycle. No pair produced an edge Alpha was confident enough to take.`;
     }
 
