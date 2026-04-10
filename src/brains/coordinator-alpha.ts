@@ -121,6 +121,7 @@ import { MarketDataService } from '../services/market-data-service';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
 import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle, getEstimatedSpreadPips, getMinSlDistancePips } from '../config/trading-constants';
+import { getMinStopLossConstraint } from '../config/trade-parameter-constraints';
 import { wallCalibrationEngine } from '../services/wall-calibration-engine';
 import { resolveCanonicalStyle } from '../config/timeframe-hierarchy';
 
@@ -5321,12 +5322,14 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       console.log(`[Alpha Coordinator] Geometry validation passed`);
 
-      // Additional sanity check for minimum pip distance (< 5 pips survival minimum)
-      const MIN_SURVIVAL_PIPS = 5;
+      // Additional sanity check for minimum pip distance using symbol-specific floor
+      // CCIP-FIX: Was hardcoded to 5 pips for all symbols — incorrect for crypto (50/10 pips),
+      // indices (3-8 pips), and forex majors (3 pips). Now uses MINIMUM_SL_DISTANCE_BY_SYMBOL SSOT.
+      const minSurvivalPips = getMinStopLossConstraint(symbol).minPips;
       if (stopLoss) {
         const stopDistancePips = calculatePipDistance(symbol, entry, stopLoss);
-        if (stopDistancePips < MIN_SURVIVAL_PIPS) {
-          console.error(`[Alpha Coordinator] 🚨 Stop distance ${stopDistancePips.toFixed(1)} pips < ${MIN_SURVIVAL_PIPS} pips minimum`);
+        if (stopDistancePips < minSurvivalPips) {
+          console.error(`[Alpha Coordinator] 🚨 Stop distance ${stopDistancePips.toFixed(1)} pips < ${minSurvivalPips} pips minimum (${symbol})`);
           return {
             action: 'NO_TRADE',
             decision: 'NO_TRADE',
@@ -5334,7 +5337,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             stopLoss: currentPrice,
             takeProfit: currentPrice,
             confidence: 0,
-            reasoning: `BLOCKED: Stop distance ${stopDistancePips.toFixed(1)} pips below ${MIN_SURVIVAL_PIPS} pip survival minimum`,
+            reasoning: `BLOCKED: Stop distance ${stopDistancePips.toFixed(1)} pips below ${minSurvivalPips} pip survival minimum for ${symbol}`,
             omega_summary: '',
             risk_pct: riskPct,
             narrativeValidation: narrativeValidation || undefined

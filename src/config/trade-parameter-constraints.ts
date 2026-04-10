@@ -60,6 +60,36 @@ export const MINIMUM_SL_DISTANCE_BY_SYMBOL: Record<string, MinimumStopLossConstr
     minSpreadMultiple: 2,
     reason: 'Gold - higher minimum due to volatility and pip value'
   },
+  US30: {
+    minPips: 8,
+    minAtrMultiple: 0.3,
+    minSpreadMultiple: 2,
+    reason: 'Dow Jones index - points-based, spread ~3pts, minimum must clear noise floor'
+  },
+  NAS100: {
+    minPips: 8,
+    minAtrMultiple: 0.3,
+    minSpreadMultiple: 2,
+    reason: 'Nasdaq 100 index - points-based, volatile instrument, minimum must clear noise floor'
+  },
+  US100: {
+    minPips: 8,
+    minAtrMultiple: 0.3,
+    minSpreadMultiple: 2,
+    reason: 'Nasdaq 100 alias - same constraints as NAS100'
+  },
+  SPX500: {
+    minPips: 3,
+    minAtrMultiple: 0.3,
+    minSpreadMultiple: 2,
+    reason: 'S&P 500 index - points-based, spread ~1pt, lower minimum viable for execution'
+  },
+  US500: {
+    minPips: 3,
+    minAtrMultiple: 0.3,
+    minSpreadMultiple: 2,
+    reason: 'S&P 500 alias - same constraints as SPX500'
+  },
   BTCUSD: {
     minPips: 50,
     minAtrMultiple: 0.2,
