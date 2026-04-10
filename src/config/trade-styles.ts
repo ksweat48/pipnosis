@@ -70,9 +70,9 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     name: 'scalper',
     displayName: 'Scalper',
     icon: 'Zap',
-    description: 'Fast trades, estimate 20min-2hr',
-    durationMin: 20,
-    durationMax: 120,
+    description: 'Fast trades, estimate 2min-15min',
+    durationMin: 2,
+    durationMax: 15,
     suggestedMultipliers: [0.01, 0.02, 0.05], // 1%, 2%, 5%
     maxDollarAmount: 5000, // Cap for 5% max
   },
@@ -80,9 +80,9 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     name: 'micro',
     displayName: 'Micro',
     icon: 'Target',
-    description: 'Medium trades, estimate 1hr-6hr',
-    durationMin: 60,
-    durationMax: 360,
+    description: 'Medium trades, estimate 15min-1.5hr',
+    durationMin: 15,
+    durationMax: 90,
     suggestedMultipliers: [0.02, 0.05, 0.07], // 2%, 5%, 7%
     maxDollarAmount: 7000, // Cap for 7% max
   },
@@ -90,9 +90,9 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     name: 'intraday',
     displayName: 'Intraday',
     icon: 'Clock',
-    description: 'Longer intraday, estimate 2hr-10hr',
-    durationMin: 120,
-    durationMax: 600,
+    description: 'Longer intraday, estimate 1hr-4hr',
+    durationMin: 60,
+    durationMax: 240,
     suggestedMultipliers: [0.03, 0.07, 0.10], // 3%, 7%, 10%
     maxDollarAmount: 10000, // Cap for 10% max
   },
@@ -210,13 +210,13 @@ export function mapLegacyRiskModeToStyle(riskMode: string): TradeStyle {
 
 export function getStyleFromDuration(durationMinutes: number): TradeStyle {
   // INTRADAY ONLY: All durations max at 10 hours (600 minutes)
-  if (durationMinutes > 600) {
-    throw new Error('SWING TRADES NOT ALLOWED: Pipnosis is intraday-only. Max duration is 10 hours.');
+  if (durationMinutes > 240) {
+    throw new Error('SWING TRADES NOT ALLOWED: Pipnosis is intraday-only. Max duration is 4 hours.');
   }
 
-  if (durationMinutes <= 120) {
+  if (durationMinutes <= 15) {
     return 'scalper';
-  } else if (durationMinutes <= 360) {
+  } else if (durationMinutes <= 90) {
     return 'micro';
   } else {
     return 'intraday';
