@@ -217,6 +217,11 @@ class TradeClosureCoordinator {
 
       await this.updateSessionAfterClose(request.goalSessionId, request.userId, request.closeReason);
 
+      // INSTANT MODAL: Show trade-closed dialog immediately after confirmed RPC success.
+      // Do NOT wait for the Realtime trade_closure_events round-trip (5-20s latency).
+      // handleClosureEvent (Realtime path) uses shownDialogForTrade to deduplicate.
+      this.showInstantClosureModal(request, tradeData, pnl, goalResult?.achieved ?? false).catch(() => {});
+
       return {
         success: true,
         tradeId: request.tradeId,
@@ -228,6 +233,59 @@ class TradeClosureCoordinator {
     } finally {
       this.closureLocks.delete(request.tradeId);
       TradeClosureCoordinator.markCoordinatorExit();
+    }
+  }
+
+  private async showInstantClosureModal(
+    request: CloseTradeRequest,
+    trade: TradeData,
+    pnl: number,
+    goalAchieved: boolean
+  ): Promise<void> {
+    if (this.shownDialogForTrade.has(request.tradeId)) return;
+
+    try {
+      const [{ data: session }, { count: tradesCount }] = await Promise.all([
+        supabase
+          .from('goal_sessions')
+          .select('target_value, current_progress, dollar_risk')
+          .eq('id', request.goalSessionId)
+          .maybeSingle(),
+        supabase
+          .from('goal_session_trades')
+          .select('*', { count: 'exact', head: true })
+          .eq('goal_session_id', request.goalSessionId),
+      ]);
+
+      if (!session) return;
+
+      const isGoalAchieved = goalAchieved || (session.current_progress || 0) >= (session.target_value || Infinity);
+
+      this.markDialogShown(request.tradeId);
+
+      const tradeRecord = trade as any;
+      const { globalDialogManager } = await import('../global-dialog-manager');
+      globalDialogManager.showTradeClosed({
+        symbol: trade.symbol,
+        direction: trade.direction,
+        entryPrice: trade.entry_price,
+        exitPrice: request.currentPrice,
+        profitLoss: pnl,
+        closeReason: request.closeReason,
+        stopLoss: trade.stop_loss,
+        takeProfit: trade.take_profit,
+        currentProgress: session.current_progress || 0,
+        targetValue: session.target_value || 0,
+        tradesInSession: tradesCount || 0,
+        dollarRisk: session.dollar_risk || 0,
+        isGoalAchieved,
+        sessionId: request.goalSessionId,
+        tradeId: request.tradeId,
+        tp1Pnl: tradeRecord.tp1_hit && tradeRecord.tp1_pnl != null ? parseFloat(String(tradeRecord.tp1_pnl)) : null,
+        tp2Pnl: tradeRecord.tp2_pnl != null ? parseFloat(String(tradeRecord.tp2_pnl)) : null,
+      }, { skipPersist: true });
+    } catch {
+      // Non-fatal — Realtime path is the fallback
     }
   }
 
