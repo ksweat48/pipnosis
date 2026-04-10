@@ -16,7 +16,7 @@ import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { getRiskPercentage } from '../config/risk-levels';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
-import { EntryPriceMonitor } from './EntryPriceMonitor';
+import { EntryPriceMonitor, type EntryMonitorLiveState } from './EntryPriceMonitor';
 import { calculatePipDistance, calculateDollarPerPip, formatLotSize } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
@@ -75,6 +75,8 @@ export const GoalSessionDashboard: React.FC = () => {
     activeIntent != null &&
     ['canceled', 'abandoned', 'timeout'].includes(activeIntent.status) &&
     (Date.now() - new Date(activeIntent.created_at).getTime()) < RECENT_EXPIRY_WINDOW_MS;
+
+  const [entryMonitorLiveState, setEntryMonitorLiveState] = useState<EntryMonitorLiveState>('waiting');
 
   useEffect(() => {
     if (!activeSession) return;
@@ -1779,36 +1781,33 @@ export const GoalSessionDashboard: React.FC = () => {
           {hasActiveMonitoringIntent ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2 px-1">
-                {(() => {
-                  const advisoryVerdict = activeIntent?.market_context?.alpha_entry_advisory?.verdict;
-                  const intentEntryMode = activeIntent?.entry_mode;
-                  const isWaitPullbackMode = intentEntryMode === 'wait_pullback';
-                  const effectiveVerdict = advisoryVerdict || (isWaitPullbackMode ? 'PULLBACK_EXPECTED' : 'GOOD_ENTRY');
-                  const entryZoneReached = effectiveVerdict === 'GOOD_ENTRY' || effectiveVerdict === 'CONFIRMED';
-                  if (entryZoneReached) {
-                    return (
-                      <>
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                        <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wider">
-                          Entry Zone Reached
-                        </span>
-                      </>
-                    );
-                  }
-                  return (
-                    <>
-                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                      <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
-                        Waiting for Entry Zone
-                      </span>
-                    </>
-                  );
-                })()}
+                {entryMonitorLiveState === 'reached' ? (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wider">
+                      Entry Zone Reached
+                    </span>
+                  </>
+                ) : entryMonitorLiveState === 'approaching' ? (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                    <span className="text-xs font-semibold text-blue-300 uppercase tracking-wider">
+                      Approaching Entry Zone
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
+                      Waiting for Entry Zone
+                    </span>
+                  </>
+                )}
                 {activeIntent?.symbol && (
                   <span className="text-xs text-gray-400 font-mono">{activeIntent.symbol}</span>
                 )}
               </div>
-              <EntryPriceMonitor />
+              <EntryPriceMonitor onLiveStateChange={setEntryMonitorLiveState} />
             </div>
           ) : hasRecentlyExpiredIntent ? (
             <div className="space-y-3">

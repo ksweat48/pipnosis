@@ -26,7 +26,13 @@ interface ActiveGoalSession {
 
 type PullbackTrackingState = 'APPROACHING' | 'REACHED' | 'RETREATING';
 
-export const EntryPriceMonitor: React.FC = () => {
+export type EntryMonitorLiveState = 'waiting' | 'approaching' | 'reached' | 'retreating' | 'executed' | 'idle';
+
+interface EntryPriceMonitorProps {
+  onLiveStateChange?: (state: EntryMonitorLiveState) => void;
+}
+
+export const EntryPriceMonitor: React.FC<EntryPriceMonitorProps> = ({ onLiveStateChange }) => {
   const [activeSession, setActiveSession] = useState<ActiveGoalSession | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
@@ -145,7 +151,7 @@ export const EntryPriceMonitor: React.FC = () => {
   }
 
   if (!activeIntent || !['executed', 'monitoring'].includes(activeIntent.status)) {
-    return <EmptyState />;
+    return <EmptyState onLiveStateChange={onLiveStateChange} />;
   }
 
   if (activeIntent.status === 'executed') {
@@ -154,6 +160,7 @@ export const EntryPriceMonitor: React.FC = () => {
         intent={activeIntent}
         currentPrice={currentPrice}
         previousPrice={previousPrice}
+        onLiveStateChange={onLiveStateChange}
       />
     );
   }
@@ -166,33 +173,39 @@ export const EntryPriceMonitor: React.FC = () => {
       advisory={alphaAdvisory}
       currentPrice={currentPrice}
       previousPrice={previousPrice}
+      onLiveStateChange={onLiveStateChange}
     />
   );
 };
 
-const EmptyState: React.FC = () => (
-  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 rounded-xl p-5 border border-gray-700/50">
-    <div className="flex items-center gap-3">
-      <div className="p-2.5 bg-gray-700/50 rounded-lg">
-        <Target className="w-5 h-5 text-gray-400" />
-      </div>
-      <div>
-        <h3 className="text-sm font-bold text-white">Entry Monitor</h3>
-        <p className="text-xs text-gray-500 mt-0.5">
-          When active, Alpha will wait for the ideal zone before entering instead of executing immediately
-        </p>
+const EmptyState: React.FC<{ onLiveStateChange?: (state: EntryMonitorLiveState) => void }> = ({ onLiveStateChange }) => {
+  useEffect(() => { onLiveStateChange?.('idle'); }, [onLiveStateChange]);
+  return (
+    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 rounded-xl p-5 border border-gray-700/50">
+      <div className="flex items-center gap-3">
+        <div className="p-2.5 bg-gray-700/50 rounded-lg">
+          <Target className="w-5 h-5 text-gray-400" />
+        </div>
+        <div>
+          <h3 className="text-sm font-bold text-white">Entry Monitor</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            When active, Alpha will wait for the ideal zone before entering instead of executing immediately
+          </p>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 interface EntryExecutedStateProps {
   intent: any;
   currentPrice: number | null;
   previousPrice: number | null;
+  onLiveStateChange?: (state: EntryMonitorLiveState) => void;
 }
 
-const EntryExecutedState: React.FC<EntryExecutedStateProps> = ({ intent, currentPrice, previousPrice }) => {
+const EntryExecutedState: React.FC<EntryExecutedStateProps> = ({ intent, currentPrice, previousPrice, onLiveStateChange }) => {
+  useEffect(() => { onLiveStateChange?.('executed'); }, [onLiveStateChange]);
   const direction = intent.direction === 'long' ? 'long' : 'short';
   const symbol = intent.symbol || '';
   const executionPrice = intent.actual_entry_price || intent.execution_price || intent.entry_zone_min || null;
@@ -289,13 +302,15 @@ interface AlphaEntryAdvisoryViewProps {
   advisory: AlphaAdvisory | null;
   currentPrice: number | null;
   previousPrice: number | null;
+  onLiveStateChange?: (state: EntryMonitorLiveState) => void;
 }
 
 const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   intent,
   advisory,
   currentPrice,
-  previousPrice
+  previousPrice,
+  onLiveStateChange
 }) => {
   const direction = intent.direction === 'long' ? 'long' : 'short';
   const symbol = intent.symbol || '';
@@ -336,15 +351,30 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
 
   const isGoodEntry = !isPullbackExpected || pullbackState === 'REACHED';
 
+  useEffect(() => {
+    if (!onLiveStateChange) return;
+    if (!isPullbackExpected) {
+      onLiveStateChange('reached');
+    } else if (pullbackState === 'REACHED') {
+      onLiveStateChange('reached');
+    } else if (pullbackState === 'APPROACHING') {
+      onLiveStateChange('approaching');
+    } else if (pullbackState === 'RETREATING') {
+      onLiveStateChange('retreating');
+    } else {
+      onLiveStateChange('waiting');
+    }
+  }, [isPullbackExpected, pullbackState, onLiveStateChange]);
+
   const formatPrice = useCallback((price: number): string => {
     return formatCurrencyPrice(symbol, price);
   }, [symbol]);
 
   const pipsAway = useMemo(() => {
-    if (!currentPrice || !pullbackZoneMin || !pullbackZoneMax || !isPullbackExpected || isGoodEntry) return null;
+    if (!currentPrice || !pullbackZoneMin || !pullbackZoneMax || !isPullbackExpected || pullbackState === 'REACHED') return null;
     const target = direction === 'long' ? pullbackZoneMax : pullbackZoneMin;
     return Math.abs(currentPrice - target);
-  }, [currentPrice, pullbackZoneMin, pullbackZoneMax, isPullbackExpected, isGoodEntry, direction]);
+  }, [currentPrice, pullbackZoneMin, pullbackZoneMax, isPullbackExpected, pullbackState, direction]);
 
   return (
     <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 border border-gray-700/50">
@@ -446,18 +476,27 @@ interface GoodEntryBannerProps {
 }
 
 const GoodEntryBanner: React.FC<GoodEntryBannerProps> = ({ pullbackReached }) => (
-  <div className={`px-3 py-2.5 rounded-lg border flex items-center gap-2.5 ${
+  <div className={`rounded-lg border overflow-hidden ${
     pullbackReached
       ? 'bg-emerald-900/30 border-emerald-500/50'
       : 'bg-emerald-900/20 border-emerald-500/35'
   }`}>
-    <CheckCircle className={`w-4 h-4 text-emerald-400 flex-shrink-0 ${pullbackReached ? 'animate-pulse' : ''}`} />
-    <span className="text-sm font-semibold text-emerald-300">
-      {pullbackReached ? 'Pullback Zone Reached' : 'Good Entry'}
-    </span>
-    <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold ml-auto">
-      {pullbackReached ? 'ENTER NOW' : 'CONFIRMED'}
-    </span>
+    <div className="px-3 py-2.5 flex items-center gap-2.5">
+      <CheckCircle className={`w-4 h-4 text-emerald-400 flex-shrink-0 ${pullbackReached ? 'animate-pulse' : ''}`} />
+      <span className="text-sm font-semibold text-emerald-300">
+        {pullbackReached ? 'Pullback Zone Reached' : 'Good Entry'}
+      </span>
+      <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold ml-auto">
+        {pullbackReached ? 'ENTER NOW' : 'CONFIRMED'}
+      </span>
+    </div>
+    {pullbackReached && (
+      <div className="h-1 w-full bg-gray-700/40">
+        <div className="h-full bg-emerald-400 w-full relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-200/40 to-transparent animate-[shimmer_1.5s_ease-in-out_infinite]" />
+        </div>
+      </div>
+    )}
   </div>
 );
 
