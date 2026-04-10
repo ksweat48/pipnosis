@@ -846,11 +846,11 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     ? visibleRows
     : visibleRows.filter(r => r.style === activeTab);
 
-  // Tab counts — HOT + ACTIVE
+  // Tab counts — HOT only
   const getTabCounts = () => {
     const counts: Record<string, number> = { SCALP: 0, MICRO_INTRADAY: 0, INTRADAY: 0 };
     for (const row of visibleRows) {
-      if (row.heat_level === 'HOT' || row.heat_level === 'ACTIVE') {
+      if (row.heat_level === 'HOT') {
         if (counts[row.style] !== undefined) counts[row.style]++;
       }
     }
@@ -858,7 +858,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   };
   const tabCounts = getTabCounts();
   const totalHot = visibleRows.filter(r => r.heat_level === 'HOT').length;
-  const totalActive = visibleRows.filter(r => r.heat_level === 'ACTIVE').length;
 
   // Group rows by style for "all" tab
   const getGroupedRows = (): Array<{ config: StyleTabConfig; rows: MarketBehaviorRow[] }> => {
@@ -902,11 +901,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
               <span className="text-[10px] font-bold text-red-400 bg-red-500/15 border border-red-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
                 <Flame className="w-2.5 h-2.5" />
                 {totalHot} hot
-              </span>
-            )}
-            {totalActive > 0 && (
-              <span className="text-[10px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
-                {totalActive} active
               </span>
             )}
           </div>
@@ -957,69 +951,75 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
           })}
         </div>
 
-        {/* Signal cards */}
-        {hasAnyData ? (
-          <div className="space-y-4">
-            {activeTab === 'all' ? (
-              grouped.map(({ config, rows }) => {
-                // In "all" tab, only show groups with HOT or ACTIVE pairs
-                const notableRows = rows.filter(r => r.heat_level !== 'QUIET');
-                if (notableRows.length === 0) return null;
+        {/* Signal cards — HOT only */}
+        {(() => {
+          const allHotRows = filteredRows.filter(r => r.heat_level === 'HOT');
+          const hasHotData = allHotRows.length > 0;
 
-                return (
-                  <div key={config.key}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${config.headerColor}`}>
-                        {config.label}
-                      </span>
-                      <span className="text-[10px] text-slate-600 font-mono">{config.tf}</span>
-                      <div className="flex-1 h-px bg-slate-700/30" />
-                    </div>
-                    <div className="space-y-2">
-                      {notableRows.map(row => (
-                        <BehaviorRow key={`${row.symbol}-${row.style}`} row={row} />
-                      ))}
-                    </div>
+          if (!hasHotData) {
+            return (
+              <div className="rounded-lg p-5 border border-slate-700/30 bg-slate-900/30 text-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="p-3 bg-slate-700/30 rounded-full">
+                    <Flame className="w-6 h-6 text-slate-500" />
                   </div>
-                );
-              })
-            ) : (
-              // Single style tab — show all rows sorted by score
-              <div className="space-y-2">
-                {filteredRows
-                  .filter(r => r.style === activeTab)
-                  .sort((a, b) => b.attention_score - a.attention_score)
-                  .map(row => (
-                    <BehaviorRow key={`${row.symbol}-${row.style}`} row={row} />
-                  ))}
+                  <div>
+                    <p className="text-sm font-semibold text-slate-300 mb-1">
+                      No hot signals right now
+                    </p>
+                    <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                      Scans every 3 minutes. Hot pairs appear here when strong candle behavior is detected.
+                    </p>
+                  </div>
+                </div>
               </div>
-            )}
+            );
+          }
 
-            {/* Footer note */}
-            <div className="pt-2 border-t border-slate-700/30">
-              <p className="text-[10px] text-slate-600">
-                HOT = strong market behavior detected. Scan Alpha when a pair is hot — Alpha makes all trade decisions.
-                Score reflects candle energy, not trade quality.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-lg p-5 border border-blue-500/20 bg-blue-900/10 text-center">
-            <div className="flex flex-col items-center gap-3">
-              <div className="p-3 bg-blue-500/15 rounded-full">
-                <Radio className="w-6 h-6 text-blue-400" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-blue-200 mb-1">
-                  {activeTab === 'all' ? 'Markets are quiet right now' : 'No active signals for this style'}
+          return (
+            <div className="space-y-4">
+              {activeTab === 'all' ? (
+                grouped.map(({ config, rows }) => {
+                  const hotRows = rows.filter(r => r.heat_level === 'HOT');
+                  if (hotRows.length === 0) return null;
+
+                  return (
+                    <div key={config.key}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${config.headerColor}`}>
+                          {config.label}
+                        </span>
+                        <span className="text-[10px] text-slate-600 font-mono">{config.tf}</span>
+                        <div className="flex-1 h-px bg-slate-700/30" />
+                      </div>
+                      <div className="space-y-2">
+                        {hotRows.map(row => (
+                          <BehaviorRow key={`${row.symbol}-${row.style}`} row={row} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="space-y-2">
+                  {allHotRows
+                    .sort((a, b) => b.attention_score - a.attention_score)
+                    .map(row => (
+                      <BehaviorRow key={`${row.symbol}-${row.style}`} row={row} />
+                    ))}
+                </div>
+              )}
+
+              {/* Footer note */}
+              <div className="pt-2 border-t border-slate-700/30">
+                <p className="text-[10px] text-slate-600">
+                  HOT = strong market behavior detected. Scan Alpha when a pair is hot — Alpha makes all trade decisions.
+                  Score reflects candle energy, not trade quality.
                 </p>
-                <p className="text-xs text-blue-300/70 max-w-xs mx-auto">
-                  Market behavior data updates every 3 minutes. HOT and ACTIVE pairs will appear here when candle behaviors are detected.
-                </p>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Session Structural Alerts */}
         {sessionId && structuralAlerts.length > 0 && (
