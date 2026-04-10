@@ -185,6 +185,28 @@ export const GoalSessionDashboard: React.FC = () => {
             // UI reflects the updated progress/balance after the trade closes.
             console.log('[GoalSessionDashboard] Trade closed — reloading session data (modal owned by RealtimeTradeNotificationListener)');
             loadSessionData();
+
+            // RESET GOVERNANCE (2026-04-10): After a trade closes, check whether the session
+            // has entered a terminal state and immediately wipe in-memory data if so.
+            // This prevents stale trade/price/progress data from the just-closed session
+            // bleeding into the next session creation flow.
+            setTimeout(async () => {
+              const sessionId = payload.new.goal_session_id;
+              if (!sessionId) return;
+              const { data: sess } = await supabase
+                .from('goal_sessions')
+                .select('status')
+                .eq('id', sessionId)
+                .maybeSingle();
+              const terminalStatuses = ['goal_achieved', 'stopped', 'timeout', 'weekend_shutdown', 'user_stopped'];
+              if (sess && terminalStatuses.includes(sess.status)) {
+                console.log('[GoalSessionDashboard] Session terminal after trade close — clearing stale state');
+                setOpenTrades([]);
+                setLivePrices({});
+                setProgress(null);
+                setSessionHealth(null);
+              }
+            }, 1500);
           }
         }
       )
@@ -424,6 +446,50 @@ export const GoalSessionDashboard: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [user, activeSession?.sessionId]);
+
+  // RESET GOVERNANCE (2026-04-10): Subscribe to goal_sessions status changes so the
+  // component immediately wipes stale in-memory data the moment a session enters a
+  // terminal state — without waiting for the 3-second polling loop.
+  // Also unsubscribes the channel itself after firing, so no further events arrive.
+  useEffect(() => {
+    if (!user || !activeSession) return;
+
+    const TERMINAL_STATUSES = ['goal_achieved', 'stopped', 'timeout', 'weekend_shutdown', 'user_stopped'];
+    const sessionId = activeSession.sessionId;
+
+    const statusChannel = supabase
+      .channel(`session-status-${sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'goal_sessions',
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const newStatus = payload.new?.status as string | undefined;
+          const oldStatus = payload.old?.status as string | undefined;
+
+          if (!newStatus || newStatus === oldStatus) return;
+
+          if (TERMINAL_STATUSES.includes(newStatus)) {
+            console.log(`[GoalSessionDashboard] Session ${sessionId} entered terminal state: ${newStatus} — clearing stale state immediately`);
+            setOpenTrades([]);
+            setLivePrices({});
+            setProgress(null);
+            setSessionHealth(null);
+            goalScannerTrigger.stopPolling();
+            supabase.removeChannel(statusChannel);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(statusChannel);
+    };
+  }, [user?.id, activeSession?.sessionId]);
 
   // Subscribe to live prices via shared coordinator (no direct DB reads, CDN-cached)
   const openTradesRef = useRef(openTrades);

@@ -316,6 +316,40 @@ export const SmartGoalPanel: React.FC = () => {
         return;
       }
 
+      // RESET GOVERNANCE (2026-04-10): Even if no active session exists in the DB, the
+      // previous session may still have open trades or monitoring intents being cleaned
+      // up. Check the most recent session and confirm it is fully settled before proceeding.
+      // This prevents stale trade records or entry intents from the last session from
+      // contaminating the new one.
+      try {
+        const { data: lastSession } = await supabase
+          .from('goal_sessions')
+          .select('id, status')
+          .eq('user_id', user.id)
+          .in('status', ['goal_achieved', 'stopped', 'timeout', 'weekend_shutdown', 'user_stopped'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastSession) {
+          const { data: settled } = await supabase.rpc('session_is_fully_settled', {
+            p_session_id: lastSession.id,
+          });
+          if (settled === false) {
+            toast.error(
+              'Previous Session Still Closing',
+              'Your last session is still wrapping up. Please wait a moment before starting a new one.',
+              6000
+            );
+            setError('Previous session is still closing. Please wait a moment then try again.');
+            setLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // Non-fatal — proceed if the check itself fails
+      }
+
       // Check if trading is enabled platform-wide
       const { data: tradingStatus } = await supabase.rpc('is_trading_enabled');
 

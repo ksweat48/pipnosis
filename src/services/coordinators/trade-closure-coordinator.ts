@@ -460,19 +460,17 @@ class TradeClosureCoordinator {
     const isWeekendShutdown = closeReason === 'weekend_protection';
     const isTimeout = closeReason === 'timeout';
 
-    // PHASE 3 FIX: For manual/force_closed trades, explicitly cancel all monitoring intents
-    // so they don't block the allChannelsEmpty check below.
-    // cleanup_orphaned_intents only removes intents for deleted sessions; it does NOT
-    // cancel active 'monitoring' intents that are still attached to a live session.
-    if (isManualClose) {
-      try {
-        await supabase.rpc('cancel_session_intents', { p_session_id: sessionId });
-      } catch {
-        // Non-fatal — the channel check below handles the fallback
-      }
+    // SSOT GOVERNANCE (2026-04-10): Cancel ALL monitoring intents on every close path.
+    // Previously only manual/force_closed paths called cancel_session_intents, meaning
+    // TP/SL hits left monitoring intents live — they could re-fire in the next session.
+    // cancel_all_session_intents is idempotent and handles every close reason.
+    try {
+      await supabase.rpc('cancel_all_session_intents', { p_session_id: sessionId });
+    } catch {
+      // Non-fatal — allChannelsEmpty check below will catch any remaining intents
     }
 
-    // Orphan cleanup for all paths
+    // Orphan cleanup for all paths (defense-in-depth)
     try {
       await supabase.rpc('cleanup_orphaned_intents', { p_session_id: sessionId });
     } catch {
