@@ -767,8 +767,8 @@ class BestSymbolSelector {
 
     if (decision.confidence === 0 || decision.confidence < 30) {
       return {
-        category: 'Low Confidence',
-        detail: `Alpha confidence ${decision.confidence}% - setup quality insufficient`
+        category: 'No Edge Found',
+        detail: `Alpha found no structural edge (reported confidence: ${decision.confidence}%)`
       };
     }
 

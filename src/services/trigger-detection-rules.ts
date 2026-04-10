@@ -549,12 +549,9 @@ class TriggerDetectionRules {
 
   /**
    * Validate trigger against Pipnosis rules
+   * CCIP-2026-0410A: Confidence never gates trigger validity. Structural properties only.
    */
   validateTrigger(trigger: TriggerEvent): boolean {
-    if (trigger.confidence < 65) {
-      return false;
-    }
-
     const prohibitedTimeframes = ['D1', 'W1', 'MN1'];
     if (prohibitedTimeframes.includes(trigger.timeframe)) {
       return false;

@@ -4,16 +4,16 @@
  * CCIP-2026-03-09: GOVERNANCE REFACTOR
  * - Growth mode removed entirely. Alpha executes for ALL goal sizes.
  * - shouldBlockExecution removed from contract — Alpha is never blocked by goal ratio.
- * - minConfidenceThreshold normalized to ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (60)
- *   for all modes. best-symbol-selector.ts is the single confidence gate authority.
+ * - minConfidenceThreshold field kept for planning prompt context only (informational).
+ *   CCIP-2026-0410A: No code layer may use this as an execution gate. Alpha is the hunter.
  * - alternativeApproach removed — Alpha does not refuse to trade.
  * - Modes remain as psychological execution frameworks only (no blocking power).
  *
  * Philosophy:
  * - Capital survival and efficiency always override goal urgency
  * - Alpha does not chase goals — Alpha engineers outcomes
- * - Confidence affects whether to trade, not how tight the stops are
  * - Goal classification determines execution psychology, not execution permission
+ * - Confidence is never a gate — Alpha executes on structural edge he identifies
  */
 
 import { logger, LogCategory } from '@/lib/logger';
@@ -32,8 +32,8 @@ export interface GoalClassification {
   expectedTradeCount: number;
   targetRiskRewardRange: [number, number];
 
-  // CCIP-2026-03-09: minConfidenceThreshold is always MINIMUM_TRADE_CONFIDENCE (60).
-  // best-symbol-selector.ts is the single confidence gate authority.
+  // CCIP-2026-0410A: minConfidenceThreshold is planning context only — never an execution gate.
+  // Alpha executes on structural edge he identifies. No threshold may block him.
   minConfidenceThreshold: number;
 
   // Execution guidance
@@ -114,8 +114,7 @@ class GoalIntelligenceClassifier {
       expectedTradeCount: config.expectedTradeCount,
       targetRiskRewardRange: config.targetRiskRewardRange,
 
-      // SSOT: Confidence gate lives in best-symbol-selector.ts via ALPHA_IDENTITY.
-      // This value is informational for planning prompts only — never enforced here.
+      // CCIP-2026-0410A: informational for planning prompts only — never an execution gate.
       minConfidenceThreshold: ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE,
 
       executionPsychology: config.executionPsychology,

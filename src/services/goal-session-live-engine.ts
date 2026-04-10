@@ -67,7 +67,7 @@ export interface GoalSessionLiveConfig {
   maxConcurrentTrades: number;
   initialBalance: number;
   autoExecute: boolean;
-  minConfidence?: number; // Minimum confidence threshold for trades
+  // CCIP-2026-0410A: minConfidence removed. Alpha executes on structural edge, no threshold gate.
   dollarRisk?: number; // Fixed dollar risk for Trade Styles system
   tradeStyle?: string; // Trade style (Sniper, Scalper, Day Trader, Swing Trader)
   specificSymbols?: string[]; // Runtime override: narrow scan to this subset of watchlist symbols
@@ -1505,18 +1505,8 @@ class GoalSessionLiveEngine {
         break;
       }
 
-      // CCIP-2026-0318A-ADVISORY: Gate uses ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (50) as
-      // the absolute structural floor. The || 70 fallback has been removed — it was above
-      // Alpha's own stated minimum and blocked valid ACCEPTABLE-band (50-69%) trades.
-      // config.minConfidence from the session is preserved; MINIMUM_TRADE_CONFIDENCE is the fallback.
-      const minConfidence = config.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
-      if (decision.confidence < minConfidence) {
-        const rejectionMessage = `Trade reviewed — confidence ${decision.confidence}% below structural minimum ${minConfidence}% for ${selectedSymbol} ${decision.action}. No structural basis — scanning next cycle.`;
-
-        await this.sendAIMessage(rejectionMessage);
-        logger.info(LogCategory.AI_TRADING, `Trade rejected: ${selectedSymbol} ${decision.action} @ ${decision.confidence}% < ${minConfidence}%`);
-        continue;
-      }
+      // CCIP-2026-0410A: Alpha is the hunter. If he calls BUY or SELL, that decision executes.
+      // No confidence number may block execution. The only valid non-execution outcome is Alpha's own NO_TRADE.
 
       const snapshot = winner.evaluation.snapshot;
 

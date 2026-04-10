@@ -62,9 +62,9 @@ export interface ConfidenceCalculationResult {
   base_confidence: number;
   final_confidence: number;
   /**
-   * Advisory floor only — never used as an execution gate.
-   * CCIP-2026-0328B: passes_threshold is informational for audit dashboards.
-   * It does not block trade execution. The only hard gate is >= 50.
+   * CCIP-2026-0410A: passes_threshold is a display-only field for audit dashboards.
+   * It NEVER blocks execution. No confidence number gates Alpha's decisions.
+   * Alpha executes any BUY/SELL he calls regardless of this value.
    */
   execution_threshold: number;
   passes_threshold: boolean;
@@ -109,9 +109,8 @@ class ConfidenceCalculationEngine {
     }
 
     const finalConfidence = input.base_confidence;
-    // CCIP-2026-0328B: passes_threshold is an advisory observation for audit dashboards.
-    // It does NOT block execution. The only hard gate is ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (50).
-    // Any confidence >= 50 executes regardless of the adaptive floor.
+    // CCIP-2026-0410A: passes_threshold is recorded for audit visibility only — never used as a gate.
+    // Alpha executes any BUY/SELL he calls. No confidence number blocks execution.
     const passesAdvisoryFloor = finalConfidence >= executionThreshold;
 
     const result: ConfidenceCalculationResult = {

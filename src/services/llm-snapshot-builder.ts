@@ -503,9 +503,7 @@ Should you:
       violations.push(`Risk:Reward ratio ${decision.riskRewardRatio.toFixed(2)} is too low (minimum 1.2)`);
     }
 
-    if (decision.confidence < 60) {
-      violations.push(`Confidence ${decision.confidence}% is too low for execution`);
-    }
+    // CCIP-2026-0410A: Confidence is never a validation violation. Removed.
 
     // Validate SL/TP distances are appropriate for currency type
     if (decision.entry && decision.stopLoss && decision.takeProfit && decision.symbol) {

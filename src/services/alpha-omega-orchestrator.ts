@@ -818,10 +818,8 @@ class AlphaOmegaOrchestrator {
     imSignalMap?: Map<string, Record<string, unknown>>
   ): Promise<Map<string, AlphaDecision>> {
     const config = getConcurrentExecutionConfig();
-    // CCIP-2026-0318A-ADVISORY: minConfidence falls back to ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (50).
-    // The previous fallback to config.earlyExit.minConfidenceThreshold (was 72) blocked
-    // valid ACCEPTABLE-band (50-69%) trades. SSOT for the structural floor is alpha-identity.ts.
-    const minConfidence = goalContext?.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
+    // CCIP-2026-0410A: minConfidence removed. Alpha's action (BUY/SELL) is the only viability signal.
+    // No confidence number gates early-exit or execution. Alpha is the hunter.
     const maxConcurrent = config.concurrency.maxConcurrentSymbols || marketStates.length;
 
     // CCIP-MULTI-TRADE-TOP-N: In multi-trade mode ALL symbols must be evaluated so
@@ -896,7 +894,8 @@ class AlphaOmegaOrchestrator {
       decisionMap.set(symbol, decision);
       symbolTimings.set(symbol, timing);
 
-      const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
+      // CCIP-2026-0410A: Viable = Alpha called a trade action. Confidence never gates this.
+      const isViableTrade = decision.action !== 'NO_TRADE';
       if (isViableTrade && !foundViableTrade) {
         foundViableTrade = true;
         viableTradeSymbol = symbol;
@@ -975,8 +974,7 @@ class AlphaOmegaOrchestrator {
     imSignalMap?: Map<string, Record<string, unknown>>
   ): Promise<Map<string, AlphaDecision>> {
     const config = getConcurrentExecutionConfig();
-    // CCIP-2026-0318A-ADVISORY: minConfidence falls back to ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (50).
-    const minConfidence = goalContext?.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
+    // CCIP-2026-0410A: minConfidence removed. Alpha's action is the only viability gate.
 
     // CCIP-MULTI-TRADE-TOP-N: Same guard as concurrent path — suppress early-exit
     // when multi-trade mode is active so all symbols get evaluated for top-N ranking.
@@ -1032,13 +1030,13 @@ class AlphaOmegaOrchestrator {
 
         // EARLY EXIT: Stop scanning if viable trade found (single-trade mode only)
         // CCIP-MULTI-TRADE-TOP-N: earlyExitAllowed is false when multiTradeMode=true
+        // CCIP-2026-0410A: Viable = Alpha called a trade action. No confidence gate.
         if (earlyExitAllowed) {
-          const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
+          const isViableTrade = decision.action !== 'NO_TRADE';
 
           if (isViableTrade) {
             const remainingSymbols = marketStates.length - (i + 1);
             break;
-          } else {
           }
         }
 

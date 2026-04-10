@@ -64,12 +64,8 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      if (preferences.high_confidence_only && payload.data.confidence < (preferences.min_confidence || 75)) {
-        return new Response(
-          JSON.stringify({ success: false, reason: 'Confidence below threshold' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+      // CCIP-2026-0410A: high_confidence_only preference removed as a notification block.
+      // All Alpha trade signals are sent regardless of confidence number.
     }
 
     const { subject, htmlBody } = generateEmailContent(payload.emailType, payload.data, userSettings.email);

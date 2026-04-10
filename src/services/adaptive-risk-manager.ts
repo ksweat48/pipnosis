@@ -24,7 +24,7 @@ interface RiskState {
   riskAdjustmentFactor: number;
   currentDrawdown: number;
   consecutiveLosses: number;
-  minConfidenceOverride?: number;
+  // CCIP-2026-0410A: minConfidenceOverride removed. Defensive mode adjusts position size only, never blocks execution.
   minProfitFactorFilter?: number;
   volatilityPauseEnabled: boolean;
   activatedAt?: Date;
@@ -32,7 +32,7 @@ interface RiskState {
 }
 
 interface DefensiveModeConfig {
-  minConfidenceThreshold: number;
+  // CCIP-2026-0410A: minConfidenceThreshold removed — defensive mode adjusts sizing only, never blocks.
   minProfitFactor: number;
   riskReductionFactor: number;
   pauseOnVolatilitySpike: boolean;
@@ -48,8 +48,7 @@ class AdaptiveRiskManager {
   private readonly CONSECUTIVE_LOSS_THRESHOLD = 2;
   private readonly DRAWDOWN_THRESHOLD_PERCENT = 10;
 
-  // Defensive mode settings
-  private readonly DEFENSIVE_CONFIDENCE_THRESHOLD = 80;
+  // Defensive mode settings — CCIP-2026-0410A: no confidence threshold, only position size adjustments
   private readonly DEFENSIVE_PROFIT_FACTOR_MIN = 1.5;
   private readonly DEFENSIVE_RISK_FACTOR = 0.5;
 
@@ -83,9 +82,7 @@ class AdaptiveRiskManager {
         riskAdjustmentFactor: parseFloat(data.risk_adjustment_factor.toString()),
         currentDrawdown: parseFloat(data.current_drawdown_percent.toString()),
         consecutiveLosses: data.consecutive_losses,
-        minConfidenceOverride: data.min_confidence_threshold_override
-          ? parseFloat(data.min_confidence_threshold_override.toString())
-          : undefined,
+        // CCIP-2026-0410A: min_confidence_threshold_override no longer loaded — no confidence gates.
         minProfitFactorFilter: data.min_profit_factor_filter
           ? parseFloat(data.min_profit_factor_filter.toString())
           : undefined,
@@ -283,7 +280,6 @@ class AdaptiveRiskManager {
    */
   getDefensiveModeConfig(): DefensiveModeConfig {
     return {
-      minConfidenceThreshold: this.DEFENSIVE_CONFIDENCE_THRESHOLD,
       minProfitFactor: this.DEFENSIVE_PROFIT_FACTOR_MIN,
       riskReductionFactor: this.DEFENSIVE_RISK_FACTOR,
       pauseOnVolatilitySpike: true
@@ -318,13 +314,8 @@ class AdaptiveRiskManager {
       return { shouldTake: true };
     }
 
-    // Check confidence threshold
-    if (riskState.minConfidenceOverride && tradeSignal.confidence < riskState.minConfidenceOverride) {
-      return {
-        shouldTake: false,
-        reason: `Confidence ${tradeSignal.confidence}% below defensive mode threshold ${riskState.minConfidenceOverride}%`
-      };
-    }
+    // CCIP-2026-0410A: Confidence-based execution block removed.
+    // Defensive mode may only reduce position sizing via riskAdjustmentFactor, never block Alpha's decision.
 
     // Check profit factor filter
     if (riskState.minProfitFactorFilter && tradeSignal.patternProfitFactor) {

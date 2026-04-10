@@ -554,9 +554,11 @@ Return JSON:
       tr: snapshot.tr
     });
 
-    // Count votes
-    const votes = [trendVote, volVote, reversalVote, confirmationVote].filter(v => v !== null) as OmegaVote[];
-    const exitVotes = votes.filter(v => v.vote !== snapshot.dir.toUpperCase() || v.confidence < 20).length;
+    // Count votes — CCIP-2026-0410A: Low-confidence omega votes are abstained (excluded),
+    // not treated as exit votes. Only votes with meaningful confidence count.
+    const allVotes = [trendVote, volVote, reversalVote, confirmationVote].filter(v => v !== null) as OmegaVote[];
+    const votes = allVotes.filter(v => v.confidence >= 20); // Exclude unreliable sensor data
+    const exitVotes = votes.filter(v => v.vote !== snapshot.dir.toUpperCase()).length;
     const holdVotes = votes.filter(v => v.vote === snapshot.dir.toUpperCase()).length;
 
     console.log(`[MidTrade Emergency] Omega Council: ${exitVotes} EXIT, ${holdVotes} HOLD (of ${votes.length})`);

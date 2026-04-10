@@ -29,7 +29,6 @@ export interface ScanResult {
   selectedSymbol: string | null;
   selectedRanking: SymbolRanking | null;
   totalScanned: number;
-  aboveThreshold: number;
   scanTimestamp: Date;
 }
 
@@ -37,10 +36,11 @@ export class MultiSymbolScanner {
   /**
    * Scans all symbols and returns ranked list
    */
+  // CCIP-2026-0410A: minConfidence parameter removed. Alpha selects from all ranked symbols.
+  // No confidence threshold filters which symbols Alpha may consider.
   async scanAndRank(
     userId: string,
-    symbols: string[],
-    minConfidence: number = 70
+    symbols: string[]
   ): Promise<ScanResult> {
     try {
       logger.info('Multi-Symbol Scan Started', { userId, symbols: symbols.length });
@@ -52,34 +52,15 @@ export class MultiSymbolScanner {
       const snapshots = await Promise.all(snapshotPromises);
 
       // 2. Single LLM call to rank all symbols
-      const rankings = await this.rankSymbolsWithLLM(snapshots, minConfidence);
+      const rankings = await this.rankSymbolsWithLLM(snapshots);
 
-      // 3. Filter by confidence threshold
-      const aboveThreshold = rankings.filter(r => r.confidence >= minConfidence);
-
-      // 4. Select best symbol - ALWAYS pick best, even if below threshold
-      // Alpha will make final decision with full context
-      let selectedRanking = aboveThreshold.length > 0 ? aboveThreshold[0] : null;
-      let belowThresholdWarning = false;
-
-      // Fallback: if no symbols pass, select highest-ranked anyway with warning
-      if (!selectedRanking && rankings.length > 0) {
-        selectedRanking = rankings[0]; // Best of available, even if below threshold
-        belowThresholdWarning = true;
-        logger.warn('Multi-Symbol Scan: No symbols above threshold, selecting best available', {
-          userId,
-          selectedSymbol: selectedRanking.symbol,
-          confidence: selectedRanking.confidence,
-          threshold: minConfidence
-        });
-      }
+      // 3. Select top-ranked symbol — Alpha receives all rankings to evaluate
+      const selectedRanking = rankings.length > 0 ? rankings[0] : null;
 
       logger.info('Multi-Symbol Scan Complete', {
         userId,
         totalScanned: symbols.length,
-        aboveThreshold: aboveThreshold.length,
-        selectedSymbol: selectedRanking?.symbol,
-        belowThreshold: belowThresholdWarning
+        selectedSymbol: selectedRanking?.symbol
       });
 
       return {
@@ -87,8 +68,6 @@ export class MultiSymbolScanner {
         selectedSymbol: selectedRanking?.symbol || null,
         selectedRanking,
         totalScanned: symbols.length,
-        aboveThreshold: aboveThreshold.length,
-        belowThresholdWarning,
         scanTimestamp: new Date()
       };
 
@@ -140,11 +119,11 @@ export class MultiSymbolScanner {
   /**
    * Single LLM call to rank all symbols
    */
+  // CCIP-2026-0410A: minConfidence removed from ranking call.
   private async rankSymbolsWithLLM(
-    snapshots: any[],
-    minConfidence: number
+    snapshots: any[]
   ): Promise<SymbolRanking[]> {
-    const prompt = this.buildRankingPrompt(snapshots, minConfidence);
+    const prompt = this.buildRankingPrompt(snapshots);
 
     const response = await openAIProxyClient.chat({
       model: 'gpt-4o',
@@ -213,7 +192,7 @@ Be decisive. Rank ALL symbols even if some are poor. Explain differences clearly
   /**
    * Builds ranking prompt with all symbols
    */
-  private buildRankingPrompt(snapshots: any[], minConfidence: number): string {
+  private buildRankingPrompt(snapshots: any[]): string {
     const symbolSections = snapshots.map(snap => {
       const { symbol, technical, userStats } = snap;
 
@@ -240,8 +219,6 @@ ${symbolSections}
 
 ---
 
-Minimum confidence threshold: ${minConfidence}%
-
 Rank all symbols and explain why #1 is better than #2, #2 better than #3, etc.
 Pay special attention to the user's historical win rates on each symbol.
 
@@ -257,7 +234,7 @@ Respond with JSON array only (no markdown).`;
     result: ScanResult
   ): Promise<void> {
     try {
-      const { rankings, selectedSymbol, selectedRanking, totalScanned, aboveThreshold } = result;
+      const { rankings, selectedSymbol, selectedRanking, totalScanned } = result;
 
       await supabase.from('goal_symbol_rankings').insert({
         user_id: userId,
@@ -269,7 +246,6 @@ Respond with JSON array only (no markdown).`;
         selected_confidence: selectedRanking?.confidence || null,
         selected_reasoning: selectedRanking?.reasoning || null,
         total_symbols_scanned: totalScanned,
-        symbols_above_threshold: aboveThreshold,
         highest_confidence: rankings[0]?.confidence || 0,
         lowest_confidence: rankings[rankings.length - 1]?.confidence || 0
       });
