@@ -1619,9 +1619,14 @@ Include scalp_momentum_phase (starting|developing|exhausted) and scalp_atr_trave
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: MICRO_INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-My lens this scan is M15. H1 provides the broader structural context. M5 provides timing precision within the M15 picture. D1 orients the macro direction. TP1 is a named M15 structural level. TP2 is a named H1 structural level.
-Record m15_structural_confirmation (the named M15 anchor this trade is built from), m15_move_phase, and m15_atr_traveled in the JSON response — these are audit fields that document my structural read for governance review regardless of action.
-The M5 candle context block below contains pre-computed M5 BOS and wick measurements for this scan window. I read that data and reach my own conclusions.
+You are operating as a M5 MICRO_INTRADAY trader.
+Timeframe stack: M5 (entry lens — my primary signal) | M15 (trend/structural validation) | H1 (campaign context and TP2 destination) | D1 (macro orientation).
+I read M5 candles as my primary entry signal. M15 validates the trend direction and names the structural levels my trade is targeting. H1 is the campaign context that frames TP2 and the broader bias.
+TP1 is a named M15 structural level on the path. TP2 is a named H1 structural level.
+Name the specific M5 structural level you are entering from in m5_structural_confirmation.
+Format: "[structure type] at [exact price] — [what confirms it]". Example: "M5 BOS at 1.08230 confirmed long bias on M15 trend".
+Valid M5 anchors: named M5 S/R levels, M5 range boundaries, session highs/lows, equal highs/lows, VWAP, EMA rejections, prior M5 swing points.
+Record m5_structural_confirmation, m5_move_phase, and m5_atr_traveled in the JSON response — these are audit fields that document my structural read for governance review regardless of action.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : tradeStyle === 'INTRADAY'
@@ -1849,11 +1854,13 @@ IMPORTANT REMINDERS:
     // SSOT: MarketDataService is the single authority for candle data
     // CCIP 2026-02-18: Entry advisory MUST analyze the trade's primary
     // timeframe first. M1 is timing refinement only, not the primary signal.
-    // SCALP=M5, MICRO_INTRADAY=M15, INTRADAY=H1
+    // SCALP=M5, MICRO_INTRADAY=M5, INTRADAY=H1
+    // CCIP-2026-04-08 cascade shift: MICRO_INTRADAY entry TF is M5 (SSOT: timeframe-hierarchy.ts).
+    // M15 is the trend validation TF for MICRO_INTRADAY, not the entry lens.
     // ═══════════════════════════════════════════════════════════════════
     const PRIMARY_TF_MAP: Record<string, { timeframe: string; label: string; candleCount: number }> = {
       'SCALP': { timeframe: 'M5', label: 'M5', candleCount: 15 },
-      'MICRO_INTRADAY': { timeframe: 'M15', label: 'M15', candleCount: 12 },
+      'MICRO_INTRADAY': { timeframe: 'M5', label: 'M5', candleCount: 15 },
       'INTRADAY': { timeframe: 'H1', label: 'H1', candleCount: 10 },
     };
     const styleName = getDisplayNameFromStyle(tradeStyle);
@@ -2092,104 +2099,101 @@ MANDATORY JSON FIELD — Include in your response regardless of action:
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // MICRO_INTRADAY M15 MOVE PHASE & FAKEOUT ADVISORY
-        // Mirrors the INTRADAY intradayMovePhaseContext pattern on M15.
-        // Advisory only — EXHAUSTED phase is structural context for finding
-        // a reversal or retest setup. Alpha retains full confidence authority.
-        // No code-imposed confidence reduction. Alpha self-prices all signals.
-        // SSOT: atrForStopLoss resolves to marketContext.atr (M15 14-period)
-        // for MICRO_INTRADAY via styleAtrMap.
-        // CCIP-2026-03-19: Stale "reduces confidence 15-25 points" language removed.
+        // MICRO_INTRADAY M5 MOVE PHASE & FAKEOUT ADVISORY
+        // CCIP-2026-04-08 cascade shift: MICRO_INTRADAY entry TF is M5 (SSOT).
+        // recentPrimary now contains M5 candles (PRIMARY_TF_MAP corrected).
+        // ATR reference is the standard atrForStopLoss (marketContext.atr).
+        // Advisory only — Alpha retains full decision authority.
         // ═══════════════════════════════════════════════════════════════════
         if (styleName === 'MICRO_INTRADAY' && atrForStopLoss > 0) {
-          const m15AtrPips = (atrForStopLoss / pipInfo.pipValue);
-          const freshCeilingM15 = (atrForStopLoss * 0.75 / pipInfo.pipValue).toFixed(1);
-          const developingCeilingM15 = (atrForStopLoss * 1.5 / pipInfo.pipValue).toFixed(1);
+          const m5AtrPips = (atrForStopLoss / pipInfo.pipValue);
+          const freshCeilingM5 = (atrForStopLoss * 0.75 / pipInfo.pipValue).toFixed(1);
+          const developingCeilingM5 = (atrForStopLoss * 1.5 / pipInfo.pipValue).toFixed(1);
 
-          let swingOriginPriceM15 = recentPrimary[0].close;
-          const currentDirM15 = lastCandle.close > lastCandle.open ? 'UP' : 'DN';
+          let swingOriginPriceM5 = recentPrimary[0].close;
+          const currentDirM5 = lastCandle.close > lastCandle.open ? 'UP' : 'DN';
           for (let i = recentPrimary.length - 2; i >= 0; i--) {
             const cDir = recentPrimary[i].close > recentPrimary[i].open ? 'UP' : 'DN';
-            if (cDir !== currentDirM15) {
-              swingOriginPriceM15 = currentDirM15 === 'UP' ? recentPrimary[i].low : recentPrimary[i].high;
+            if (cDir !== currentDirM5) {
+              swingOriginPriceM5 = currentDirM5 === 'UP' ? recentPrimary[i].low : recentPrimary[i].high;
               break;
             }
           }
-          const distFromSwingPipsM15 = Math.abs(marketContext.price - swingOriginPriceM15) / pipInfo.pipValue;
-          const atrTraveledM15 = m15AtrPips > 0 ? distFromSwingPipsM15 / m15AtrPips : 0;
+          const distFromSwingPipsM5 = Math.abs(marketContext.price - swingOriginPriceM5) / pipInfo.pipValue;
+          const atrTraveledM5micro = m5AtrPips > 0 ? distFromSwingPipsM5 / m5AtrPips : 0;
 
-          const m15MovePhase = atrTraveledM15 < 0.75 ? 'FRESH' : atrTraveledM15 < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
+          const m5MovePhase = atrTraveledM5micro < 0.75 ? 'FRESH' : atrTraveledM5micro < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
 
-          let fakeoutTypeM15: string | null = null;
-          let fakeoutCandlesAgoM15 = 0;
-          let fakeoutReversalConfirmedM15 = false;
+          let fakeoutTypeM5micro: string | null = null;
+          let fakeoutCandlesAgoM5micro = 0;
+          let fakeoutReversalConfirmedM5micro = false;
           if (recentPrimary.length >= 4) {
-            const lookbackM15 = recentPrimary.slice(0, -1);
-            const windowHighM15 = Math.max(...lookbackM15.slice(0, -1).map(c => c.high));
-            const windowLowM15 = Math.min(...lookbackM15.slice(0, -1).map(c => c.low));
-            const recentFewM15 = lookbackM15.slice(-3);
-            for (let i = recentFewM15.length - 1; i >= 0; i--) {
-              const c = recentFewM15[i];
+            const lookbackM5micro = recentPrimary.slice(0, -1);
+            const windowHighM5micro = Math.max(...lookbackM5micro.slice(0, -1).map(c => c.high));
+            const windowLowM5micro = Math.min(...lookbackM5micro.slice(0, -1).map(c => c.low));
+            const recentFewM5micro = lookbackM5micro.slice(-3);
+            for (let i = recentFewM5micro.length - 1; i >= 0; i--) {
+              const c = recentFewM5micro[i];
               const bodyTop = Math.max(c.open, c.close);
               const bodyBot = Math.min(c.open, c.close);
-              const sweptHighM15 = c.high > windowHighM15 && bodyTop < windowHighM15;
-              const sweptLowM15 = c.low < windowLowM15 && bodyBot > windowLowM15;
-              if (sweptHighM15) {
-                fakeoutTypeM15 = 'BEARISH_FAKEOUT';
-                fakeoutCandlesAgoM15 = recentFewM15.length - i;
+              const sweptHighM5micro = c.high > windowHighM5micro && bodyTop < windowHighM5micro;
+              const sweptLowM5micro = c.low < windowLowM5micro && bodyBot > windowLowM5micro;
+              if (sweptHighM5micro) {
+                fakeoutTypeM5micro = 'BEARISH_FAKEOUT';
+                fakeoutCandlesAgoM5micro = recentFewM5micro.length - i;
                 const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
-                fakeoutReversalConfirmedM15 = nextCandles.some(nc => nc.close < nc.open);
+                fakeoutReversalConfirmedM5micro = nextCandles.some(nc => nc.close < nc.open);
                 break;
-              } else if (sweptLowM15) {
-                fakeoutTypeM15 = 'BULLISH_FAKEOUT';
-                fakeoutCandlesAgoM15 = recentFewM15.length - i;
+              } else if (sweptLowM5micro) {
+                fakeoutTypeM5micro = 'BULLISH_FAKEOUT';
+                fakeoutCandlesAgoM5micro = recentFewM5micro.length - i;
                 const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
-                fakeoutReversalConfirmedM15 = nextCandles.some(nc => nc.close > nc.open);
+                fakeoutReversalConfirmedM5micro = nextCandles.some(nc => nc.close > nc.open);
                 break;
               }
             }
           }
 
-          const phaseLabelM15 = m15MovePhase === 'FRESH'
-            ? `FRESH — < 0.75x M15 ATR traveled (< ${freshCeilingM15} pips from swing origin). Full structural space available.`
-            : m15MovePhase === 'DEVELOPING'
-              ? `DEVELOPING — 0.75–1.5x M15 ATR traveled (${freshCeilingM15}–${developingCeilingM15} pips from swing origin). Structural space to TP1 may be narrowing — the remaining runway to the named TP levels is the key measurement.`
-              : `EXHAUSTED — > 1.5x M15 ATR traveled (> ${developingCeilingM15} pips from swing origin). The M15 leg is extended. Document the structural picture honestly and reflect it in the conviction score.`;
+          const phaseLabelM5micro = m5MovePhase === 'FRESH'
+            ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from swing origin). Full structural space available.`
+            : m5MovePhase === 'DEVELOPING'
+              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from swing origin). Structural space to TP1 may be narrowing — the remaining runway to the named TP levels is the key measurement.`
+              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from swing origin). The M5 leg is extended. Document the structural picture honestly and reflect it in the conviction score.`;
 
-          const fakeoutBlockM15 = fakeoutTypeM15
+          const fakeoutBlockM5micro = fakeoutTypeM5micro
             ? `
-M15 FAKEOUT DETECTION:
-A ${fakeoutTypeM15} was detected ${fakeoutCandlesAgoM15} M15 candle(s) ago. A candle swept a recent M15 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM15 ? 'YES — subsequent M15 candles have printed in the reversal direction' : 'NOT YET — subsequent M15 candles have not yet confirmed direction'}.
-${fakeoutTypeM15 === 'BEARISH_FAKEOUT'
-  ? 'BEARISH FAKEOUT: Price swept above a prior M15 high and rejected, closing back inside the prior range. This is raw structural data — a sweep of the high, a rejection, and a body close inside. What that means for the current thesis is my read.'
-  : 'BULLISH FAKEOUT: Price swept below a prior M15 low and rejected, closing back inside the prior range. This is raw structural data — a sweep of the low, a rejection, and a body close inside. What that means for the current thesis is my read.'}
+M5 FAKEOUT DETECTION:
+A ${fakeoutTypeM5micro} was detected ${fakeoutCandlesAgoM5micro} M5 candle(s) ago. A candle swept a recent M5 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5micro ? 'YES — subsequent M5 candles have printed in the reversal direction' : 'NOT YET — subsequent M5 candles have not yet confirmed direction'}.
+${fakeoutTypeM5micro === 'BEARISH_FAKEOUT'
+  ? 'BEARISH FAKEOUT: Price swept above a prior M5 high and rejected, closing back inside the prior range. This is raw structural data — a sweep of the high, a rejection, and a body close inside. What that means for the current thesis is my read.'
+  : 'BULLISH FAKEOUT: Price swept below a prior M5 low and rejected, closing back inside the prior range. This is raw structural data — a sweep of the low, a rejection, and a body close inside. What that means for the current thesis is my read.'}
 `
             : '';
 
           microIntradayMovePhaseContext = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MICRO_INTRADAY M15 MOVE STAGE ADVISORY (${marketContext.symbol})
+MICRO_INTRADAY M5 MOVE STAGE ADVISORY (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed from M15 candle data. Advisory context — your analysis takes precedence.
-ACTIVE M15 ATR: ${m15AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM15}p | Developing ${freshCeilingM15}–${developingCeilingM15}p | Exhausted > ${developingCeilingM15}p
+Pre-computed from M5 candle data (entry timeframe). Advisory context — your analysis takes precedence.
+ACTIVE M5 ATR: ${m5AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM5}p | Developing ${freshCeilingM5}–${developingCeilingM5}p | Exhausted > ${developingCeilingM5}p
 
-Estimated ATR Traveled: ~${distFromSwingPipsM15.toFixed(1)} pips from M15 swing origin (~${atrTraveledM15.toFixed(2)}x M15 ATR)
-M15 Move Phase: ${m15MovePhase}
-Assessment: ${phaseLabelM15}
+Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M5 swing origin (~${atrTraveledM5micro.toFixed(2)}x M5 ATR)
+M5 Move Phase: ${m5MovePhase}
+Assessment: ${phaseLabelM5micro}
 
-${m15MovePhase === 'DEVELOPING'
+${m5MovePhase === 'DEVELOPING'
   ? `DEVELOPING STAGE — RUNWAY AUDIT: Record the remaining structural space from current price to the named TP1 (M15 structural level) and TP2 (H1 structural level). "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." The R:R assessment belongs in the conviction score.`
-  : m15MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The M15 leg has traveled > 1.5x ATR. The structural picture at this extension is what it is — document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
+  : m5MovePhase === 'EXHAUSTED'
+    ? `EXHAUSTED STAGE — The M5 leg has traveled > 1.5x ATR. The structural picture at this extension is what it is — document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
     : `FRESH STAGE — Full structural space to TP1 and TP2 is available.`
 }
-${fakeoutBlockM15}MANDATORY JSON FIELD — Include in your response regardless of action:
-  "m15_move_phase": "fresh|developing|exhausted"
-  "m15_atr_traveled": ${atrTraveledM15.toFixed(2)}
+${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardless of action:
+  "m5_move_phase": "fresh|developing|exhausted"
+  "m5_atr_traveled": ${atrTraveledM5micro.toFixed(2)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 Move Phase: ${m15MovePhase} (~${atrTraveledM15.toFixed(2)}x ATR, ${distFromSwingPipsM15.toFixed(1)} pips)${fakeoutTypeM15 ? ` | Fakeout: ${fakeoutTypeM15}` : ''}`);
+          console.log(`[Alpha Coordinator] MICRO_INTRADAY M5 Move Phase: ${m5MovePhase} (~${atrTraveledM5micro.toFixed(2)}x ATR, ${distFromSwingPipsM5.toFixed(1)} pips)${fakeoutTypeM5micro ? ` | Fakeout: ${fakeoutTypeM5micro}` : ''}`);
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -4541,8 +4545,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       if (action !== 'NO_TRADE' && tradeStyle === 'MICRO_INTRADAY') {
-        const raw = typeof parsed.m15_structural_confirmation === 'string'
-          ? parsed.m15_structural_confirmation.trim()
+        const raw = typeof parsed.m5_structural_confirmation === 'string'
+          ? parsed.m5_structural_confirmation.trim()
           : null;
         if (isAnchorVague(raw)) {
           logViolation({
@@ -4551,9 +4555,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
             attemptedOperation: 'micro_intraday_anchor_check',
             callLocation: 'coordinator-alpha.micro_intraday_anchor_governance',
             blocked: false,
-            errorDetails: { style: 'MICRO_INTRADAY', field: 'm15_structural_confirmation', value: raw ?? null, sessionId: goalContext?.sessionId ?? null }
+            errorDetails: { style: 'MICRO_INTRADAY', field: 'm5_structural_confirmation', value: raw ?? null, sessionId: goalContext?.sessionId ?? null }
           }).catch(() => {});
-          console.warn(`[CCIP-2026-0333] MICRO_INTRADAY_NO_M15_ANCHOR: Alpha omitted m15_structural_confirmation for ${marketContext.symbol}. Proceeding on Alpha confidence — violation logged.`);
+          console.warn(`[CCIP-2026-0333] MICRO_INTRADAY_NO_M5_ANCHOR: Alpha omitted m5_structural_confirmation for ${marketContext.symbol}. Proceeding on Alpha confidence — violation logged.`);
         }
       }
 
