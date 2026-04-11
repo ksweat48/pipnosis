@@ -1607,11 +1607,13 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
 STYLE IDENTITY: SCALP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You are operating as a M5 SCALP trader.
-Timeframe stack: M5 (primary) | M1 (timing refinement) | M15/H1 (advisory context only).
+Timeframe stack: M5 (entry lens — my primary signal) | M1 (timing refinement and entry trigger) | M15 (trend/structural validation) | H1 (advisory context only).
+I read M5 candles as my primary entry signal. M1 refines the entry trigger and timing within the M5 structure. M15 validates the broader trend direction.
+TP is a single named M5 structural level — scalp targets one clean M5 leg, not an H1 pool.
 Name the specific M5 structural level you are trading from in scalp_structural_confirmation.
-Format: "[structure type] at [exact price] — [what confirms it]". Example: "M5 BOS at 1.08230 confirmed long bias".
-Valid anchors include: named M5 S/R levels, range boundaries (range top/bottom), session highs/lows, equal highs/lows, VWAP, EMA rejections, and prior swing points. Document which anchor you are using and what confirms it. If no structural anchor is identifiable, document that assessment and state your conviction score honestly.
-Include scalp_momentum_phase (starting|developing|exhausted) and scalp_atr_traveled in your JSON response — these are audit fields required regardless of action.
+Format: "[structure type] at [exact price] — [what confirms it]". Example: "M5 BOS at 1.08230 confirmed long bias on M15 trend".
+Valid M5 anchors: named M5 S/R levels, range boundaries (range top/bottom), session highs/lows, equal highs/lows, VWAP, EMA rejections, and prior M5 swing points.
+Record scalp_structural_confirmation, scalp_momentum_phase, and scalp_atr_traveled in the JSON response — these are audit fields required regardless of action.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : tradeStyle === 'MICRO_INTRADAY'
@@ -1821,15 +1823,15 @@ If the structure has materially changed — direction broken, key level invalida
         m5ContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 M5 SCALP CONTEXT (${marketContext.symbol}) - ADVISORY GUIDANCE
+📊 M5 SCALP CONTEXT (${marketContext.symbol}) — ADVISORY REFERENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are trading M5 price action. Use this context to inform your TP/SL decisions:
+Reference data for the M5 lens I am trading. Use to calibrate TP/SL placement:
 
 M5 Statistics (Recent Behavior):
 • Avg M5 Swing: ${m5Context.avgSwingPips} pips
 • Recent M5 Swings: ${m5Context.recentSwings.join(', ')} pips
 • Current M5 Progress: ${(m5Context.currentSwingProgress * 100).toFixed(0)}% through typical swing
-• M5 ATR: ${m5Context.m5ATR} pips (baseline stop size)
+• M5 ATR: ${m5Context.m5ATR} pips (baseline stop size reference)
 
 Session Context:
 • Session: ${m5Context.session}
@@ -1839,12 +1841,11 @@ Reference Ranges (GUIDANCE, not limits):
 • Suggested TP Range: ${m5Context.suggestedTPRange[0]}-${m5Context.suggestedTPRange[1]} pips
 • Suggested SL Range: ${m5Context.suggestedSLRange[0]}-${m5Context.suggestedSLRange[1]} pips
 
-IMPORTANT REMINDERS:
-- These are REFERENCE RANGES based on recent M5 behavior
-- You have FULL AUTHORITY to exceed them with justification
-- Think in M5 terms: target ONE M5 leg, not H1 pools
-- If you exceed typical M5 range (>60 pips TP), explain why
-- EQS may be adjusted for unusual ranges (soft penalty, not block)
+ADVISORY REMINDERS:
+- These are REFERENCE RANGES derived from recent M5 swing behavior
+- I have FULL AUTHORITY to exceed them when structural justification is documented
+- My TP targets ONE named M5 structural level — one clean M5 leg, not an H1 pool
+- If my TP exceeds the typical M5 range (>60 pips), I must name the structural reason
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] 📊 M5 Context: ${m5Context.avgSwingPips} pip avg, ${m5Context.session} session`);
@@ -2204,14 +2205,12 @@ ${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardle
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // SCALP M1 MOVE PHASE ADVISORY
-        // Entry analysis runs on M1 candles (recentPrimary = M1).
-        // ATR reference is M5 (atrForStopLoss = M5 ATR via atr20) — deliberately
-        // kept at M5 to avoid noise-floor instability from M1 ATR.
-        // Phase thresholds are expressed in M5 ATR units so structural context
-        // remains consistent even though the entry candles are M1.
+        // SCALP M5 MOVE PHASE ADVISORY
+        // Entry analysis runs on M5 candles (recentPrimary = M5 per PRIMARY_TF_MAP).
+        // ATR reference is also M5 (atrForStopLoss = M5 ATR via atr20).
+        // Phase thresholds are expressed in M5 ATR units — consistent with the
+        // M5 primary entry lens. M1 is used for timing refinement only.
         // Advisory only — Alpha retains full decision authority.
-        // CCIP-2026-04-08: cascade shift (entry M5→M1, ATR stays M5).
         // ═══════════════════════════════════════════════════════════════════
         if (styleName === 'SCALP' && atrForStopLoss > 0) {
           const m5AtrPips = (atrForStopLoss / pipInfo.pipValue);
@@ -2263,31 +2262,31 @@ ${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardle
           }
 
           const phaseLabelM5 = m5MovePhase === 'FRESH'
-            ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from M1 swing origin). Full confidence range. Both continuation and pullback scalp entries are valid.`
+            ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from M5 swing origin). Full confidence range. Both continuation and pullback scalp entries are valid.`
             : m5MovePhase === 'DEVELOPING'
-              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from M1 swing origin). Structural space to your single SCALP TP may be narrowing. Pullback scalp entry preferred. Continuation requires explicit justification that the single TP remains achievable.`
-              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M1 swing origin). The M1 move is extended relative to M5 ATR — look for a reversal scalp or M1 structural retest entry rather than a continuation. Exhausted moves often produce the cleanest reversal scalps. Document the structural basis you find and set your conviction score based on the quality of the reversal or retest setup.`;
+              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from M5 swing origin). Structural space to your single SCALP TP may be narrowing. Pullback scalp entry preferred. Continuation requires explicit justification that the single TP remains achievable.`
+              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M5 swing origin). The M5 move is extended relative to M5 ATR — look for a reversal scalp or M5 structural retest entry rather than a continuation. Exhausted moves often produce the cleanest reversal scalps. Document the structural basis you find and set your conviction score based on the quality of the reversal or retest setup.`;
 
           const fakeoutBlockM5 = fakeoutTypeM5
             ? `
-M1 FAKEOUT DETECTION:
-A ${fakeoutTypeM5} was detected ${fakeoutCandlesAgoM5} M1 candle(s) ago. A candle swept a recent M1 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5 ? 'YES — subsequent M1 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
+M5 FAKEOUT DETECTION:
+A ${fakeoutTypeM5} was detected ${fakeoutCandlesAgoM5} M5 candle(s) ago. A candle swept a recent M5 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5 ? 'YES — subsequent M5 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
 ${fakeoutTypeM5 === 'BEARISH_FAKEOUT'
-  ? 'BEARISH FAKEOUT: Price swept above a prior M1 high and rejected. This is a classic bull trap on the M1 chart. Entering LONG at current price carries fakeout-reversal risk — explicit M1 structural justification required.'
-  : 'BULLISH FAKEOUT: Price swept below a prior M1 low and rejected. This is a classic bear trap on the M1 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit M1 structural justification required.'}
+  ? 'BEARISH FAKEOUT: Price swept above a prior M5 high and rejected. This is a classic bull trap on the M5 chart. Entering LONG at current price carries fakeout-reversal risk — explicit M5 structural justification required.'
+  : 'BULLISH FAKEOUT: Price swept below a prior M5 low and rejected. This is a classic bear trap on the M5 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit M5 structural justification required.'}
 `
             : '';
 
           scalpMovePhaseContext = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SCALP M1 MOVE STAGE ADVISORY (${marketContext.symbol})
+SCALP M5 MOVE STAGE ADVISORY (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed from M1 candle data (entry TF). ATR reference is M5 (stop sizing quality).
+Pre-computed from M5 candle data (entry lens). ATR reference is M5 (stop sizing quality).
 ACTIVE M5 ATR: ${m5AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM5}p | Developing ${freshCeilingM5}–${developingCeilingM5}p | Exhausted > ${developingCeilingM5}p
 
-Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M1 swing origin (~${atrTraveledM5.toFixed(2)}x M5 ATR)
-M1 Move Phase: ${m5MovePhase}
+Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M5 swing origin (~${atrTraveledM5.toFixed(2)}x M5 ATR)
+M5 Move Phase: ${m5MovePhase}
 Assessment: ${phaseLabelM5}
 
 ${m5MovePhase === 'DEVELOPING'
@@ -2301,7 +2300,7 @@ ${fakeoutBlockM5}MANDATORY JSON FIELDS — Include in your response regardless o
   "scalp_atr_traveled": ${atrTraveledM5.toFixed(2)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] SCALP M1 Move Phase: ${m5MovePhase} (~${atrTraveledM5.toFixed(2)}x M5 ATR, ${distFromSwingPipsM5.toFixed(1)} pips from M1 swing)${fakeoutTypeM5 ? ` | Fakeout: ${fakeoutTypeM5}` : ''}`);
+          console.log(`[Alpha Coordinator] SCALP M5 Move Phase: ${m5MovePhase} (~${atrTraveledM5.toFixed(2)}x M5 ATR, ${distFromSwingPipsM5.toFixed(1)} pips from M5 swing)${fakeoutTypeM5 ? ` | Fakeout: ${fakeoutTypeM5}` : ''}`);
         }
 
         const emaContextBlock = (ema20Val > 0 || ema50Val > 0) ? `

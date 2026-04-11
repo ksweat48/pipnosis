@@ -802,12 +802,18 @@ export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isIntraday = style === 'INTRADAY';
   const isScalp = style === 'SCALP';
   // SSOT (timeframe-hierarchy.ts STYLE_MTF_CONFIGS post CCIP-2026-04-08 cascade shift):
-  // SCALP:          entry=M5,  trend=M15, context=M15  → primary=M5,  control=M15, confirmation=M1
+  // SCALP:          entry=M1,  trend=M5,  context=M15  → primary=M5,  control=M15, confirmation=M1
   // MICRO_INTRADAY: entry=M5,  trend=M15, context=H1   → primary=M5,  control=H1,  confirmation=M15
   // INTRADAY:       entry=M15, trend=H1,  context=H4   → primary=M15, control=H4,  confirmation=H1
+  //
+  // SCALP NOTE: SSOT designates M1 as entry but the entire SCALP pipeline operates with
+  // M5 as the primary entry lens (PRIMARY_TF_MAP = M5, m5ContextPrompt, M5 ATR).
+  // M1 is used for timing refinement (confirmationTF) and fakeout detection only.
+  // This is intentional and internally consistent — do NOT migrate SCALP to M1-primary.
+  //
   // primary = entry lens (Q1 direction source, Q9 wicks)
   // control = context TF (Q12 market phase, range position, bigger picture)
-  // confirmation = trend TF (Q4 momentum timing, trigger validity)
+  // confirmation = trend/timing TF (Q4 momentum timing, trigger validity)
   const primaryTF = isScalp ? 'M5' : isMicro ? 'M5' : 'M15';
   const controlTF = isScalp ? 'M15' : isMicro ? 'H1' : 'H4';
   const confirmationTF = isScalp ? 'M1' : isMicro ? 'M15' : 'H1';
