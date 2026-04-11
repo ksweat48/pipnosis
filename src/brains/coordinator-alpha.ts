@@ -1634,9 +1634,14 @@ Record m5_structural_confirmation, m5_move_phase, and m5_atr_traveled in the JSO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-My lens this scan is H1. H4 provides the campaign destination and macro bias. M15 gives me timing precision within the H1 structural picture. D1 orients the daily delivery narrative. TP1 is a named H1 structural level on the path. TP2 is the named H4 structural destination.
-Record h1_structural_confirmation (the named H1 anchor this campaign is built from), h1_move_phase, and h1_atr_traveled in the JSON response — these are audit fields that document my structural read for governance review regardless of action.
-The M15 candle context block below contains pre-computed M15 BOS and wick measurements for this scan window. I read that data and reach my own conclusions on timing and entry_mode.
+You are operating as a M15 INTRADAY trader.
+Timeframe stack: M15 (entry lens — my primary signal) | H1 (trend validation and TP1 destination) | H4 (campaign destination, macro bias, and TP2 target) | D1 (daily delivery narrative).
+I read M15 candles as my primary entry signal. H1 validates the trend direction and names the structural levels TP1 is targeting. H4 is the campaign context that frames TP2 and the broader delivery bias. D1 orients the macro narrative.
+TP1 is a named H1 structural level on the path. TP2 is the named H4 structural destination.
+Name the specific M15 structural level you are entering from in m15_structural_confirmation.
+Format: "[structure type] at [exact price] — [what confirms it]". Example: "M15 BOS at 1.08230 confirmed long bias on H1 trend".
+Valid M15 anchors: named M15 S/R levels, M15 range boundaries, session highs/lows, equal highs/lows, VWAP, EMA rejections, prior M15 swing points.
+Record m15_structural_confirmation, m15_move_phase, and m15_atr_traveled in the JSON response — these are audit fields that document my structural read for governance review regardless of action.
 The trade_management object in my response documents my campaign plan for this trade — TP1 percentage, post-TP1 SL action, and trailing method. This is part of my honest account of the campaign, not a compliance requirement.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
@@ -1854,14 +1859,17 @@ IMPORTANT REMINDERS:
     // SSOT: MarketDataService is the single authority for candle data
     // CCIP 2026-02-18: Entry advisory MUST analyze the trade's primary
     // timeframe first. M1 is timing refinement only, not the primary signal.
-    // SCALP=M5, MICRO_INTRADAY=M5, INTRADAY=H1
-    // CCIP-2026-04-08 cascade shift: MICRO_INTRADAY entry TF is M5 (SSOT: timeframe-hierarchy.ts).
-    // M15 is the trend validation TF for MICRO_INTRADAY, not the entry lens.
+    // SSOT (timeframe-hierarchy.ts STYLE_MTF_CONFIGS):
+    // SCALP:          entry=M5,  trend=M15, context=M15
+    // MICRO_INTRADAY: entry=M5,  trend=M15, context=H1
+    // INTRADAY:       entry=M15, trend=H1,  context=H4
+    // CCIP-2026-04-08 cascade shift applied to all three styles.
+    // PRIMARY_TF_MAP fetches the entry timeframe candles — the primary signal lens.
     // ═══════════════════════════════════════════════════════════════════
     const PRIMARY_TF_MAP: Record<string, { timeframe: string; label: string; candleCount: number }> = {
       'SCALP': { timeframe: 'M5', label: 'M5', candleCount: 15 },
       'MICRO_INTRADAY': { timeframe: 'M5', label: 'M5', candleCount: 15 },
-      'INTRADAY': { timeframe: 'H1', label: 'H1', candleCount: 10 },
+      'INTRADAY': { timeframe: 'M15', label: 'M15', candleCount: 15 },
     };
     const styleName = getDisplayNameFromStyle(tradeStyle);
     const primaryTfConfig = PRIMARY_TF_MAP[styleName] || PRIMARY_TF_MAP['SCALP'];
@@ -1996,18 +2004,18 @@ Reason in Q9 and sl_structural_reference: does your chosen SL clear the nearest 
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // INTRADAY H1 MOVE PHASE & FAKEOUT ADVISORY
-        // Mirrors the SCALP scalpIntelligencePrompt pattern.
+        // INTRADAY M15 MOVE PHASE & FAKEOUT ADVISORY
+        // CCIP-2026-04-08 cascade shift: INTRADAY entry TF is M15 (SSOT).
+        // recentPrimary now contains M15 candles (PRIMARY_TF_MAP corrected).
+        // ATR reference is atrForStopLoss (marketContext.atr, M15 ATR per code comment line 1338).
         // Advisory only — Alpha retains full decision authority.
-        // Computes ATR phase thresholds with real pip values so Alpha
-        // knows exactly how many pips constitute each phase boundary.
         // ═══════════════════════════════════════════════════════════════════
         if (styleName === 'INTRADAY' && atrForStopLoss > 0) {
-          const h1AtrPips = (atrForStopLoss / pipInfo.pipValue);
+          const m15AtrPipsIntraday = (atrForStopLoss / pipInfo.pipValue);
           const freshCeiling = (atrForStopLoss * 0.75 / pipInfo.pipValue).toFixed(1);
           const developingCeiling = (atrForStopLoss * 1.5 / pipInfo.pipValue).toFixed(1);
 
-          // Estimate ATR traveled from H1 swing origin:
+          // Estimate ATR traveled from M15 swing origin:
           // Find most recent directional swing origin (last candle that reversed direction)
           let swingOriginPrice = recentPrimary[0].close;
           const currentDir = lastCandle.close > lastCandle.open ? 'UP' : 'DN';
@@ -2019,17 +2027,17 @@ Reason in Q9 and sl_structural_reference: does your chosen SL clear the nearest 
             }
           }
           const distFromSwingPips = Math.abs(marketContext.price - swingOriginPrice) / pipInfo.pipValue;
-          const atrTraveled = h1AtrPips > 0 ? distFromSwingPips / h1AtrPips : 0;
+          const atrTraveled = m15AtrPipsIntraday > 0 ? distFromSwingPips / m15AtrPipsIntraday : 0;
 
-          const h1MovePhase = atrTraveled < 0.75 ? 'FRESH' : atrTraveled < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
+          const m15MovePhaseIntraday = atrTraveled < 0.75 ? 'FRESH' : atrTraveled < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
 
-          // H1 fakeout detection: look for a candle that swept a recent extreme
+          // M15 fakeout detection: look for a candle that swept a recent extreme
           // then closed back inside the prior range (fakeout candle)
           let fakeoutType: string | null = null;
           let fakeoutCandlesAgo = 0;
           let fakeoutReversalConfirmed = false;
           if (recentPrimary.length >= 4) {
-            const lookback = recentPrimary.slice(0, -1); // exclude current/last forming candle
+            const lookback = recentPrimary.slice(0, -1);
             const windowHigh = Math.max(...lookback.slice(0, -1).map(c => c.high));
             const windowLow = Math.min(...lookback.slice(0, -1).map(c => c.low));
             const recentFew = lookback.slice(-3);
@@ -2055,47 +2063,46 @@ Reason in Q9 and sl_structural_reference: does your chosen SL clear the nearest 
             }
           }
 
-          const phaseLabel = h1MovePhase === 'FRESH'
-            ? `FRESH — < 0.75x H1 ATR traveled (< ${freshCeiling} pips from swing origin). Full structural space available.`
-            : h1MovePhase === 'DEVELOPING'
-              ? `DEVELOPING — 0.75–1.5x H1 ATR traveled (${freshCeiling}–${developingCeiling} pips from swing origin). Structural space to TP1 may be narrowing — the remaining runway to the named TP levels is the key measurement.`
-              : `EXHAUSTED — > 1.5x H1 ATR traveled (> ${developingCeiling} pips from swing origin). The H1 leg is extended. Document the structural picture honestly and reflect it in the conviction score.`;
+          const phaseLabel = m15MovePhaseIntraday === 'FRESH'
+            ? `FRESH — < 0.75x M15 ATR traveled (< ${freshCeiling} pips from swing origin). Full structural space available.`
+            : m15MovePhaseIntraday === 'DEVELOPING'
+              ? `DEVELOPING — 0.75–1.5x M15 ATR traveled (${freshCeiling}–${developingCeiling} pips from swing origin). Structural space to TP1 may be narrowing — the remaining runway to the named TP levels is the key measurement.`
+              : `EXHAUSTED — > 1.5x M15 ATR traveled (> ${developingCeiling} pips from swing origin). The M15 leg is extended. Document the structural picture honestly and reflect it in the conviction score.`;
 
           const fakeoutBlock = fakeoutType
             ? `
-H1 FAKEOUT DETECTION:
-A ${fakeoutType} was detected ${fakeoutCandlesAgo} H1 candle(s) ago. A candle swept a recent H1 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmed ? 'YES — subsequent H1 candles have printed in the reversal direction' : 'NOT YET — subsequent H1 candles have not yet confirmed direction'}.
+M15 FAKEOUT DETECTION:
+A ${fakeoutType} was detected ${fakeoutCandlesAgo} M15 candle(s) ago. A candle swept a recent M15 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmed ? 'YES — subsequent M15 candles have printed in the reversal direction' : 'NOT YET — subsequent M15 candles have not yet confirmed direction'}.
 ${fakeoutType === 'BEARISH_FAKEOUT'
-  ? 'BEARISH FAKEOUT: Price swept above a prior H1 high and rejected, closing back inside the prior range. This is raw structural data — a sweep of the high, a rejection, and a body close inside. What that means for the current thesis is my read.'
-  : 'BULLISH FAKEOUT: Price swept below a prior H1 low and rejected, closing back inside the prior range. This is raw structural data — a sweep of the low, a rejection, and a body close inside. What that means for the current thesis is my read.'}
+  ? 'BEARISH FAKEOUT: Price swept above a prior M15 high and rejected, closing back inside the prior range. This is raw structural data — a sweep of the high, a rejection, and a body close inside. What that means for the current thesis is my read.'
+  : 'BULLISH FAKEOUT: Price swept below a prior M15 low and rejected, closing back inside the prior range. This is raw structural data — a sweep of the low, a rejection, and a body close inside. What that means for the current thesis is my read.'}
 `
             : '';
 
           intradayMovePhaseContext = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INTRADAY H1 MOVE STAGE ADVISORY (${marketContext.symbol})
+INTRADAY M15 MOVE STAGE ADVISORY (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed from H1 candle data. Advisory context — your analysis takes precedence.
-ACTIVE H1 ATR: ${h1AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeiling}p | Developing ${freshCeiling}–${developingCeiling}p | Exhausted > ${developingCeiling}p
+Pre-computed from M15 candle data (entry timeframe). Advisory context — your analysis takes precedence.
+ACTIVE M15 ATR: ${m15AtrPipsIntraday.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeiling}p | Developing ${freshCeiling}–${developingCeiling}p | Exhausted > ${developingCeiling}p
 
-Estimated ATR Traveled: ~${distFromSwingPips.toFixed(1)} pips from H1 swing origin (~${atrTraveled.toFixed(2)}x H1 ATR)
-H1 Move Phase: ${h1MovePhase}
+Estimated ATR Traveled: ~${distFromSwingPips.toFixed(1)} pips from M15 swing origin (~${atrTraveled.toFixed(2)}x M15 ATR)
+M15 Move Phase: ${m15MovePhaseIntraday}
 Assessment: ${phaseLabel}
 
-${h1MovePhase === 'DEVELOPING'
+${m15MovePhaseIntraday === 'DEVELOPING'
   ? `DEVELOPING STAGE — RUNWAY AUDIT: Record the remaining structural space from current price to the named TP1 (H1 structural level) and TP2 (H4 structural level). "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." The R:R assessment belongs in the conviction score.`
-  : h1MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The H1 leg has traveled > 1.5x ATR. The structural picture at this extension is what it is — document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
+  : m15MovePhaseIntraday === 'EXHAUSTED'
+    ? `EXHAUSTED STAGE — The M15 leg has traveled > 1.5x ATR. The structural picture at this extension is what it is — document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
     : `FRESH STAGE — Full structural space to TP1 and TP2 is available.`
 }
-${fakeoutBlock}
-MANDATORY JSON FIELD — Include in your response regardless of action:
-  "h1_move_phase": "fresh|developing|exhausted"
-  "h1_atr_traveled": ${atrTraveled.toFixed(2)}
+${fakeoutBlock}MANDATORY JSON FIELD — Include in your response regardless of action:
+  "m15_move_phase": "fresh|developing|exhausted"
+  "m15_atr_traveled": ${atrTraveled.toFixed(2)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] INTRADAY H1 Move Phase: ${h1MovePhase} (~${atrTraveled.toFixed(2)}x ATR, ${distFromSwingPips.toFixed(1)} pips)${fakeoutType ? ` | Fakeout: ${fakeoutType}` : ''}`);
+          console.log(`[Alpha Coordinator] INTRADAY M15 Move Phase: ${m15MovePhaseIntraday} (~${atrTraveled.toFixed(2)}x ATR, ${distFromSwingPips.toFixed(1)} pips)${fakeoutType ? ` | Fakeout: ${fakeoutType}` : ''}`);
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -4562,8 +4569,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       if (action !== 'NO_TRADE' && tradeStyle === 'INTRADAY') {
-        const raw = typeof parsed.h1_structural_confirmation === 'string'
-          ? parsed.h1_structural_confirmation.trim()
+        const raw = typeof parsed.m15_structural_confirmation === 'string'
+          ? parsed.m15_structural_confirmation.trim()
           : null;
         if (isAnchorVague(raw)) {
           logViolation({
@@ -4572,9 +4579,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
             attemptedOperation: 'intraday_anchor_check',
             callLocation: 'coordinator-alpha.intraday_anchor_governance',
             blocked: false,
-            errorDetails: { style: 'INTRADAY', field: 'h1_structural_confirmation', value: raw ?? null, sessionId: goalContext?.sessionId ?? null }
+            errorDetails: { style: 'INTRADAY', field: 'm15_structural_confirmation', value: raw ?? null, sessionId: goalContext?.sessionId ?? null }
           }).catch(() => {});
-          console.warn(`[CCIP-2026-0333] INTRADAY_NO_H1_ANCHOR: Alpha omitted h1_structural_confirmation for ${marketContext.symbol}. Proceeding on Alpha confidence — violation logged.`);
+          console.warn(`[CCIP-2026-0333] INTRADAY_NO_M15_ANCHOR: Alpha omitted m15_structural_confirmation for ${marketContext.symbol}. Proceeding on Alpha confidence — violation logged.`);
         }
       }
 

@@ -801,9 +801,16 @@ export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isMicro = style === 'MICRO_INTRADAY';
   const isIntraday = style === 'INTRADAY';
   const isScalp = style === 'SCALP';
-  const primaryTF = isScalp ? 'M5' : isMicro ? 'M15' : 'H1';
+  // SSOT (timeframe-hierarchy.ts STYLE_MTF_CONFIGS post CCIP-2026-04-08 cascade shift):
+  // SCALP:          entry=M5,  trend=M15, context=M15  → primary=M5,  control=M15, confirmation=M1
+  // MICRO_INTRADAY: entry=M5,  trend=M15, context=H1   → primary=M5,  control=H1,  confirmation=M15
+  // INTRADAY:       entry=M15, trend=H1,  context=H4   → primary=M15, control=H4,  confirmation=H1
+  // primary = entry lens (Q1 direction source, Q9 wicks)
+  // control = context TF (Q12 market phase, range position, bigger picture)
+  // confirmation = trend TF (Q4 momentum timing, trigger validity)
+  const primaryTF = isScalp ? 'M5' : isMicro ? 'M5' : 'M15';
   const controlTF = isScalp ? 'M15' : isMicro ? 'H1' : 'H4';
-  const confirmationTF = isMicro ? 'M5' : isIntraday ? 'M15' : 'M1';
+  const confirmationTF = isScalp ? 'M1' : isMicro ? 'M15' : 'H1';
 
   const arenaWalls = `HARD STOPS — mathematical impossibilities and data integrity gates only:
 - GEOMETRY: BUY requires SL < Entry < TP. SELL requires TP < Entry < SL. Any inversion = no structure.
@@ -852,7 +859,7 @@ BUY or SELL:
   "thesis_coherence_statement": "My honest read of the trade: direction, structural basis, and conviction. If my answer_sheet contains conflicting readings, state them and how they affect my confidence. My action is always my own judgment.",${isScalp ? `
   "scalp_structural_confirmation": "Named M5 anchor — swing high/low, FVG, BOS, or EMA at specific price.",` : ''}${isMicro ? `
   "m5_structural_confirmation": "Named M5 anchor this trade is built from — swing, FVG, BOS, or EMA at specific price. M15 validates the direction; M5 is the entry anchor.",` : ''}${isIntraday ? `
-  "h1_structural_confirmation": "Named H1 level and structure type.",` : ''}
+  "m15_structural_confirmation": "Named M15 anchor this trade is built from — swing, FVG, BOS, or EMA at specific price. H1 validates the trend direction; M15 is the entry anchor.",` : ''}
   ${isScalp ? '' : '"tp1": <price>,  // MANDATORY — conservative partial target. A response without this field is malformed.\n  '}"trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "tp1_action": "move_sl_to_breakeven|move_sl_to_level|hold_sl", "tp1_sl_level": <price — required only when tp1_action is move_sl_to_level>, "tp1_condition": "<optional named market condition for this instruction>", "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
   "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate — minimum 5, maximum 120. After 120 minutes the intent is automatically cancelled.> },
   // MANDATORY when entry_mode is wait_pullback or push_confirmation. Omitting wait_condition on a deferred entry means the system has no zone to monitor — governance violation [CCIP-2026-0404A].
