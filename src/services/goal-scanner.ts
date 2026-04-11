@@ -17,6 +17,7 @@ import { alphaThoughtStream } from './alpha-thought-stream';
 import { creditValidationService } from './credit-validation-service';
 import { systemReadinessRegistry } from './system-readiness-registry';
 import type { TradeSignal } from '../types/strategy';
+import { createTradeContext } from '../utils/tradeMath';
 
 /**
  * Concurrent execution helper with concurrency limit
@@ -346,16 +347,28 @@ class GoalScanner {
           });
         }
 
-        // SSOT: Fire all executions simultaneously
+        // SSOT: Build TradeContext and fire all executions simultaneously
         const executionResults = await Promise.all(
-          signalPairs.map(({ alphaDecision }) =>
-            alphaTradeExecutor.execute({
+          signalPairs.map(({ alphaDecision, setup }) => {
+            const tradeContextResult = createTradeContext(setup.symbol);
+            if (!tradeContextResult.success || !tradeContextResult.context) {
+              console.error(`[Goal Scanner] Failed to create TradeContext for ${setup.symbol}: ${tradeContextResult.error}`);
+              return Promise.resolve({
+                success: false,
+                error: `TradeContext creation failed: ${tradeContextResult.error}`,
+                blockReason: 'HARD-BLOCK: TradeContext unavailable'
+              });
+            }
+            return alphaTradeExecutor.execute({
               decision: alphaDecision,
+              tradeContext: tradeContextResult.context,
               userId,
-              goalSessionId: sessionId,
-              autoExecute: session.data.auto_execute
-            })
-          )
+              sessionId,
+              session: session.data,
+              mode: 'IMMEDIATE',
+              snapshotTimestamp: new Date(setup.snapshotTimestamp ?? Date.now()),
+            });
+          })
         );
 
         // Process results and emit execution thoughts
@@ -378,6 +391,13 @@ class GoalScanner {
             }
           } else {
             console.warn(`[Goal Scanner] Signal execution failed for ${setup.symbol}: ${execResult.error}`);
+            await alphaThoughtStream.emitFinalDecision(sessionId, userId, {
+              selected: false,
+              symbol: setup.symbol,
+              action: setup.alphaDecision?.action as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+              confidence: setup.confidence,
+              reasoning: `Execution blocked: ${execResult.blockReason || execResult.error || 'Unknown error'}`
+            });
           }
         }
 
