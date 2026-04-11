@@ -55,6 +55,7 @@ import { alphaLearningTracker } from './alpha-learning-tracker';
 import { computeTPS } from './trade-priority-score';
 import type { TPSCandidate } from '../types/tps';
 import { getCouncilTimeoutMs } from '../config/concurrent-execution-config';
+import { resolveExecutionMode } from './execution-mode-resolver';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -2743,122 +2744,7 @@ class GoalSessionLiveEngine {
     userId: string,
     sessionId: string
   ): Promise<{ executionMode: 'IMMEDIATE' | 'PENDING' | 'MONITORED'; entryMonitorGateActive: boolean }> {
-    // CCIP-2026-0319A (Fix 4): NO_TRADE decisions must never activate the entry monitor.
-    // entry_mode and wait_condition are structurally invalid on NO_TRADE decisions.
-    // The parser already strips them, but we enforce this invariant here as a second layer.
-    if (alphaDecision.action === 'NO_TRADE') {
-      return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // CCIP-2026-0319C: entry_mode is the SOLE SSOT routing signal.
-    // wait_condition is ADVISORY CONTEXT for the entry monitor, not a routing trigger.
-    //
-    // BUG FIX: The previous implementation included `alphaDecision.wait_condition != null`
-    // in this predicate, causing execute_now decisions that also carried a wait_condition
-    // (advisory context the LLM commonly includes) to be misrouted to MONITORED mode.
-    // The trade was shown as "EXECUTING NOW" in the UI (correct — entry_mode=execute_now)
-    // but an entry_intent was created with status='monitoring' and never fulfilled.
-    //
-    // INVARIANT: alphaWantsToWait is TRUE only when entry_mode explicitly signals deferral:
-    //   - 'wait_pullback'      → defer until price pulls back into zone
-    //   - 'push_confirmation'  → defer until push confirms into zone
-    //   - 'execute_now'        → IMMEDIATE regardless of any wait_condition present
-    //
-    // SSOT: coordinator-alpha.ts strips wait_condition from execute_now decisions before
-    // this function is called (CCIP-2026-0319C defensive guard). This is a second-layer
-    // enforcement that respects entry_mode as the authoritative routing signal.
-    // ═══════════════════════════════════════════════════════════════════
-    const alphaWantsToWait =
-      alphaDecision.entry_mode === 'wait_pullback'
-      || alphaDecision.entry_mode === 'push_confirmation';
-
-    if (!alphaWantsToWait) {
-      return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
-    }
-
-    // CCIP-2026-0319B (Entry Monitor Governance):
-    // The coordinator-alpha.ts is the SSOT gate for monitor-off enforcement.
-    // By the time this function is called, any wait-mode decision with monitor OFF
-    // has already been converted to NO_TRADE by coordinator-alpha.ts.
-    //
-    // Therefore: if alphaWantsToWait=true and execution reaches here, the monitor
-    // MUST be enabled (the coordinator already verified it). This function's only
-    // job is to confirm monitor state and route to MONITORED.
-    //
-    // Routing contract (post-governance, SSOT compliant):
-    //   alphaWantsToWait=true  → MONITORED (monitor is guaranteed active by upstream gate)
-    //   alphaWantsToWait=false → IMMEDIATE (market order now)
-    //
-    // PENDING mode is intentionally removed. It was architecturally incorrect:
-    // it created trade records for deferred entries without an active monitor,
-    // producing entry_intents that were never fulfilled.
-    //
-    // SSOT: coordinator-alpha.ts is the primary gate. This function is a secondary
-    // routing layer that maps the already-validated decision to an execution mode.
-    // AlphaTradeExecutor.execute() consumes the mode and dispatches to the correct path.
-    let executionMode: 'IMMEDIATE' | 'PENDING' | 'MONITORED' = 'MONITORED';
-    let entryMonitorGateActive = false;
-
-    try {
-      const { data: monitorPref } = await supabase
-        .from('user_monitor_preferences')
-        .select('entry_price_monitor_enabled')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (monitorPref?.entry_price_monitor_enabled === true) {
-        executionMode = 'MONITORED';
-        entryMonitorGateActive = true;
-      } else {
-        // This should not occur — coordinator-alpha already blocked wait-mode when monitor is off.
-        // If it does occur (e.g. monitor pref changed mid-flight), treat as a governance anomaly:
-        // fall back to IMMEDIATE (execute at current market price) rather than creating an
-        // orphaned entry intent. Log the anomaly for audit review.
-        executionMode = 'IMMEDIATE';
-        logger.warn(
-          LogCategory.AI_TRADING,
-          '[Entry Monitor Gate] GOVERNANCE ANOMALY: alphaWantsToWait=true but monitor is off. ' +
-          'coordinator-alpha should have blocked this. Falling back to IMMEDIATE to prevent orphaned intent. ' +
-          'Review CCIP-2026-0319B.',
-          { userId, sessionId, alphaEntryMode: alphaDecision.entry_mode }
-        );
-      }
-    } catch (prefErr) {
-      // Fail-safe: if pref read fails, fall back to IMMEDIATE (do not create unmonitored intent).
-      executionMode = 'IMMEDIATE';
-      logger.warn(
-        LogCategory.AI_TRADING,
-        '[Entry Monitor Gate] Failed to read monitor preference — falling back to IMMEDIATE (cannot create unmonitored intent)',
-        { error: prefErr }
-      );
-    }
-
-    if (entryMonitorGateActive) {
-      try {
-        await supabase
-          .from('goal_sessions')
-          .update({ alpha_entry_monitor_gate_active: true })
-          .eq('id', sessionId);
-      } catch {
-        // non-blocking audit update
-      }
-    }
-
-    logger.info(
-      LogCategory.AI_TRADING,
-      '[Entry Monitor Gate] Execution mode resolved',
-      {
-        executionMode,
-        entryMonitorGateActive,
-        alphaEntryMode: alphaDecision.entry_mode,
-        hasWaitCondition: alphaDecision.wait_condition != null,
-        userId,
-        sessionId,
-      }
-    );
-
-    return { executionMode, entryMonitorGateActive };
+    return resolveExecutionMode(alphaDecision, userId, sessionId);
   }
 
   /**

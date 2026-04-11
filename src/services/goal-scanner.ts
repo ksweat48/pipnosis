@@ -18,6 +18,7 @@ import { creditValidationService } from './credit-validation-service';
 import { systemReadinessRegistry } from './system-readiness-registry';
 import type { TradeSignal } from '../types/strategy';
 import { createTradeContext } from '../utils/tradeMath';
+import { resolveExecutionMode } from './execution-mode-resolver';
 
 /**
  * Concurrent execution helper with concurrency limit
@@ -347,29 +348,38 @@ class GoalScanner {
           });
         }
 
-        // SSOT: Build TradeContext and fire all executions simultaneously
-        const executionResults = await Promise.all(
-          signalPairs.map(({ alphaDecision, setup }) => {
-            const tradeContextResult = createTradeContext(setup.symbol);
-            if (!tradeContextResult.success || !tradeContextResult.context) {
-              console.error(`[Goal Scanner] Failed to create TradeContext for ${setup.symbol}: ${tradeContextResult.error}`);
-              return Promise.resolve({
-                success: false,
-                error: `TradeContext creation failed: ${tradeContextResult.error}`,
-                blockReason: 'HARD-BLOCK: TradeContext unavailable'
-              });
-            }
-            return alphaTradeExecutor.execute({
-              decision: alphaDecision,
-              tradeContext: tradeContextResult.context,
-              userId,
-              sessionId,
-              session: session.data,
-              mode: 'IMMEDIATE',
-              snapshotTimestamp: new Date(setup.snapshotTimestamp ?? Date.now()),
+        // SSOT: Resolve execution mode per signal (respects Alpha's entry_mode for WAIT/PULLBACK),
+        // then execute each. Sequential to allow async mode resolution per pair.
+        const executionResults: Array<{ success: boolean; error?: string; blockReason?: string; message?: string; isMonitoring?: boolean }> = [];
+        for (const { alphaDecision, setup } of signalPairs) {
+          const tradeContextResult = createTradeContext(setup.symbol);
+          if (!tradeContextResult.success || !tradeContextResult.context) {
+            console.error(`[Goal Scanner] Failed to create TradeContext for ${setup.symbol}: ${tradeContextResult.error}`);
+            executionResults.push({
+              success: false,
+              error: `TradeContext creation failed: ${tradeContextResult.error}`,
+              blockReason: 'HARD-BLOCK: TradeContext unavailable'
             });
-          })
-        );
+            continue;
+          }
+
+          const { executionMode } = await resolveExecutionMode(alphaDecision, userId, sessionId);
+
+          if (executionMode === 'MONITORED') {
+            console.log(`[Goal Scanner] Alpha chose WAIT mode (${alphaDecision.entry_mode}) for ${setup.symbol} — creating monitored entry intent`);
+          }
+
+          const result = await alphaTradeExecutor.execute({
+            decision: alphaDecision,
+            tradeContext: tradeContextResult.context,
+            userId,
+            sessionId,
+            session: session.data,
+            mode: executionMode,
+            snapshotTimestamp: new Date(setup.snapshotTimestamp ?? Date.now()),
+          });
+          executionResults.push(result);
+        }
 
         // Process results and emit execution thoughts
         const executedTrades: Array<{ symbol: string; action: string; entry: number }> = [];
@@ -377,17 +387,30 @@ class GoalScanner {
           const execResult = executionResults[i];
           const { setup } = signalPairs[i];
           if (execResult.success) {
-            console.log(`[Goal Scanner] Trade executed: ${setup.symbol} — ${execResult.message}`);
-            tradeExecuted = true;
-            if (setup.alphaDecision?.action === 'BUY' || setup.alphaDecision?.action === 'SELL') {
-              executedTrades.push({
+            if (execResult.isMonitoring) {
+              // Alpha chose WAIT — entry intent created, autonomous monitor will execute at zone
+              console.log(`[Goal Scanner] Entry intent created for ${setup.symbol} — monitoring for pullback zone`);
+              tradeExecuted = true;
+              await alphaThoughtStream.emitFinalDecision(sessionId, userId, {
+                selected: true,
                 symbol: setup.symbol,
-                action: setup.alphaDecision.action,
-                entry: setup.entry || 0
+                action: setup.alphaDecision?.action as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+                confidence: setup.confidence,
+                reasoning: `Waiting for pullback — will auto-execute when price reaches the zone`
               });
-              await alphaThoughtStream.emitExecution(
-                sessionId, userId, setup.symbol, setup.alphaDecision.action, setup.entry || 0
-              );
+            } else {
+              console.log(`[Goal Scanner] Trade executed: ${setup.symbol} — ${execResult.message}`);
+              tradeExecuted = true;
+              if (setup.alphaDecision?.action === 'BUY' || setup.alphaDecision?.action === 'SELL') {
+                executedTrades.push({
+                  symbol: setup.symbol,
+                  action: setup.alphaDecision.action,
+                  entry: setup.entry || 0
+                });
+                await alphaThoughtStream.emitExecution(
+                  sessionId, userId, setup.symbol, setup.alphaDecision.action, setup.entry || 0
+                );
+              }
             }
           } else {
             console.warn(`[Goal Scanner] Signal execution failed for ${setup.symbol}: ${execResult.error}`);

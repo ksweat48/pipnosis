@@ -117,17 +117,21 @@ export const handler: Handler = async (event, context) => {
       try {
         console.log(`[Entry Monitor] Processing intent ${intent.intent_id.substring(0, 8)} for ${intent.symbol}`);
 
-        // GOVERNANCE (2026-02-18): If session already has trades, abandon this intent.
-        // No new trades can be auto-executed after a trade has already been placed in a session.
+        // GOVERNANCE (2026-02-18, revised 2026-04-11): Only block if the session has an
+        // OPEN (status = 'open') trade right now. Closed or historical trades must not
+        // prevent a deferred entry intent from executing — the user explicitly asked Alpha
+        // to wait for a pullback and the system must honour that when the zone is hit.
+        // Prior behaviour abandoned any intent if the session had ANY prior trade (too broad).
         if (intent.session_id) {
-          const { count: existingTrades } = await supabase
+          const { count: openTrades } = await supabase
             .from('goal_session_trades')
             .select('id', { count: 'exact', head: true })
-            .eq('goal_session_id', intent.session_id);
+            .eq('goal_session_id', intent.session_id)
+            .eq('status', 'open');
 
-          if (existingTrades && existingTrades > 0) {
-            console.log(`[Entry Monitor] GOVERNANCE: Session ${intent.session_id} already has ${existingTrades} trade(s) - abandoning intent ${intent.intent_id.substring(0, 8)}`);
-            await abandonIntent(intent.intent_id, 'Session already has trades - governance policy prevents auto-execution');
+          if (openTrades && openTrades > 0) {
+            console.log(`[Entry Monitor] GOVERNANCE: Session ${intent.session_id} has ${openTrades} OPEN trade(s) - abandoning intent ${intent.intent_id.substring(0, 8)} (closed/historical trades are not a block)`);
+            await abandonIntent(intent.intent_id, 'Session already has open trade(s) - governance policy prevents concurrent auto-execution');
             abandonedCount++;
             successCount++;
             results.push({
