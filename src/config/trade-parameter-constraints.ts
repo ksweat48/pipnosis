@@ -115,6 +115,48 @@ export function getMinStopLossConstraint(symbol: string): MinimumStopLossConstra
   return MINIMUM_SL_DISTANCE_BY_SYMBOL[symbol] || DEFAULT_MIN_SL_CONSTRAINT;
 }
 
+const PRICE_DERIVED_MIN_PCT: Record<string, number> = {
+  BTCUSD: 0.003,
+  ETHUSD: 0.003,
+  US30:   0.003,
+  NAS100: 0.003,
+  US100:  0.003,
+  SPX500: 0.003,
+  US500:  0.003,
+  XAUUSD: 0.003,
+};
+
+/**
+ * Returns the effective minimum stop-loss distance in pips for a symbol at a given price.
+ *
+ * For assets whose pip value scales with price (crypto, indices, metals), the flat minimum
+ * can become trivially small relative to the current market price.  This function takes the
+ * greater of (a) the static flat minimum from MINIMUM_SL_DISTANCE_BY_SYMBOL and (b) a
+ * price-proportional floor (0.3% of current price expressed in pips).
+ *
+ * For forex pairs this always returns the flat static minimum because forex pips are already
+ * price-normalised (0.0001 per pip for majors, 0.01 for JPY pairs).
+ *
+ * Example — BTCUSD at $70,000:
+ *   flat min = 50 pips
+ *   0.3% floor = 70,000 * 0.003 = 210 pips  ← wins
+ *   result = 210
+ *
+ * Example — ETHUSD at $2,182:
+ *   flat min = 10 pips
+ *   0.3% floor = 2,182 * 0.003 = 6.55 pips
+ *   result = 10  (flat wins — already adequate)
+ */
+export function getEffectiveMinPips(symbol: string, currentPrice: number): number {
+  const constraint = getMinStopLossConstraint(symbol);
+  const pct = PRICE_DERIVED_MIN_PCT[symbol];
+  if (!pct || !currentPrice || currentPrice <= 0) {
+    return constraint.minPips;
+  }
+  const priceDerivedMin = currentPrice * pct;
+  return Math.max(constraint.minPips, priceDerivedMin);
+}
+
 export interface StopLossValidationResult {
   valid: boolean;
   actualDistancePips: number;
