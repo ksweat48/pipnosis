@@ -953,6 +953,24 @@ async function aggregateCandlesForSymbol(
     const saveDuration = Date.now() - saveStartTime;
     candlesCreated = saved;
     console.log(`[CandleAggregator]   ✅ ${symbol}: Created ${saved} candles across ${timeframesToProcess.length} timeframes (save: ${saveDuration}ms)`);
+
+    if (saved > 0) {
+      const seenPairs = new Map<string, Date>();
+      for (const c of candlesToSave) {
+        const key = `${c.symbol}:${c.timeframe}`;
+        const existing = seenPairs.get(key);
+        if (!existing || c.open_time > existing) {
+          seenPairs.set(key, c.open_time);
+        }
+      }
+      const invalidationRows = Array.from(seenPairs.entries()).map(([key, latestOpenTime]) => {
+        const [sym, tf] = key.split(':');
+        return { symbol: sym, timeframe: tf, candle_time: latestOpenTime.toISOString(), event_time: new Date().toISOString() };
+      });
+      supabase.from('candle_cache_invalidation_events').insert(invalidationRows).then(({ error }) => {
+        if (error) console.warn(`[CandleAggregator] Cache invalidation insert failed for ${symbol}:`, error.message);
+      });
+    }
   } else {
     console.log(`[CandleAggregator]   ℹ️ ${symbol}: No new candles to create`);
   }

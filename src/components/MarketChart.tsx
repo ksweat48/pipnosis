@@ -562,10 +562,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return;
       }
       try {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight
-        });
+        const w = chartContainerRef.current.clientWidth;
+        const h = chartContainerRef.current.clientHeight;
+        if (w > 0 && h > 0) {
+          chart.applyOptions({ width: w, height: h });
+        }
       } catch (error) {
         console.warn('[Chart] Resize error (chart may be disposed):', error);
       }
@@ -573,12 +574,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     window.addEventListener('resize', handleResize);
 
+    // ResizeObserver catches mobile layout reflows that window resize misses
+    // (e.g., iOS Safari address bar hide/show, orientation change, flex reflow)
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && chartContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        handleResize();
+      });
+      resizeObserver.observe(chartContainerRef.current);
+    }
+
     return () => {
       // First, mark as unmounted to stop all updates
       isMountedRef.current = false;
 
       // Remove event listeners
       window.removeEventListener('resize', handleResize);
+
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
+      }
 
       try {
         // Unsubscribe from chart events before disposal

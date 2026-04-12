@@ -57,7 +57,7 @@ export class ChartDataGuarantor {
     'M30': 720,
     'H1': 720,
     'H4': 720,
-    'D1': 365
+    'D1': 500
   };
 
   /**
@@ -79,9 +79,9 @@ export class ChartDataGuarantor {
     'M5': 72,
     'M15': 72,
     'M30': 72,
-    'H1': 72,
-    'H4': 72,
-    'D1': 72
+    'H1': 240,   // 10 days — ensures 240+ H1 candles across weekends
+    'H4': 720,   // 30 days — ensures 180 H4 candles
+    'D1': 8760   // 365 days — ensures full year of D1 candles
   };
 
   static async guaranteeChartData(
@@ -153,7 +153,7 @@ export class ChartDataGuarantor {
 
       const reversedCandles = [...candles].reverse();
       const validCandles = this.validateCandles(reversedCandles);
-      const gapAnalysis = this.detectGaps(validCandles, timeframe);
+      const gapAnalysis = this.detectGaps(validCandles, timeframe, symbol);
 
       const isComplete = validCandles.length >= targetCount && !gapAnalysis.hasWeekdayGaps;
 
@@ -286,9 +286,26 @@ export class ChartDataGuarantor {
     return transformed;
   }
 
+  private static isCryptoSymbol(symbol: string): boolean {
+    return ['BTCUSD', 'ETHUSD'].includes(symbol.toUpperCase());
+  }
+
+  private static isForexWeekendGap(prevTime: Date, currTime: Date): boolean {
+    const prevDay = prevTime.getUTCDay();
+    const currDay = currTime.getUTCDay();
+    // Any gap that bridges Friday→Saturday, Friday→Sunday, Friday→Monday,
+    // Saturday→Sunday, Saturday→Monday, or Sunday→Monday is a weekend gap for forex.
+    const weekendDays = new Set([0, 6]); // Sunday=0, Saturday=6
+    if (weekendDays.has(prevDay) || weekendDays.has(currDay)) return true;
+    // Friday close (>=17:00 EST) to Monday open — treat entire Fri-Mon span as weekend
+    if (prevDay === 5 && currDay === 1) return true;
+    return false;
+  }
+
   private static detectGaps(
     candles: CandleData[],
-    timeframe: string
+    timeframe: string,
+    symbol?: string
   ): { hasWeekdayGaps: boolean; gaps: Array<{ start: string; end: string; count: number }> } {
     if (candles.length < 2) {
       return { hasWeekdayGaps: false, gaps: [] };
@@ -302,6 +319,7 @@ export class ChartDataGuarantor {
 
     const expectedIntervalMs = intervalSeconds * 1000;
     const gapThreshold = expectedIntervalMs * 1.5;
+    const isCrypto = symbol ? this.isCryptoSymbol(symbol) : false;
 
     const gaps: Array<{ start: string; end: string; count: number }> = [];
     let hasWeekdayGaps = false;
@@ -318,14 +336,8 @@ export class ChartDataGuarantor {
       const timeDiff = currTime.getTime() - prevTime.getTime();
 
       if (timeDiff > gapThreshold) {
-        const prevDay = prevTime.getUTCDay();
-        const currDay = currTime.getUTCDay();
-
-        const isWeekendGap =
-          (prevDay === 5 && currDay === 0) ||
-          (prevDay === 5 && currDay === 1) ||
-          (prevDay === 6 && currDay === 0) ||
-          (prevDay === 6 && currDay === 1);
+        // Crypto runs 24/7 — all gaps are real data gaps regardless of day
+        const isWeekendGap = !isCrypto && this.isForexWeekendGap(prevTime, currTime);
 
         if (!isWeekendGap) {
           hasWeekdayGaps = true;

@@ -78,8 +78,12 @@ class CandleCacheManager {
   }
 
   async getCachedCandles(symbol: string, timeframe: string): Promise<{ candles: CachedCandle[], metadata: CacheMetadata | null }> {
-    await this.initDB();
-    if (!this.db) throw new Error('Database not initialized');
+    try {
+      await this.initDB();
+    } catch {
+      return { candles: [], metadata: null };
+    }
+    if (!this.db) return { candles: [], metadata: null };
 
     // CRITICAL: If force refresh is enabled, skip cache entirely
     if (this.forceRefresh) {
@@ -125,7 +129,13 @@ class CandleCacheManager {
   }
 
   async saveCandles(symbol: string, timeframe: string, candles: any[]): Promise<void> {
-    await this.initDB();
+    try {
+      await this.initDB();
+    } catch (err) {
+      // IndexedDB unavailable (private browsing, storage disabled, or quota exceeded on init)
+      console.warn('[CandleCache] IndexedDB unavailable — skipping cache save:', err);
+      return;
+    }
     if (!this.db || candles.length === 0) return;
 
     const candlesWithIds = candles
@@ -206,7 +216,18 @@ class CandleCacheManager {
       metaStore.put(metadata);
 
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
+      transaction.onerror = (event) => {
+        const err = (event.target as IDBTransaction)?.error;
+        if (err && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+          // Safari and Firefox throw QuotaExceededError when storage is full
+          // Gracefully degrade: clear stale entries and resolve (don't reject — cache is optional)
+          console.warn('[CandleCache] Storage quota exceeded — clearing stale cache and continuing');
+          this.clearStaleCache().catch(() => {});
+          resolve();
+        } else {
+          reject(err);
+        }
+      };
     });
   }
 
