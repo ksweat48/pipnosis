@@ -19,8 +19,8 @@ const SLOW_TIMEFRAMES = ['H4', 'D1']; // Process every 12th run (60 min)
 const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFRAMES];
 
 // SAFETY: Maximum candles to create per timeframe per run (prevents runaway processing)
-// Set to 60 to allow filling a full 55-minute gap on restart (55 M1 candles max)
-const MAX_CANDLES_PER_TIMEFRAME = 60;
+// Set to 720 to allow filling up to a 12-hour gap on restart (720 M1 candles max)
+const MAX_CANDLES_PER_TIMEFRAME = 720;
 
 // WICK RECONSTRUCTION: DISABLED to preserve actual price data integrity
 // CRITICAL: We never artificially extend wicks beyond actual market prices
@@ -620,8 +620,8 @@ async function aggregateCandlesForSymbol(
 
   // ADAPTIVE LOOKBACK: Check the actual last candle time from the DB (no time filter)
   // so that after a restart or long gap, we can compute the correct fetch window.
-  // realtime_prices is retained for ~60 minutes, so cap at 55 minutes.
-  const MAX_REALTIME_RETENTION_MINUTES = 55;
+  // realtime_prices is retained for 24 hours, so cap at 23 hours (1380 minutes).
+  const MAX_REALTIME_RETENTION_MINUTES = 1380;
   const lastM1CandleTime = await getLastCandleTime(symbol, 'M1');
   const now = new Date();
 
