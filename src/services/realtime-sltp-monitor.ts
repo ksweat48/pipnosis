@@ -337,23 +337,40 @@ class RealtimeSLTPMonitor {
       // Update position in memory (flag only, NOT size)
       position.tp1_hit = true;
 
-      // ATR-BASED SL AUTO-MOVE: Protect profits after TP1
-      // Only move SL if position doesn't already have a breakeven SL set
-      if (!position.tp1_breakeven_price) {
+      // ── BACKUP BE SL FAILSAFE ──────────────────────────────────────────────
+      // PRIMARY authority is the database trigger (check_and_close_positions_on_price_update).
+      // It moves the SL atomically in the same UPDATE as tp1_hit=true, on every price tick.
+      // This TypeScript path is a BACKUP that only fires if the trigger has NOT yet moved the
+      // SL (e.g. the tick that triggered TP1 arrived before the trigger fired, or realtime
+      // prices are being inserted at low frequency for this symbol).
+      //
+      // CCIP-2026-BE001: Re-fetch tp1_breakeven_price from the DB immediately after markTP1Hit
+      // succeeds to check if the trigger already handled it. In-memory position.tp1_breakeven_price
+      // is always null at this point (the in-memory copy predates the trigger's UPDATE).
+      const { data: freshTrade } = await import('@/lib/supabase').then(m =>
+        m.supabase
+          .from('goal_session_trades')
+          .select('tp1_breakeven_price, stop_loss')
+          .eq('id', position.id)
+          .maybeSingle()
+      );
+
+      if (freshTrade?.tp1_breakeven_price != null) {
+        // Trigger already handled it — sync in-memory state and skip TS BE move
+        position.stop_loss = freshTrade.stop_loss;
+        position.tp1_breakeven_price = freshTrade.tp1_breakeven_price;
+        console.log(`[RealtimeSLTPMonitor] BE SL already set by trigger: ${freshTrade.tp1_breakeven_price.toFixed(5)} — skipping TS backup path`);
+      } else {
+        // Trigger has NOT fired yet — execute the backup BE SL move
         let atr = await this.fetchATR(position.symbol);
 
         let isFallbackATR = false;
         if (atr === null) {
-          // GOVERNANCE: ATR unavailable — use symbol-class fallback instead of skipping.
-          // Skipping was the root cause of XAUUSD trades running back through the original SL
-          // after TP1 was flagged. The fallback is conservative (smaller than typical live ATR)
-          // so it moves the SL just to breakeven without over-protecting.
           atr = this.getFallbackATR(position.symbol);
           isFallbackATR = true;
           console.warn(
             `[RealtimeSLTPMonitor] ATR unavailable for ${position.symbol} — ` +
-            `using fallback ATR=${atr.toFixed(5)} to ensure SL moves to breakeven after TP1. ` +
-            `tp1_action_taken will reflect fallback usage.`
+            `using fallback ATR=${atr.toFixed(5)} (TS backup path, trigger did not fire).`
           );
         }
 
@@ -369,10 +386,10 @@ class RealtimeSLTPMonitor {
         if (slResult.success && slResult.newSL !== undefined) {
           position.stop_loss = slResult.newSL;
           position.tp1_breakeven_price = slResult.newSL;
-          console.log(`[RealtimeSLTPMonitor] SL auto-moved to ${slResult.newSL.toFixed(5)} after TP1 (ATR=${atr.toFixed(5)})`);
+          console.log(`[RealtimeSLTPMonitor] TS backup: SL moved to ${slResult.newSL.toFixed(5)} after TP1 (ATR=${atr.toFixed(5)})`);
         } else {
           console.error(
-            `[RealtimeSLTPMonitor] CRITICAL: SL auto-move failed after TP1 for trade ${position.id}:`,
+            `[RealtimeSLTPMonitor] CRITICAL: TS backup BE SL move failed for trade ${position.id}:`,
             slResult.error
           );
         }

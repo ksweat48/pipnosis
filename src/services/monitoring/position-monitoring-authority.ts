@@ -434,12 +434,16 @@ class PositionMonitoringAuthority {
    */
   async markTP1Hit(positionId: string, userId: string, tp1Price: number): Promise<{ success: boolean; already_processed?: boolean; error?: string }> {
     try {
+      // CCIP-2026-BE001: Do NOT set tp1_action_taken here.
+      // The trigger (check_and_close_positions_on_price_update) is the primary authority
+      // and sets tp1_action_taken atomically alongside the BE SL move.
+      // This UPDATE only wins the optimistic lock race when the trigger hasn't fired yet;
+      // in that case autoMoveSLAfterTP1 (called by the backup path) sets tp1_action_taken.
       const { data: updatedRows, error: updateError } = await supabase
         .from('goal_session_trades')
         .update({
           tp1_hit: true,
           tp1_hit_at: new Date().toISOString(),
-          tp1_action_taken: 'advisory_only',
         })
         .eq('id', positionId)
         .eq('user_id', userId)
