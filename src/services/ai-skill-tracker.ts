@@ -264,26 +264,31 @@ class AISkillTracker {
   }
 
   /**
-   * Update skill progression after live trading
-   * Live trades have 2.0x impact on skill progression compared to backtests
-   * IMPORTANT: Only winning trades count toward skill progression
+   * Update skill progression after live trading.
+   * Winning trades award 2.0x XP. Losing trades award 0 XP but still update
+   * rolling calibration metrics (win rate, profit factor) so the tracker
+   * accurately reflects real performance — not just cherry-picked wins.
+   * Alpha learns from ALL trades. Losses sharpen aim, never slow the trigger.
    */
   async updateAfterLiveTrading(
     userId: string,
     winningTradesCount: number,
     winRate: number,
     profitFactor: number,
-    patternsLearned: number
+    patternsLearned: number,
+    riskWeight: number = 1.0,
+    totalTradesCount: number = 1
   ): Promise<{ leveledUp: boolean; newLevel?: SkillLevel; oldLevel?: SkillLevel; validationWarnings?: string[] }> {
-    // Live winning trades count as 2.0x for skill progression (corrected from 1.5x)
-    const adjustedWinningTrades = Math.round(winningTradesCount * 2.0);
+    const adjustedWinningTrades = Math.round(winningTradesCount * 2.0 * riskWeight);
     return this.updateAfterBacktest(
       userId,
       adjustedWinningTrades,
       winRate,
       profitFactor,
       patternsLearned,
-      'live' // Source type for proper weighting
+      'live',
+      0,
+      totalTradesCount
     );
   }
 
@@ -330,7 +335,7 @@ class AISkillTracker {
         return { leveledUp: false, validationWarnings: ['Invalid winning trades count'] };
       }
 
-      if (winningTradesCount === 0) {
+      if (winningTradesCount === 0 && (totalTradesInSession === 0 || sourceType !== 'live')) {
         console.log('[AI Skill Tracker] No winning trades to add. Skipping progression update.');
         return { leveledUp: false, validationWarnings: ['No winning trades to process'] };
       }

@@ -124,6 +124,7 @@ import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle, getEstimatedS
 import { getMinStopLossConstraint } from '../config/trade-parameter-constraints';
 import { wallCalibrationEngine } from '../services/wall-calibration-engine';
 import { resolveCanonicalStyle } from '../config/timeframe-hierarchy';
+import { alphaHunterLearningContext } from '../services/alpha-hunter-learning-context';
 
 /**
  * Helper: Determine asset class from symbol
@@ -954,6 +955,21 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
 
     // Build intelligence context
     let intelligenceContext = this.buildIntelligenceContext(intelligenceSnapshot, marketContext.symbol);
+
+    // Build hunter learning context — sharpens Alpha's entry intelligence (advisory only, no gates)
+    let hunterLearningContextText = '';
+    if (userId) {
+      try {
+        const hunterCtx = await alphaHunterLearningContext.buildContext(
+          userId,
+          marketContext.symbol,
+          goalContext?.tradeStyle
+        );
+        hunterLearningContextText = alphaHunterLearningContext.formatForPrompt(hunterCtx);
+      } catch (error) {
+        console.warn('[Alpha Coordinator] Hunter learning context failed (non-blocking):', error);
+      }
+    }
 
     // Build symbol diagnostic context from trade learning history (min 5 trades on this symbol)
     // CCIP-TIMEOUT-FIX-2026-03-12: symbolTradesRaw was fetched in parallel above — no await needed here.
@@ -3562,7 +3578,7 @@ These three questions replace the need for a "perfect setup". Structure + range 
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
+${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${hunterLearningContextText}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━

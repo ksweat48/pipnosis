@@ -147,28 +147,28 @@ class LiveTradeLearningTrigger {
             ? (recentTrades.filter(t => parseFloat(t.profit_loss.toString()) > 0).length / recentTrades.length) * 100
             : isWinningTrade ? 100 : 0;
 
-          // ONLY update skill progression if trade was a winner
+          // Update skill progression for ALL trades — wins award XP, losses update calibration metrics
+          // Alpha learns from every trade. Losses sharpen aim, never slow the trigger.
+          const totalWeight = 2.0 * riskWeight;
           if (isWinningTrade) {
-            // Apply risk weight to the base 2.0x live trade multiplier
-            const totalWeight = 2.0 * riskWeight;
-            console.log(`[LiveTradeLearningTrigger] 🎯 Trade was profitable! Adding to skill progression (${totalWeight.toFixed(1)}x total weight)`);
-            console.log(`[LiveTradeLearningTrigger] 📊 Rolling metrics: WR=${winRate.toFixed(1)}%, PF=${profitFactor.toFixed(2)}`);
-
-            // Update skill progression using live trading method (2.0x * risk_weight impact)
-            // Pass 1 winning trade count with adjusted weight
-            await aiSkillTracker.updateAfterLiveTrading(
-              userId,
-              1, // 1 winning trade (with 2.0x * risk_weight multiplier applied inside)
-              winRate,
-              profitFactor,
-              learningResult.learningsExtracted,
-              riskWeight // Pass risk weight for proper weighting
-            );
-
-            console.log(`[LiveTradeLearningTrigger] 📊 Skill progression updated`);
+            console.log(`[LiveTradeLearningTrigger] Trade was profitable — skill progression updated (${totalWeight.toFixed(1)}x total weight)`);
           } else {
-            console.log(`[LiveTradeLearningTrigger] ❌ Trade was a loss - no progress added (learning still recorded)`);
+            console.log(`[LiveTradeLearningTrigger] Trade was a loss — calibration metrics updated (win rate, profit factor)`);
           }
+          console.log(`[LiveTradeLearningTrigger] Rolling metrics: WR=${winRate.toFixed(1)}%, PF=${profitFactor.toFixed(2)}`);
+
+          await aiSkillTracker.updateAfterLiveTrading(
+            userId,
+            isWinningTrade ? 1 : 0,
+            winRate,
+            profitFactor,
+            learningResult.learningsExtracted,
+            riskWeight,
+            1
+          );
+
+          console.log(`[LiveTradeLearningTrigger] Skill tracker updated`);
+
         }
       } else {
         // Analysis failed - implement retry logic
