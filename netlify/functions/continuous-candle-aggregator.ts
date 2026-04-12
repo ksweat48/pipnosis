@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
 import { fetchKrakenOHLC } from './_shared/kraken-client';
+import axios from 'axios';
 
 const supabase = getSupabaseAdmin();
 
@@ -732,6 +733,169 @@ async function runKrakenDeadManSwitch(
   return totalSaved;
 }
 
+const DUKASCOPY_SYMBOL_MAP: Record<string, string> = {
+  'EURUSD': 'eurusd',
+  'GBPUSD': 'gbpusd',
+  'USDJPY': 'usdjpy',
+  'XAUUSD': 'xauusd',
+};
+
+const DUKASCOPY_TIMEFRAME_MAP: Record<string, string> = {
+  'M1': '1',
+  'M5': '5',
+  'M15': '15',
+  'M30': '30',
+  'H1': '60',
+  'H4': '240',
+  'D1': 'D',
+};
+
+async function backfillFromDukascopy(
+  symbol: string,
+  timeframe: string,
+  sinceDate: Date
+): Promise<number> {
+  const dukascopySymbol = DUKASCOPY_SYMBOL_MAP[symbol];
+  if (!dukascopySymbol) {
+    return 0;
+  }
+
+  const periodCode = DUKASCOPY_TIMEFRAME_MAP[timeframe];
+  if (!periodCode) return 0;
+
+  try {
+    const startTs = sinceDate.getTime();
+    const endTs = Date.now();
+
+    const response = await axios.get('https://freeserv.dukascopy.com/2.0/', {
+      params: {
+        path: 'chart/candles/get.json',
+        symbol: dukascopySymbol,
+        timeframe: periodCode,
+        start: startTs,
+        end: endTs,
+        format: 'json'
+      },
+      timeout: 15000,
+      headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
+    });
+
+    if (!response.data || !Array.isArray(response.data) || response.data.length === 0) {
+      console.log(`[CandleAggregator] [DukascopySwitch] No data returned for ${symbol} ${timeframe}`);
+      return 0;
+    }
+
+    const intervalMs = TIMEFRAME_MINUTES[timeframe] * 60 * 1000;
+    const now = new Date();
+
+    const validCandles = response.data
+      .map((item: any[]) => ({
+        timestamp: item[0],
+        open: item[1],
+        high: item[2],
+        low: item[3],
+        close: item[4],
+        volume: item[5] || 0
+      }))
+      .filter((c: any) => {
+        if (!c.open || !c.high || !c.low || !c.close) return false;
+        if (c.high < c.low || c.open <= 0) return false;
+        const closeTime = new Date(c.timestamp + intervalMs);
+        return closeTime <= now;
+      });
+
+    if (validCandles.length === 0) return 0;
+
+    const existingCheck = await supabase
+      .from('forex_candles')
+      .select('open_time')
+      .eq('symbol', symbol)
+      .eq('timeframe', timeframe)
+      .gte('open_time', sinceDate.toISOString());
+
+    const existingTimes = new Set(
+      (existingCheck.data || []).map((r: any) => new Date(r.open_time).getTime())
+    );
+
+    const newCandles = validCandles.filter((c: any) => !existingTimes.has(c.timestamp));
+
+    if (newCandles.length === 0) {
+      console.log(`[CandleAggregator] [DukascopySwitch] All ${validCandles.length} ${symbol} ${timeframe} candles already exist`);
+      return 0;
+    }
+
+    const records = newCandles.map((c: any) => ({
+      symbol,
+      timeframe,
+      open_time: new Date(c.timestamp).toISOString(),
+      close_time: new Date(c.timestamp + intervalMs).toISOString(),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+      tick_count: c.volume,
+      data_source: 'dukascopy_deadman',
+      quality_score: 90,
+    }));
+
+    const { error } = await supabase
+      .from('forex_candles')
+      .upsert(records, { onConflict: 'symbol,timeframe,open_time', ignoreDuplicates: false });
+
+    if (error) {
+      console.error(`[CandleAggregator] [DukascopySwitch] DB error for ${symbol} ${timeframe}:`, error.message);
+      return 0;
+    }
+
+    console.log(`[CandleAggregator] [DukascopySwitch] Saved ${newCandles.length} ${symbol} ${timeframe} candles from Dukascopy`);
+    return newCandles.length;
+  } catch (err) {
+    console.error(`[CandleAggregator] [DukascopySwitch] Error for ${symbol} ${timeframe}:`, err instanceof Error ? err.message : err);
+    return 0;
+  }
+}
+
+async function runForexDeadManSwitch(
+  symbol: string,
+  lastM1CandleTime: Date | null
+): Promise<number> {
+  if (!DUKASCOPY_SYMBOL_MAP[symbol]) {
+    return 0;
+  }
+
+  const now = new Date();
+  const gapMinutes = lastM1CandleTime
+    ? (now.getTime() - lastM1CandleTime.getTime()) / 60000
+    : Infinity;
+
+  if (gapMinutes < 10) return 0;
+
+  const gapDesc = lastM1CandleTime
+    ? `${Math.round(gapMinutes)}min gap since ${lastM1CandleTime.toISOString()}`
+    : 'no M1 candles found';
+
+  console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: ${gapDesc} — triggering Dukascopy backfill`);
+
+  const sinceDate = lastM1CandleTime
+    ? new Date(lastM1CandleTime.getTime() - 60 * 1000)
+    : new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  let totalSaved = 0;
+  for (const tf of FAST_TIMEFRAMES) {
+    const saved = await backfillFromDukascopy(symbol, tf, sinceDate);
+    totalSaved += saved;
+  }
+
+  if (totalSaved > 0) {
+    console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Filled ${totalSaved} candles from Dukascopy`);
+  } else {
+    console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Dukascopy returned no new candles (gap: ${Math.round(gapMinutes)}min)`);
+  }
+
+  return totalSaved;
+}
+
 async function aggregateCandlesForSymbol(
   symbol: string,
   timeframesToProcess: string[],
@@ -764,24 +928,34 @@ async function aggregateCandlesForSymbol(
   if (prices.length === 0) {
     console.log(`[CandleAggregator]   ⚠️ ${symbol}: No prices found in last ${lookbackMinutes} minutes`);
 
-    // DEAD-MAN SWITCH: For crypto symbols, attempt Kraken OHLC backfill when tick feed is silent
     if (isCryptoSymbol(symbol)) {
       const krakenSaved = await runKrakenDeadManSwitch(symbol, lastM1CandleTime);
       if (krakenSaved > 0) {
         console.log(`[CandleAggregator]   [DeadManSwitch] ${symbol}: Kraken backfill saved ${krakenSaved} candles`);
         return { candlesCreated: krakenSaved, timedOut: false };
       }
+    } else {
+      const dukascopyForexSaved = await runForexDeadManSwitch(symbol, lastM1CandleTime);
+      if (dukascopyForexSaved > 0) {
+        console.log(`[CandleAggregator]   [ForexDeadManSwitch] ${symbol}: Dukascopy backfill saved ${dukascopyForexSaved} candles`);
+        return { candlesCreated: dukascopyForexSaved, timedOut: false };
+      }
     }
 
     return { candlesCreated: 0, timedOut: false };
   }
 
-  // DEAD-MAN SWITCH: Even when ticks exist, check for a gap on crypto symbols
-  // (covers partial feed restoration where old ticks exist but recent ones are missing)
+  // DEAD-MAN SWITCH: Even when ticks exist, check for a gap and trigger backfill
+  // Covers partial feed restoration where ticks only cover part of the gap
   if (isCryptoSymbol(symbol)) {
     const krakenSaved = await runKrakenDeadManSwitch(symbol, lastM1CandleTime);
     if (krakenSaved > 0) {
       console.log(`[CandleAggregator]   [DeadManSwitch] ${symbol}: Gap-fill saved ${krakenSaved} candles alongside tick aggregation`);
+    }
+  } else {
+    const dukascopyForexSaved = await runForexDeadManSwitch(symbol, lastM1CandleTime);
+    if (dukascopyForexSaved > 0) {
+      console.log(`[CandleAggregator]   [ForexDeadManSwitch] ${symbol}: Dukascopy gap-fill saved ${dukascopyForexSaved} candles alongside tick aggregation`);
     }
   }
 

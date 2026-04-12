@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
+import axios from 'axios';
 
 const supabase = getSupabaseAdmin();
 
@@ -316,6 +317,136 @@ async function fillGapFromSmallerTimeframe(gap: GapInfo): Promise<number> {
   return candlesToInsert.length;
 }
 
+const DUKASCOPY_SYMBOL_MAP: Record<string, string> = {
+  'EURUSD': 'eurusd',
+  'GBPUSD': 'gbpusd',
+  'USDJPY': 'usdjpy',
+  'XAUUSD': 'xauusd',
+};
+
+const DUKASCOPY_TIMEFRAME_MAP: Record<string, string> = {
+  'M1': '1',
+  'M5': '5',
+  'M15': '15',
+  'M30': '30',
+  'H1': '60',
+  'H4': '240',
+  'D1': 'D',
+};
+
+async function fillTrailingEdgeGapFromDukascopy(symbol: string): Promise<number> {
+  const dukascopySymbol = DUKASCOPY_SYMBOL_MAP[symbol];
+  if (!dukascopySymbol) return 0;
+
+  const { data: lastCandleRows } = await supabase
+    .from('forex_candles')
+    .select('open_time')
+    .eq('symbol', symbol)
+    .eq('timeframe', 'M1')
+    .order('open_time', { ascending: false })
+    .limit(1);
+
+  const lastCandleTime = lastCandleRows && lastCandleRows.length > 0
+    ? new Date(lastCandleRows[0].open_time)
+    : new Date(Date.now() - FILLABLE_HOURS * 60 * 60 * 1000);
+
+  const now = new Date();
+  const gapMinutes = (now.getTime() - lastCandleTime.getTime()) / 60000;
+
+  if (gapMinutes < 10) return 0;
+
+  console.log(`[AutoGapFiller] [TrailingEdge] ${symbol}: ${Math.round(gapMinutes)}min trailing gap — backfilling from Dukascopy`);
+
+  const sinceDate = new Date(lastCandleTime.getTime() - 60 * 1000);
+  let totalSaved = 0;
+
+  for (const timeframe of ['M1', 'M5', 'M15']) {
+    const periodCode = DUKASCOPY_TIMEFRAME_MAP[timeframe];
+    if (!periodCode) continue;
+
+    try {
+      const response = await axios.get('https://freeserv.dukascopy.com/2.0/', {
+        params: {
+          path: 'chart/candles/get.json',
+          symbol: dukascopySymbol,
+          timeframe: periodCode,
+          start: sinceDate.getTime(),
+          end: now.getTime(),
+          format: 'json'
+        },
+        timeout: 15000,
+        headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
+      });
+
+      if (!response.data || !Array.isArray(response.data) || response.data.length === 0) continue;
+
+      const intervalMs = TIMEFRAME_SECONDS[timeframe] * 1000;
+
+      const validCandles = response.data
+        .map((item: any[]) => ({
+          timestamp: item[0],
+          open: item[1],
+          high: item[2],
+          low: item[3],
+          close: item[4],
+          volume: item[5] || 0
+        }))
+        .filter((c: any) => {
+          if (!c.open || !c.high || !c.low || !c.close || c.open <= 0) return false;
+          if (c.high < c.low) return false;
+          const closeTime = new Date(c.timestamp + intervalMs);
+          return closeTime <= now;
+        });
+
+      if (validCandles.length === 0) continue;
+
+      const existingCheck = await supabase
+        .from('forex_candles')
+        .select('open_time')
+        .eq('symbol', symbol)
+        .eq('timeframe', timeframe)
+        .gte('open_time', sinceDate.toISOString());
+
+      const existingTimes = new Set(
+        (existingCheck.data || []).map((r: any) => new Date(r.open_time).getTime())
+      );
+
+      const newCandles = validCandles.filter((c: any) => !existingTimes.has(c.timestamp));
+      if (newCandles.length === 0) continue;
+
+      const records = newCandles.map((c: any) => ({
+        symbol,
+        timeframe,
+        open_time: new Date(c.timestamp).toISOString(),
+        close_time: new Date(c.timestamp + intervalMs).toISOString(),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+        tick_count: c.volume,
+        data_source: 'dukascopy_gap_filler',
+        quality_score: 90,
+      }));
+
+      const { error } = await supabase
+        .from('forex_candles')
+        .upsert(records, { onConflict: 'symbol,timeframe,open_time', ignoreDuplicates: false });
+
+      if (!error) {
+        console.log(`[AutoGapFiller] [TrailingEdge] ${symbol} ${timeframe}: Saved ${newCandles.length} candles from Dukascopy`);
+        totalSaved += newCandles.length;
+      }
+    } catch (err) {
+      console.error(`[AutoGapFiller] [TrailingEdge] Dukascopy error for ${symbol} ${timeframe}:`, err instanceof Error ? err.message : err);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  return totalSaved;
+}
+
 async function fillGap(gap: GapInfo, stats: GapFillStats): Promise<number> {
   const gapAgeHours = getGapAgeHours(gap);
 
@@ -439,6 +570,22 @@ export const handler: Handler = async (event, context) => {
         console.log(`[AutoGapFiller] ⚠️ Approaching execution deadline, stopping before ${symbol}`);
         break;
       }
+
+      // TRAILING EDGE CHECK: For Dukascopy-supported forex pairs, detect and fill the
+      // market-open gap (when last candle is many hours ago, before the inter-candle
+      // gap detection can even run). This is the primary fix for the "1 candle" problem.
+      if (DUKASCOPY_SYMBOL_MAP[symbol] && isForexMarketOpen) {
+        try {
+          const trailingFilled = await fillTrailingEdgeGapFromDukascopy(symbol);
+          if (trailingFilled > 0) {
+            results[`${symbol}_trailing_edge`] = trailingFilled;
+            totalCandlesFilled += trailingFilled;
+          }
+        } catch (error) {
+          console.error(`[AutoGapFiller] Error in trailing edge check for ${symbol}:`, error);
+        }
+      }
+
       for (const timeframe of prioritizedTimeframes) {
         const key = `${symbol}_${timeframe}`;
 
