@@ -316,11 +316,9 @@ export const SmartGoalPanel: React.FC = () => {
         return;
       }
 
-      // RESET GOVERNANCE (2026-04-10): Even if no active session exists in the DB, the
-      // previous session may still have open trades or monitoring intents being cleaned
-      // up. Check the most recent session and confirm it is fully settled before proceeding.
-      // This prevents stale trade records or entry intents from the last session from
-      // contaminating the new one.
+      // RESET GOVERNANCE (2026-04-10): Auto-settle the previous session before starting
+      // a new one. If the previous session still has open trades or monitoring intents,
+      // force-cancel them now so the user never has to wait or retry manually.
       try {
         const { data: lastSession } = await supabase
           .from('goal_sessions')
@@ -336,14 +334,24 @@ export const SmartGoalPanel: React.FC = () => {
             p_session_id: lastSession.id,
           });
           if (settled === false) {
-            toast.error(
-              'Previous Session Still Closing',
-              'Your last session is still wrapping up. Please wait a moment before starting a new one.',
-              6000
-            );
-            setError('Previous session is still closing. Please wait a moment then try again.');
-            setLoading(false);
-            return;
+            // Auto-settle: force-cancel any residual intents and orphans from the last session
+            try {
+              await supabase.rpc('cancel_all_session_intents', { p_session_id: lastSession.id });
+            } catch { /* non-fatal */ }
+            try {
+              await supabase.rpc('cleanup_orphaned_intents', { p_session_id: lastSession.id });
+            } catch { /* non-fatal */ }
+
+            // Re-check after forced cleanup — only block if still unsettled (genuine DB issue)
+            const { data: settledAfterCleanup } = await supabase.rpc('session_is_fully_settled', {
+              p_session_id: lastSession.id,
+            });
+            if (settledAfterCleanup === false) {
+              console.warn('[SmartGoalPanel] Previous session still unsettled after forced cleanup — blocking new session');
+              setError('Previous session is still closing. Please wait a moment then try again.');
+              setLoading(false);
+              return;
+            }
           }
         }
       } catch {

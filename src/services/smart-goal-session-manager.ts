@@ -939,7 +939,17 @@ class SmartGoalSessionManager {
         console.log('[Smart Goal] Cleared scan timer');
       }
 
-      // STEP 3: Log governance tracking for the closure operation
+      // STEP 3: Belt-and-suspenders cleanup — ensure all intents are cancelled before
+      // returning so that session_is_fully_settled() passes immediately on the next
+      // session creation attempt without the user having to wait or retry.
+      try {
+        await supabase.rpc('cancel_all_session_intents', { p_session_id: sessionId });
+      } catch { /* non-fatal */ }
+      try {
+        await supabase.rpc('cleanup_orphaned_intents', { p_session_id: sessionId });
+      } catch { /* non-fatal */ }
+
+      // STEP 4: Log governance tracking for the closure operation
       const tradesClosed = result.steps_completed?.trades_closed?.count ||
                           (typeof result.steps_completed?.trades_closed === 'number' ? result.steps_completed.trades_closed : 0);
       const intentsCanceled = result.steps_completed?.intents_canceled || 0;
