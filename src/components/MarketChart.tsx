@@ -1147,9 +1147,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       if (!liveTickStreamActive.current) {
         setCurrentPrice(latestCandle.close);
-        setLastUpdate(new Date());
-        setUpdateCount(prev => prev + 1);
       }
+      // Always update lastUpdate so the "Last updated" timestamp stays accurate
+      // regardless of whether live tick stream or database polling is providing data
+      setLastUpdate(new Date());
+      setUpdateCount(prev => prev + 1);
 
       setSystemStatus('connected');
       setDataQualityWarning(null);
@@ -1692,6 +1694,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
         if (isCrypto && price.source) {
           setCryptoDataSource(price.source);
+        }
+
+        // Show data quality warning when price is not from a live source
+        if (price.dataQuality && price.dataQuality !== 'LIVE' && price.fallbackLevel && price.fallbackLevel > 1) {
+          const ageWarnings: Record<string, string> = {
+            RECENT_CACHE: 'Price data may be up to 10 seconds delayed',
+            STALE_CACHE: 'Price data is delayed — live feed temporarily unavailable',
+            EMERGENCY_FALLBACK: 'Live price feed unavailable — displaying last known price',
+            LAST_RESORT: 'Live price feed unavailable — displaying last known price'
+          };
+          setDataQualityWarning(ageWarnings[price.dataQuality] || 'Price data may be delayed');
+        } else {
+          setDataQualityWarning(null);
         }
 
         // CRITICAL FIX: Save tick to database so it persists and can be queried by forming candle
@@ -2468,8 +2483,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 </span>
               </div>
               {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
-                <div className="text-[9px] text-gray-500 px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
-                  {cryptoDataSource.replace('-live', '').toUpperCase()}
+                <div className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                  dataQualityWarning
+                    ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+                    : 'text-gray-500 bg-blue-500/10 border-blue-500/20'
+                }`}>
+                  {dataQualityWarning ? 'DELAYED' : cryptoDataSource.replace('-live', '').toUpperCase()}
                 </div>
               )}
             </div>
@@ -2489,8 +2508,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
               </div>
               {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
-                <div className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  {cryptoDataSource.replace('-live', '').toUpperCase()}
+                <div className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
+                  dataQualityWarning
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                    : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                }`}>
+                  {dataQualityWarning ? 'DELAYED' : cryptoDataSource.replace('-live', '').toUpperCase()}
                 </div>
               )}
             </div>

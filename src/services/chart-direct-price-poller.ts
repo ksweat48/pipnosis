@@ -50,6 +50,8 @@ interface LivePrice {
   brokerTime?: string;
   midPrice: number;
   source: string; // Can be 'metaapi', 'database', 'kraken-live', 'binance-live', 'coingecko-live', 'cryptocompare-live'
+  dataQuality?: string; // 'LIVE' | 'RECENT_CACHE' | 'STALE_CACHE' | 'EMERGENCY_FALLBACK' | 'LAST_RESORT'
+  fallbackLevel?: number; // 1 = live, 2-5 = various fallback levels
 }
 
 interface PollerOptions {
@@ -365,7 +367,9 @@ class ChartDirectPricePoller {
             timestamp: brokerTime || new Date().toISOString(),
             brokerTime,
             midPrice,
-            source: actualSource
+            source: actualSource,
+            dataQuality: data.dataQuality || 'LIVE',
+            fallbackLevel: data.fallbackLevel || 1
           });
         }
       } catch (error) {
@@ -391,10 +395,15 @@ class ChartDirectPricePoller {
       return [];
     }
 
+    // Only fetch prices that are at most 2 minutes old to prevent serving stale DB data
+    const maxAgeMs = 120000;
+    const cutoffTime = new Date(Date.now() - maxAgeMs).toISOString();
+
     const { data, error } = await supabase
       .from('realtime_prices')
       .select('symbol, bid, ask, broker_time, created_at')
       .in('symbol', symbolList)
+      .gte('created_at', cutoffTime)
       .order('broker_time', { ascending: false })
       .limit(symbolList.length);
 

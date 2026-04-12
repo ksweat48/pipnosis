@@ -13,16 +13,20 @@ function isCryptoSymbol(symbol: string): boolean {
 
 const lastKrakenPrices: Map<string, { bid: number; ask: number; timestamp: number }> = new Map();
 
-// Track price history for staleness detection
+// Track price history for staleness detection - keyed by "symbol:source"
 const priceHistory: Map<string, Array<{ bid: number; ask: number; timestamp: number; source: string }>> = new Map();
-// PHASE 2 FIX: Separate thresholds for crypto vs forex
-const CRYPTO_STALENESS_THRESHOLD_MS = 120000; // 2 minutes for crypto (low volatility OK)
+const CRYPTO_STALENESS_THRESHOLD_MS = 30000; // 30 seconds for crypto (same as forex - crypto is volatile)
 const FOREX_STALENESS_THRESHOLD_MS = 30000; // 30 seconds for forex
 const MAX_PRICE_HISTORY = 10;
 
-// Track source failures for cooldown
+// Track source failures for cooldown - keyed by "symbol:source" for per-symbol isolation
+// Reduced from 120s to 20s: a brief API failure should not lock out a source for 2 full minutes
 const sourceFailures: Map<string, { count: number; lastFailure: number; cooldownUntil: number }> = new Map();
-const SOURCE_COOLDOWN_MS = 120000; // 2 minutes cooldown after failure
+const SOURCE_COOLDOWN_MS = 20000; // 20 seconds cooldown after failure (was 2 minutes)
+
+// Hard maximum age for any fallback price served to the chart
+// Prices older than this are rejected outright rather than served as "live"
+const MAX_FALLBACK_AGE_SECONDS = 60;
 
 type CryptoSource = 'kraken' | 'binance' | 'coingecko' | 'cryptocompare';
 
@@ -150,13 +154,18 @@ async function getMetaApiPrice(symbol: string): Promise<{ bid: number; ask: numb
 }
 
 function isPriceStale(symbol: string, currentPrice: { bid: number; ask: number }): boolean {
+  // NOTE: This function only detects staleness via in-memory price history.
+  // On Netlify cold starts, history is empty and this returns false (price accepted).
+  // That is acceptable for Level 1 (live API sources) because Kraken/Binance always
+  // return current market prices. Fallback stale-data protection is handled separately
+  // via MAX_FALLBACK_AGE_SECONDS on levels 2-5.
   const history = priceHistory.get(symbol) || [];
 
   if (history.length === 0) {
+    console.log(`[get-live-price] No price history yet for ${symbol} (cold start or first call) - accepting price`);
     return false;
   }
 
-  // PHASE 2 FIX: Use different thresholds for crypto vs forex
   const isCrypto = isCryptoSymbol(symbol);
   const STALENESS_THRESHOLD_MS = isCrypto ? CRYPTO_STALENESS_THRESHOLD_MS : FOREX_STALENESS_THRESHOLD_MS;
 
@@ -167,7 +176,7 @@ function isPriceStale(symbol: string, currentPrice: { bid: number; ask: number }
     return false;
   }
 
-  // Check if all recent prices are identical
+  // Check if all recent prices are identical (price not moving = possible API returning cached data)
   const allSame = recentPrices.every(p =>
     p.bid === currentPrice.bid && p.ask === currentPrice.ask
   );
@@ -177,7 +186,7 @@ function isPriceStale(symbol: string, currentPrice: { bid: number; ask: number }
     const staleDuration = now - oldestRecentPrice.timestamp;
 
     if (staleDuration > STALENESS_THRESHOLD_MS) {
-      console.warn(`[get-live-price] ⚠️ STALE PRICE DETECTED for ${symbol}: unchanged for ${(staleDuration/1000).toFixed(1)}s (threshold: ${STALENESS_THRESHOLD_MS/1000}s for ${isCrypto ? 'crypto' : 'forex'})`);
+      console.warn(`[get-live-price] ⚠️ STALE PRICE DETECTED for ${symbol}: unchanged for ${(staleDuration/1000).toFixed(1)}s (threshold: ${STALENESS_THRESHOLD_MS/1000}s)`);
       return true;
     }
   }
@@ -203,23 +212,26 @@ function addPriceToHistory(symbol: string, bid: number, ask: number, source: str
   priceHistory.set(symbol, history);
 }
 
-function isSourceInCooldown(source: CryptoSource): boolean {
-  const failure = sourceFailures.get(source);
+function isSourceInCooldown(source: CryptoSource, symbol: string): boolean {
+  // Per-symbol cooldown key prevents one symbol's failure from blocking another symbol's source
+  const key = `${symbol}:${source}`;
+  const failure = sourceFailures.get(key);
   if (!failure) return false;
 
   const now = Date.now();
   if (now < failure.cooldownUntil) {
     const remainingSeconds = Math.ceil((failure.cooldownUntil - now) / 1000);
-    console.warn(`[get-live-price] Source ${source} is in cooldown for ${remainingSeconds}s more`);
+    console.warn(`[get-live-price] Source ${source} in cooldown for ${symbol}: ${remainingSeconds}s remaining`);
     return true;
   }
 
   return false;
 }
 
-function recordSourceFailure(source: CryptoSource): void {
+function recordSourceFailure(source: CryptoSource, symbol: string): void {
+  const key = `${symbol}:${source}`;
   const now = Date.now();
-  const existing = sourceFailures.get(source);
+  const existing = sourceFailures.get(key);
 
   const newFailure = {
     count: (existing?.count || 0) + 1,
@@ -227,13 +239,13 @@ function recordSourceFailure(source: CryptoSource): void {
     cooldownUntil: now + SOURCE_COOLDOWN_MS
   };
 
-  sourceFailures.set(source, newFailure);
-  console.warn(`[get-live-price] Recorded failure for ${source} (${newFailure.count} total), cooldown until ${new Date(newFailure.cooldownUntil).toISOString()}`);
+  sourceFailures.set(key, newFailure);
+  console.warn(`[get-live-price] Recorded failure for ${source}/${symbol} (${newFailure.count} total), cooldown ${SOURCE_COOLDOWN_MS / 1000}s`);
 }
 
-function recordSourceSuccess(source: CryptoSource): void {
+function recordSourceSuccess(source: CryptoSource, symbol: string): void {
   // Clear failure count on success
-  sourceFailures.delete(source);
+  sourceFailures.delete(`${symbol}:${source}`);
 }
 
 async function fetchFromCryptoSource(symbol: string, source: CryptoSource): Promise<{ bid: number; ask: number }> {
@@ -258,8 +270,8 @@ async function getMultiSourceCryptoPrice(symbol: string): Promise<PriceResult> {
   console.log(`[get-live-price] 🔄 Multi-source crypto price fetch for ${symbol}...`);
 
   for (const source of sources) {
-    // Skip sources in cooldown
-    if (isSourceInCooldown(source)) {
+    // Skip sources in cooldown (per-symbol isolation)
+    if (isSourceInCooldown(source, symbol)) {
       continue;
     }
 
@@ -267,18 +279,18 @@ async function getMultiSourceCryptoPrice(symbol: string): Promise<PriceResult> {
       console.log(`[get-live-price] 📡 Trying ${source} for ${symbol}...`);
       const priceData = await fetchFromCryptoSource(symbol, source);
 
-      // Check for staleness
+      // Check for staleness (in-memory history based)
       const isStale = isPriceStale(symbol, priceData);
 
       if (isStale) {
         console.warn(`[get-live-price] ⚠️ ${source} returned stale price for ${symbol}, trying next source...`);
-        recordSourceFailure(source);
+        recordSourceFailure(source, symbol);
         continue;
       }
 
       // Price looks good, record it
       addPriceToHistory(symbol, priceData.bid, priceData.ask, source);
-      recordSourceSuccess(source);
+      recordSourceSuccess(source, symbol);
 
       console.log(`[get-live-price] ✅ ${source} SUCCESS: ${symbol} = ${priceData.bid}/${priceData.ask}`);
 
@@ -290,7 +302,7 @@ async function getMultiSourceCryptoPrice(symbol: string): Promise<PriceResult> {
       };
     } catch (error) {
       console.error(`[get-live-price] ❌ ${source} failed for ${symbol}:`, error instanceof Error ? error.message : String(error));
-      recordSourceFailure(source);
+      recordSourceFailure(source, symbol);
       continue;
     }
   }
@@ -549,36 +561,48 @@ export const handler: Handler = async (event) => {
       // Level 2: Recent cache (< 10 seconds)
       console.log(`[get-live-price][${requestId}] Level 2: Trying recent cache (<10s)...`);
       const recentCache = await getCachedPrice(symbol, 10);
-      if (recentCache) {
+      if (recentCache && recentCache.ageSeconds <= MAX_FALLBACK_AGE_SECONDS) {
         priceData = recentCache;
         fetchMethod = 'recent-cache';
         fallbackLevel = 2;
         console.warn(`[get-live-price][${requestId}] ⚠️ Using recent cache (${recentCache.ageSeconds}s old, quality: ${recentCache.quality}%)`);
       } else {
-        console.warn(`[get-live-price][${requestId}] ❌ Level 2 failed, no recent cache`);
+        if (recentCache) {
+          console.warn(`[get-live-price][${requestId}] ❌ Level 2 rejected: cache is ${recentCache.ageSeconds}s old (max ${MAX_FALLBACK_AGE_SECONDS}s)`);
+        } else {
+          console.warn(`[get-live-price][${requestId}] ❌ Level 2 failed, no recent cache`);
+        }
 
-        // Level 3: Stale cache (< 60 seconds)
-        console.log(`[get-live-price][${requestId}] Level 3: Trying stale cache (<60s)...`);
-        const staleCache = await getCachedPrice(symbol, 60);
-        if (staleCache) {
+        // Level 3: Stale cache (< 60 seconds) - hard cap enforced by MAX_FALLBACK_AGE_SECONDS
+        console.log(`[get-live-price][${requestId}] Level 3: Trying stale cache (<${MAX_FALLBACK_AGE_SECONDS}s)...`);
+        const staleCache = await getCachedPrice(symbol, MAX_FALLBACK_AGE_SECONDS);
+        if (staleCache && staleCache.ageSeconds <= MAX_FALLBACK_AGE_SECONDS) {
           priceData = staleCache;
           fetchMethod = 'stale-cache';
           fallbackLevel = 3;
           console.warn(`[get-live-price][${requestId}] ⚠️ Using stale cache (${staleCache.ageSeconds}s old, quality: ${staleCache.quality}%)`);
         } else {
-          console.warn(`[get-live-price][${requestId}] ❌ Level 3 failed, no stale cache`);
+          if (staleCache) {
+            console.warn(`[get-live-price][${requestId}] ❌ Level 3 rejected: cache is ${staleCache.ageSeconds}s old (max ${MAX_FALLBACK_AGE_SECONDS}s) - refusing to serve stale data`);
+          } else {
+            console.warn(`[get-live-price][${requestId}] ❌ Level 3 failed, no stale cache within age limit`);
+          }
 
-          // Level 4-5: Emergency fallback and last resort
-          console.log(`[get-live-price][${requestId}] Level 4-5: Trying emergency fallback...`);
+          // Level 4-5: Emergency fallback and last resort - only accepted if within age limit
+          console.log(`[get-live-price][${requestId}] Level 4-5: Trying emergency fallback (max age ${MAX_FALLBACK_AGE_SECONDS}s)...`);
           const fallback = await getFallbackPrice(symbol);
-          if (fallback) {
+          if (fallback && fallback.ageSeconds <= MAX_FALLBACK_AGE_SECONDS) {
             priceData = fallback;
             fetchMethod = fallback.source;
             fallbackLevel = fallback.source === 'emergency-fallback' ? 4 : 5;
             console.warn(`[get-live-price][${requestId}] ⚠️ Using ${fallback.source} (${fallback.ageSeconds}s old, quality: ${fallback.quality}%)`);
           } else {
-            console.error(`[get-live-price][${requestId}] ❌ CRITICAL: All fallback levels exhausted for ${symbol}`);
-            throw new Error(`No price data available for ${symbol} at any fallback level. Original error: ${metaError instanceof Error ? metaError.message : String(metaError)}`);
+            if (fallback) {
+              console.error(`[get-live-price][${requestId}] ❌ Level 4-5 rejected: fallback price is ${fallback.ageSeconds}s old (max ${MAX_FALLBACK_AGE_SECONDS}s) - this would display months-old price data`);
+            } else {
+              console.error(`[get-live-price][${requestId}] ❌ CRITICAL: All fallback levels exhausted for ${symbol}`);
+            }
+            throw new Error(`No fresh price data available for ${symbol}. All sources failed and cached data exceeded maximum age of ${MAX_FALLBACK_AGE_SECONDS}s. Original error: ${metaError instanceof Error ? metaError.message : String(metaError)}`);
           }
         }
       }
