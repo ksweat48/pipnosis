@@ -1690,9 +1690,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       if (price.symbol === symbol) {
         console.log(`[Chart][${symbol}] 📈 Direct price update from ${price.source}: ${price.midPrice.toFixed(5)}`);
 
-        // Track crypto data source for UI display
-        const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
-        if (isCrypto && price.source) {
+        // Track price data source for UI display (all symbols)
+        if (price.source) {
           setCryptoDataSource(price.source);
         }
 
@@ -2482,7 +2481,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
                 </span>
               </div>
-              {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
+              {cryptoDataSource && (
                 <div className={`text-[9px] px-1.5 py-0.5 rounded border ${
                   dataQualityWarning
                     ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
@@ -2507,7 +2506,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 <Activity size={14} />
                 {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
               </div>
-              {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
+              {cryptoDataSource && (
                 <div className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
                   dataQualityWarning
                     ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
