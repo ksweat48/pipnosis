@@ -19,8 +19,8 @@ const SLOW_TIMEFRAMES = ['H4', 'D1']; // Process every 12th run (60 min)
 const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFRAMES];
 
 // SAFETY: Maximum candles to create per timeframe per run (prevents runaway processing)
-// INCREASED from 3 to 10 for better completion rates
-const MAX_CANDLES_PER_TIMEFRAME = 10;
+// Set to 60 to allow filling a full 55-minute gap on restart (55 M1 candles max)
+const MAX_CANDLES_PER_TIMEFRAME = 60;
 
 // WICK RECONSTRUCTION: DISABLED to preserve actual price data integrity
 // CRITICAL: We never artificially extend wicks beyond actual market prices
@@ -618,9 +618,24 @@ async function aggregateCandlesForSymbol(
   const symbolStartTime = Date.now();
   console.log(`[CandleAggregator]   📊 Starting aggregation for ${symbol}...`);
 
-  // OPTIMIZATION: Fetch 10 minutes of recent prices to ensure complete candle coverage
-  // INCREASED from 3 to 10 minutes to prevent gaps when function is delayed
-  const lookbackMinutes = 10; // CRITICAL: Extended lookback for 100% candle completion
+  // ADAPTIVE LOOKBACK: Check the actual last candle time from the DB (no time filter)
+  // so that after a restart or long gap, we can compute the correct fetch window.
+  // realtime_prices is retained for ~60 minutes, so cap at 55 minutes.
+  const MAX_REALTIME_RETENTION_MINUTES = 55;
+  const lastM1CandleTime = await getLastCandleTime(symbol, 'M1');
+  const now = new Date();
+
+  let lookbackMinutes: number;
+  if (lastM1CandleTime) {
+    const gapMinutes = Math.ceil((now.getTime() - lastM1CandleTime.getTime()) / 60000);
+    // Add 2 extra minutes buffer, cap at realtime_prices retention window
+    lookbackMinutes = Math.min(gapMinutes + 2, MAX_REALTIME_RETENTION_MINUTES);
+    console.log(`[CandleAggregator]   🕐 ${symbol}: Last M1 candle was ${gapMinutes}min ago — using ${lookbackMinutes}min lookback`);
+  } else {
+    lookbackMinutes = MAX_REALTIME_RETENTION_MINUTES;
+    console.log(`[CandleAggregator]   🕐 ${symbol}: No prior M1 candle found — using max ${lookbackMinutes}min lookback`);
+  }
+
   const prices = await fetchRecentPrices(symbol, lookbackMinutes);
 
   if (prices.length === 0) {
@@ -633,7 +648,6 @@ async function aggregateCandlesForSymbol(
   console.log(`[CandleAggregator]   📈 ${symbol}: Fetched ${prices.length} prices from ${firstPriceTime.toISOString()} to ${lastPriceTime.toISOString()}`);
 
   let candlesCreated = 0;
-  const now = new Date();
   const candlesToSave: CandleData[] = [];
 
   for (const timeframe of timeframesToProcess) {
@@ -650,7 +664,7 @@ async function aggregateCandlesForSymbol(
     const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
 
     // OPTIMIZATION: Fetch ALL existing candles for this time range in ONE query
-    // This eliminates per-candle database queries in the loop
+    // Use the same adaptive lookback window so we catch all candles that may need updating
     const lookbackTime = new Date(now.getTime() - lookbackMinutes * 60 * 1000);
     const { data: existingCandles } = await supabase
       .from('forex_candles')
@@ -671,16 +685,21 @@ async function aggregateCandlesForSymbol(
     const currentCandleStart = roundTimeToCandle(now, timeframeMinutes);
     const previousCandleStart = new Date(currentCandleStart.getTime() - timeframeMinutes * 60 * 1000);
 
-    // Get the last saved candle for this symbol/timeframe
-    const lastSavedCandle = existingCandleTimes.size > 0
+    // Get the last saved candle — use DB result from Set (window-scoped), or fall back to
+    // getLastCandleTime result (M1 already fetched above; for other TFs get from existingCandles).
+    // If nothing exists in the lookback window, default to the start of available tick data.
+    const lastSavedInWindow = existingCandleTimes.size > 0
       ? new Date(Math.max(...Array.from(existingCandleTimes)))
-      : new Date(previousCandleStart.getTime() - (9 * timeframeMinutes * 60 * 1000)); // Default to 10 candles back if none exist
+      : null;
 
-    // Start from one period after the last saved candle, or 10 candles ago (whichever is more recent)
-    const tenCandlesAgo = new Date(previousCandleStart.getTime() - (9 * timeframeMinutes * 60 * 1000));
-    const startFrom = lastSavedCandle > tenCandlesAgo
-      ? new Date(lastSavedCandle.getTime() + timeframeMinutes * 60 * 1000)
-      : tenCandlesAgo;
+    // The earliest candle we can possibly build is bounded by oldest available tick
+    const oldestTickTime = firstPriceTime;
+    const oldestTickCandleStart = roundTimeToCandle(oldestTickTime, timeframeMinutes);
+
+    // Start from one period after last saved candle, or oldest available tick (whichever is later)
+    const startFrom = lastSavedInWindow
+      ? new Date(lastSavedInWindow.getTime() + timeframeMinutes * 60 * 1000)
+      : oldestTickCandleStart;
     const endAt = previousCandleStart;
 
     // BACKFILL LOOP: Create all missing candles
