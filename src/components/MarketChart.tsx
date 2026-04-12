@@ -173,6 +173,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const safeguardTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isChartReadyRef = useRef<boolean>(false);
   const isInitializingRef = useRef<boolean>(false);
+  const initRequestIdRef = useRef<number>(0);
+  const previousSymbolRef = useRef<string>(symbol);
+  const previousTimeframeRef = useRef<Timeframe>(chartPreferencesService.getTimeframe(symbol));
 
   // Notify parent component of price updates
   useEffect(() => {
@@ -1164,6 +1167,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
 
   const initializeChart = async (showLoadingState = true) => {
+    const requestId = ++initRequestIdRef.current;
+
     isChartReadyRef.current = false;
     isInitializingRef.current = true;
     try {
@@ -1196,6 +1201,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         ChartDataGuarantor.guaranteeChartDataWithBackfill(symbol, timeframe, targetCandleCount),
         timeoutPromise
       ]);
+
+      if (requestId !== initRequestIdRef.current || !isMountedRef.current) {
+        console.log(`[Chart Init] Discarding stale result for ${symbol} (request ${requestId} superseded by ${initRequestIdRef.current})`);
+        return;
+      }
+
       console.log(`[Chart Init] ⚠️ CRITICAL: Guarantor returned ${result.candles.length} candles (target: ${targetCandleCount})`);
 
       console.log(`[Chart Init] Guarantor result:`, {
@@ -1222,6 +1233,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           .eq('timeframe', timeframe)
           .order('open_time', { ascending: false })
           .limit(emergencyLimit);
+
+        if (requestId !== initRequestIdRef.current || !isMountedRef.current) {
+          console.log(`[Chart Init] Discarding stale emergency query for ${symbol}`);
+          return;
+        }
 
         if (directError) {
           console.error('[Chart Init] Direct query error:', directError);
@@ -1343,11 +1359,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         // CRITICAL FIX: Reconstruct the current in-progress candle from database ticks
         console.log('[Chart Init] 🔄 Attempting to reconstruct current candle from database ticks...');
         try {
+          if (requestId !== initRequestIdRef.current || !isMountedRef.current) {
+            console.log(`[Chart Init] Discarding stale reconstruction for ${symbol}`);
+            return;
+          }
+
           const reconstruction = await currentCandleReconstructor.reconstructCurrentCandle(
             symbol,
             timeframe,
             lastCandle.time
           );
+
+          if (requestId !== initRequestIdRef.current || !isMountedRef.current) {
+            console.log(`[Chart Init] Discarding stale reconstruction result for ${symbol}`);
+            return;
+          }
 
           if (reconstruction.wasReconstructed && reconstruction.candle) {
             console.log(`[Chart Init] ✅ Current candle reconstructed from ${reconstruction.tickCount} ticks`);
@@ -1385,6 +1411,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         } catch (error) {
           console.error('[Chart Init] Error reconstructing current candle:', error);
         }
+      }
+
+      if (requestId !== initRequestIdRef.current || !isMountedRef.current) {
+        console.log(`[Chart Init] Discarding stale candle data for ${symbol} before setData`);
+        return;
       }
 
       if (candlestickSeriesRef.current && validatedCandles.length > 0) {
@@ -1602,7 +1633,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     // Mark chart as not ready while switching symbols
     isChartReadyRef.current = false;
-    isInitializingRef.current = false;
 
     // CRITICAL FIX: Force clear ALL chart data when symbol changes to prevent contamination
     try {
@@ -1628,7 +1658,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     // This ensures candles ALWAYS appear
     console.log('[Chart] 🔴 BYPASSING CACHE - Force loading from database...');
 
-    concurrentBulkLoader.interruptForSymbol(symbol, timeframe);
+    concurrentBulkLoader.interruptForSymbol(previousSymbolRef.current, previousTimeframeRef.current);
+    previousSymbolRef.current = symbol;
+    previousTimeframeRef.current = timeframe;
 
     // ALWAYS force fresh database load with loading state
     initializeChart(true);
@@ -2347,7 +2379,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   const handleSymbolChangeInternal = (newSymbol: string) => {
     const savedTimeframe = chartPreferencesService.getTimeframe(newSymbol);
-    setTimeframe(savedTimeframe);
+    chartCandlePoller.stopPolling(previousSymbolRef.current, previousTimeframeRef.current);
+    previousSymbolRef.current = newSymbol;
+    previousTimeframeRef.current = savedTimeframe;
+    if (savedTimeframe !== timeframe) {
+      setTimeframe(savedTimeframe);
+    }
     onSymbolChange(newSymbol);
   };
 
