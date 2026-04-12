@@ -460,14 +460,21 @@ class TradeClosureCoordinator {
     const isWeekendShutdown = closeReason === 'weekend_protection';
     const isTimeout = closeReason === 'timeout';
 
-    // SSOT GOVERNANCE (2026-04-10): Cancel ALL monitoring intents on every close path.
-    // Previously only manual/force_closed paths called cancel_session_intents, meaning
-    // TP/SL hits left monitoring intents live — they could re-fire in the next session.
-    // cancel_all_session_intents is idempotent and handles every close reason.
-    try {
-      await supabase.rpc('cancel_all_session_intents', { p_session_id: sessionId });
-    } catch {
-      // Non-fatal — allChannelsEmpty check below will catch any remaining intents
+    // INTENT CANCELLATION GOVERNANCE:
+    // Only cancel monitoring intents when the USER or SYSTEM explicitly terminates the session.
+    // For TP/SL/system closures, monitoring intents are INDEPENDENT execution channels —
+    // they represent Alpha's deferred entry decisions and must survive a trade closure.
+    // Canceling them on TP/SL hits destroys the wait_pullback/push_confirmation pipeline.
+    //
+    // Manual close / force_closed / weekend / timeout → cancel all intents (session is ending)
+    // TP / SL / system close → do NOT cancel intents (session may continue if intent is live)
+    const shouldCancelIntents = isManualClose || isWeekendShutdown || isTimeout;
+    if (shouldCancelIntents) {
+      try {
+        await supabase.rpc('cancel_all_session_intents', { p_session_id: sessionId });
+      } catch {
+        // Non-fatal
+      }
     }
 
     // Orphan cleanup for all paths (defense-in-depth)
@@ -493,7 +500,23 @@ class TradeClosureCoordinator {
       (pendingOrders?.length || 0) === 0 &&
       (activeIntents?.length || 0) === 0;
 
-    if (!allChannelsEmpty) return;
+    // If there are still active monitoring intents, keep the session alive —
+    // the intent is managing a deferred trade entry. The session must remain
+    // in a state the entry monitor can execute against.
+    if (!allChannelsEmpty) {
+      if ((activeIntents?.length || 0) > 0) {
+        try {
+          await supabase
+            .from('goal_sessions')
+            .update({ status: 'scanning' })
+            .eq('id', sessionId)
+            .in('status', ['active', 'in_trade']);
+        } catch {
+          // Non-fatal — intent monitor will continue regardless
+        }
+      }
+      return;
+    }
 
     // All execution channels are empty - determine next state
     const currentStatus = await goalSessionStateMachine.getCurrentStatus(sessionId);

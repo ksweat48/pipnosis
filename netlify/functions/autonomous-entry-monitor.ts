@@ -57,6 +57,7 @@ interface IntentForMonitoring {
   edge_loss_modal_response: string | null;
   edge_loss_modal_response_at: string | null;
   intent_mode: 'pullback_to_zone' | 'push_confirmation_zone' | null;
+  session_status: string | null;
 }
 
 export const handler: Handler = async (event, context) => {
@@ -116,6 +117,25 @@ export const handler: Handler = async (event, context) => {
     for (const intent of activeIntents as IntentForMonitoring[]) {
       try {
         console.log(`[Entry Monitor] Processing intent ${intent.intent_id.substring(0, 8)} for ${intent.symbol}`);
+
+        // TERMINAL SESSION GUARD: Log when a session is in a terminal state but DO NOT
+        // automatically block execution. The intent's own timeout_at is the SSOT for
+        // whether the intent is still alive. The session status is informational here.
+        // executeIntent() validates session state before inserting a trade.
+        const TERMINAL_SESSION_STATES = ['goal_achieved', 'stopped', 'timeout', 'weekend_shutdown', 'user_stopped'];
+        if (intent.session_status && TERMINAL_SESSION_STATES.includes(intent.session_status)) {
+          const timeoutAt = intent.timeout_at ? new Date(intent.timeout_at) : null;
+          const intentExpired = timeoutAt && timeoutAt < new Date();
+          if (intentExpired) {
+            console.log(`[Entry Monitor] ⏭️ Skipping ${intent.symbol} — session is ${intent.session_status} AND intent has expired. Abandoning.`);
+            await abandonIntent(intent.intent_id, `Session ${intent.session_status} and intent timeout expired`);
+            abandonedCount++;
+            successCount++;
+            results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: true, action: 'abandoned_terminal_session' });
+            continue;
+          }
+          console.log(`[Entry Monitor] ⚠️ Session is ${intent.session_status} but intent timeout not expired — continuing to monitor. Session lifecycle and intent lifecycle are independent.`);
+        }
 
         // GOVERNANCE (2026-02-18, revised 2026-04-11): Only block if the session has an
         // OPEN (status = 'open') trade right now. Closed or historical trades must not
