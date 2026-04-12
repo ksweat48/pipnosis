@@ -271,8 +271,8 @@ async function fetchRecentPrices(symbol: string, lookbackMinutes: number): Promi
     .from('realtime_prices')
     .select('symbol, bid, ask, broker_time, created_at')
     .eq('symbol', symbol)
-    .gte('created_at', cutoffTime.toISOString())
-    .order('created_at', { ascending: true });
+    .gte('broker_time', cutoffTime.toISOString())
+    .order('broker_time', { ascending: true });
 
   if (error) {
     console.error(`[CandleAggregator] Error fetching prices for ${symbol}:`, error.message);
@@ -288,7 +288,6 @@ async function getLastCandleTime(symbol: string, timeframe: string): Promise<Dat
     .select('open_time')
     .eq('symbol', symbol)
     .eq('timeframe', timeframe)
-    .eq('data_source', 'netlify_aggregator')
     .order('open_time', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -881,14 +880,18 @@ async function runForexDeadManSwitch(
     ? new Date(lastM1CandleTime.getTime() - 60 * 1000)
     : new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+  const timeframesToBackfill = gapMinutes >= 480
+    ? [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES]
+    : FAST_TIMEFRAMES;
+
   let totalSaved = 0;
-  for (const tf of FAST_TIMEFRAMES) {
+  for (const tf of timeframesToBackfill) {
     const saved = await backfillFromDukascopy(symbol, tf, sinceDate);
     totalSaved += saved;
   }
 
   if (totalSaved > 0) {
-    console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Filled ${totalSaved} candles from Dukascopy`);
+    console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Filled ${totalSaved} candles from Dukascopy (${timeframesToBackfill.join(', ')})`);
   } else {
     console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Dukascopy returned no new candles (gap: ${Math.round(gapMinutes)}min)`);
   }
@@ -934,12 +937,14 @@ async function aggregateCandlesForSymbol(
         console.log(`[CandleAggregator]   [DeadManSwitch] ${symbol}: Kraken backfill saved ${krakenSaved} candles`);
         return { candlesCreated: krakenSaved, timedOut: false };
       }
-    } else {
+    } else if (DUKASCOPY_SYMBOL_MAP[symbol]) {
       const dukascopyForexSaved = await runForexDeadManSwitch(symbol, lastM1CandleTime);
       if (dukascopyForexSaved > 0) {
         console.log(`[CandleAggregator]   [ForexDeadManSwitch] ${symbol}: Dukascopy backfill saved ${dukascopyForexSaved} candles`);
         return { candlesCreated: dukascopyForexSaved, timedOut: false };
       }
+    } else {
+      console.log(`[CandleAggregator]   [NoFallback] ${symbol}: No tick data and no dead-man fallback available (index with no OHLC source)`);
     }
 
     return { candlesCreated: 0, timedOut: false };
@@ -952,15 +957,15 @@ async function aggregateCandlesForSymbol(
     if (krakenSaved > 0) {
       console.log(`[CandleAggregator]   [DeadManSwitch] ${symbol}: Gap-fill saved ${krakenSaved} candles alongside tick aggregation`);
     }
-  } else {
+  } else if (DUKASCOPY_SYMBOL_MAP[symbol]) {
     const dukascopyForexSaved = await runForexDeadManSwitch(symbol, lastM1CandleTime);
     if (dukascopyForexSaved > 0) {
       console.log(`[CandleAggregator]   [ForexDeadManSwitch] ${symbol}: Dukascopy gap-fill saved ${dukascopyForexSaved} candles alongside tick aggregation`);
     }
   }
 
-  const firstPriceTime = new Date(prices[0].created_at);
-  const lastPriceTime = new Date(prices[prices.length - 1].created_at);
+  const firstPriceTime = new Date(prices[0].broker_time);
+  const lastPriceTime = new Date(prices[prices.length - 1].broker_time);
   console.log(`[CandleAggregator]   📈 ${symbol}: Fetched ${prices.length} prices from ${firstPriceTime.toISOString()} to ${lastPriceTime.toISOString()}`);
 
   let candlesCreated = 0;
@@ -1074,7 +1079,7 @@ async function aggregateCandlesForSymbol(
         // FALLBACK: If lower timeframe aggregation fails, try tick data
         if (!candle && (timeframe === 'M1' || timeframe === 'M5')) {
           const candlePrices = prices.filter(p => {
-            const priceTime = new Date(p.created_at);
+            const priceTime = new Date(p.broker_time);
             return priceTime >= currentCandleToCreate && priceTime < candleEndTime;
           });
 
@@ -1085,7 +1090,7 @@ async function aggregateCandlesForSymbol(
       } else {
         // FOUNDATION PATH: Build M1 and M5 from tick data
         const candlePrices = prices.filter(p => {
-          const priceTime = new Date(p.created_at);
+          const priceTime = new Date(p.broker_time);
           return priceTime >= currentCandleToCreate && priceTime < candleEndTime;
         });
 
