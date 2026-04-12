@@ -166,6 +166,13 @@
   timeout = 60
   schedule = "*/5 * * * *"
 
+# 🔍 PRICE FEED WATCHDOG: Detects crypto tick-feed silence and self-heals via Kraken OHLC (every 5 min)
+# Fires when realtime_prices has received no ticks for > 3 minutes on BTCUSD or ETHUSD.
+# Backfills M1/M5/M15 directly from Kraken OHLC so charts never go dark.
+[functions."price-feed-watchdog"]
+  timeout = 60
+  schedule = "*/5 * * * *"
+
 # 💰 PHASE 3B: Daily PIP Utility Index Computation (runs daily at midnight UTC)
 # CALCULATION: Computes dynamic PIP utility value based on platform activity
 # INPUTS: 30-day credits spent, PIP burned, staked ratio, active users, liquid supply

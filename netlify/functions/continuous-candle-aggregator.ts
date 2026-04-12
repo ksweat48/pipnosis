@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
+import { fetchKrakenOHLC } from './_shared/kraken-client';
 
 const supabase = getSupabaseAdmin();
 
@@ -609,6 +610,128 @@ async function aggregateFromM5Candles(
   return aggregateFromLowerTimeframe(symbol, timeframe, 'M5', startTime, endTime);
 }
 
+/**
+ * DEAD-MAN SWITCH: Fetches Kraken OHLC candles and saves them directly to the DB.
+ * Triggered when the tick feed has been silent (no ticks → no M1 candles for > 10 min).
+ * Uses `data_source = 'kraken_backfill'` and `quality_score = 90`.
+ * Only runs for crypto symbols (BTCUSD, ETHUSD).
+ */
+async function backfillFromKrakenOHLC(
+  symbol: string,
+  timeframe: string,
+  sinceDate: Date
+): Promise<number> {
+  try {
+    const sinceSec = Math.floor(sinceDate.getTime() / 1000);
+    const candles = await fetchKrakenOHLC(symbol, timeframe, sinceSec);
+
+    if (candles.length === 0) {
+      console.log(`[CandleAggregator] [KrakenBackfill] No OHLC candles returned for ${symbol} ${timeframe}`);
+      return 0;
+    }
+
+    const now = new Date();
+    const intervalMs = TIMEFRAME_MINUTES[timeframe] * 60 * 1000;
+
+    // Only save completed (closed) candles — exclude the currently forming one
+    const completedCandles = candles.filter(c => c.closeTime <= now);
+
+    if (completedCandles.length === 0) {
+      console.log(`[CandleAggregator] [KrakenBackfill] All candles are still forming for ${symbol} ${timeframe}`);
+      return 0;
+    }
+
+    // Check which timestamps already exist so we don't overwrite higher-quality data
+    const existingCheck = await supabase
+      .from('forex_candles')
+      .select('open_time')
+      .eq('symbol', symbol)
+      .eq('timeframe', timeframe)
+      .gte('open_time', sinceDate.toISOString());
+
+    const existingTimes = new Set(
+      (existingCheck.data || []).map(r => new Date(r.open_time).getTime())
+    );
+
+    const newCandles = completedCandles.filter(c => !existingTimes.has(c.openTime.getTime()));
+
+    if (newCandles.length === 0) {
+      console.log(`[CandleAggregator] [KrakenBackfill] All ${completedCandles.length} ${symbol} ${timeframe} candles already exist`);
+      return 0;
+    }
+
+    const records = newCandles.map(c => ({
+      symbol,
+      timeframe,
+      open_time: c.openTime.toISOString(),
+      close_time: c.closeTime.toISOString(),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+      tick_count: c.volume,
+      data_source: 'kraken_backfill',
+      quality_score: 90,
+    }));
+
+    const { error } = await supabase
+      .from('forex_candles')
+      .upsert(records, { onConflict: 'symbol,timeframe,open_time', ignoreDuplicates: false });
+
+    if (error) {
+      console.error(`[CandleAggregator] [KrakenBackfill] DB error for ${symbol} ${timeframe}:`, error.message);
+      return 0;
+    }
+
+    console.log(`[CandleAggregator] [KrakenBackfill] Saved ${newCandles.length} ${symbol} ${timeframe} candles from Kraken OHLC`);
+    return newCandles.length;
+  } catch (err) {
+    console.error(`[CandleAggregator] [KrakenBackfill] Error for ${symbol} ${timeframe}:`, err instanceof Error ? err.message : err);
+    return 0;
+  }
+}
+
+/**
+ * DEAD-MAN SWITCH: Detect a gap in M1 crypto candles and trigger Kraken OHLC backfill.
+ * If the last netlify_aggregator M1 candle is > 10 minutes old and the symbol is crypto,
+ * we fetch OHLC from Kraken for all fast timeframes to fill the gap.
+ * Returns total candles saved across all filled timeframes.
+ */
+async function runKrakenDeadManSwitch(
+  symbol: string,
+  lastM1CandleTime: Date | null
+): Promise<number> {
+  const now = new Date();
+  const gapMinutes = lastM1CandleTime
+    ? (now.getTime() - lastM1CandleTime.getTime()) / 60000
+    : Infinity;
+
+  if (gapMinutes < 10) return 0;
+
+  const gapDesc = lastM1CandleTime
+    ? `${Math.round(gapMinutes)}min gap since ${lastM1CandleTime.toISOString()}`
+    : 'no M1 candles found';
+
+  console.log(`[CandleAggregator] [DeadManSwitch] ${symbol}: ${gapDesc} — triggering Kraken OHLC backfill`);
+
+  const sinceDate = lastM1CandleTime
+    ? new Date(lastM1CandleTime.getTime() - 60 * 1000)
+    : new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  let totalSaved = 0;
+  for (const tf of FAST_TIMEFRAMES) {
+    const saved = await backfillFromKrakenOHLC(symbol, tf, sinceDate);
+    totalSaved += saved;
+  }
+
+  if (totalSaved > 0) {
+    console.log(`[CandleAggregator] [DeadManSwitch] ${symbol}: Filled ${totalSaved} candles from Kraken OHLC`);
+  }
+
+  return totalSaved;
+}
+
 async function aggregateCandlesForSymbol(
   symbol: string,
   timeframesToProcess: string[],
@@ -640,7 +763,26 @@ async function aggregateCandlesForSymbol(
 
   if (prices.length === 0) {
     console.log(`[CandleAggregator]   ⚠️ ${symbol}: No prices found in last ${lookbackMinutes} minutes`);
+
+    // DEAD-MAN SWITCH: For crypto symbols, attempt Kraken OHLC backfill when tick feed is silent
+    if (isCryptoSymbol(symbol)) {
+      const krakenSaved = await runKrakenDeadManSwitch(symbol, lastM1CandleTime);
+      if (krakenSaved > 0) {
+        console.log(`[CandleAggregator]   [DeadManSwitch] ${symbol}: Kraken backfill saved ${krakenSaved} candles`);
+        return { candlesCreated: krakenSaved, timedOut: false };
+      }
+    }
+
     return { candlesCreated: 0, timedOut: false };
+  }
+
+  // DEAD-MAN SWITCH: Even when ticks exist, check for a gap on crypto symbols
+  // (covers partial feed restoration where old ticks exist but recent ones are missing)
+  if (isCryptoSymbol(symbol)) {
+    const krakenSaved = await runKrakenDeadManSwitch(symbol, lastM1CandleTime);
+    if (krakenSaved > 0) {
+      console.log(`[CandleAggregator]   [DeadManSwitch] ${symbol}: Gap-fill saved ${krakenSaved} candles alongside tick aggregation`);
+    }
   }
 
   const firstPriceTime = new Date(prices[0].created_at);

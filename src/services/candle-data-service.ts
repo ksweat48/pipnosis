@@ -9,6 +9,17 @@ import {
 } from '@/config/timeframe-hierarchy';
 import { isMarketOpenAt, getTimeframeLookbackHours } from '@/utils/marketHours';
 
+function triggerPriceFeedWatchdog(): void {
+  try {
+    const base = typeof window !== 'undefined' ? window.location.origin : '';
+    fetch(`${base}/.netlify/functions/price-feed-watchdog`, { method: 'GET' })
+      .then(() => console.log('[CandleData] Watchdog backfill triggered'))
+      .catch(() => {});
+  } catch {
+    // Fire-and-forget; never block chart load
+  }
+}
+
 function appTimeframeToDb(timeframe: Timeframe): string {
   return formatTimeframeForDb(timeframe);
 }
@@ -475,6 +486,22 @@ export async function fetchPreAggregatedCandles(
     }
 
     console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe} (db: ${dbTimeframe})`);
+
+    // GAP DETECTION: Check for large gaps in crypto candle history and trigger background backfill
+    if (candles.length >= 2 && ['BTCUSD', 'ETHUSD'].includes(symbol.toUpperCase()) && ['M1', 'M5', 'M15'].includes(timeframe)) {
+      const tfMinutes = TIMEFRAME_MINUTES[timeframe] ?? 5;
+      const gapThresholdMs = tfMinutes * 10 * 60 * 1000;
+      let largestGapMs = 0;
+      for (let i = 1; i < candles.length; i++) {
+        const gapMs = (candles[i].time - candles[i - 1].time) * 1000;
+        if (gapMs > largestGapMs) largestGapMs = gapMs;
+      }
+      if (largestGapMs > gapThresholdMs) {
+        console.warn(`[CandleData] GAP DETECTED for ${symbol} ${timeframe}: largest gap ${Math.round(largestGapMs / 60000)}min — triggering watchdog backfill`);
+        triggerPriceFeedWatchdog();
+      }
+    }
+
     return candles;
   } catch (error) {
     console.error('Error fetching pre-aggregated candles:', error);

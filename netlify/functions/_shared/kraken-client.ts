@@ -1,15 +1,44 @@
 /**
- * Kraken API Client - Real-time Ticker Data
+ * Kraken API Client - Real-time Ticker Data + OHLC Historical Data
  *
  * Provides unrestricted access to crypto price data via Kraken's public REST API.
- * No authentication required for public ticker endpoint.
+ * No authentication required for public ticker or OHLC endpoints.
  *
  * Key Benefits:
  * - No geo-restrictions (unlike Binance)
  * - Real-time bid/ask prices
  * - Tick-by-tick accuracy for BTC and ETH
+ * - Historical OHLC: up to 720 candles per timeframe for gap-backfill
  * - Reliable 99.9%+ uptime
  */
+
+export interface KrakenOHLCCandle {
+  openTime: Date;
+  closeTime: Date;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+interface KrakenOHLCResponse {
+  error: string[];
+  result: {
+    [pair: string]: Array<[number, string, string, string, string, string, string, number]>;
+    last: number;
+  };
+}
+
+const OHLC_INTERVAL_MAP: Record<string, number> = {
+  M1: 1,
+  M5: 5,
+  M15: 15,
+  M30: 30,
+  H1: 60,
+  H4: 240,
+  D1: 1440,
+};
 
 interface KrakenTickerData {
   a: string[];  // ask [price, whole lot volume, lot volume]
@@ -102,4 +131,82 @@ export async function fetchKrakenTicker(symbol: string): Promise<{ bid: number; 
   });
 
   return { bid, ask };
+}
+
+/**
+ * Fetch historical OHLC candles from Kraken for gap-backfill.
+ * Returns up to 720 candles for the requested timeframe.
+ * The `since` parameter (Unix seconds) limits how far back to fetch.
+ */
+export async function fetchKrakenOHLC(
+  symbol: string,
+  timeframe: string,
+  since?: number
+): Promise<KrakenOHLCCandle[]> {
+  const krakenSymbol = SYMBOL_MAP[symbol];
+  if (!krakenSymbol) {
+    throw new Error(`Symbol ${symbol} not supported by Kraken OHLC client`);
+  }
+
+  const interval = OHLC_INTERVAL_MAP[timeframe];
+  if (!interval) {
+    throw new Error(`Timeframe ${timeframe} not supported by Kraken OHLC client`);
+  }
+
+  const intervalMs = interval * 60 * 1000;
+
+  let url = `${KRAKEN_API_BASE}/OHLC?pair=${krakenSymbol}&interval=${interval}`;
+  if (since !== undefined) {
+    url += `&since=${since}`;
+  }
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Kraken OHLC API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data: KrakenOHLCResponse = await response.json();
+
+  if (data.error && data.error.length > 0) {
+    throw new Error(`Kraken OHLC API error: ${data.error.join(', ')}`);
+  }
+
+  const resultKeys = Object.keys(data.result).filter(k => k !== 'last');
+  if (resultKeys.length === 0) {
+    throw new Error(`No OHLC data returned for ${symbol} ${timeframe}`);
+  }
+
+  const rawCandles = data.result[resultKeys[0]];
+  if (!Array.isArray(rawCandles) || rawCandles.length === 0) {
+    return [];
+  }
+
+  const candles: KrakenOHLCCandle[] = [];
+  for (const row of rawCandles) {
+    const openTimeSec = row[0];
+    const open = parseFloat(row[1]);
+    const high = parseFloat(row[2]);
+    const low = parseFloat(row[3]);
+    const close = parseFloat(row[4]);
+    const volume = parseFloat(row[6]);
+
+    if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) continue;
+    if (open === 0 || high === 0 || low === 0 || close === 0) continue;
+    if (open === high && high === low && low === close) continue;
+
+    const openTime = new Date(openTimeSec * 1000);
+    const closeTime = new Date(openTimeSec * 1000 + intervalMs);
+
+    candles.push({ openTime, closeTime, open, high, low, close, volume });
+  }
+
+  return candles;
 }
