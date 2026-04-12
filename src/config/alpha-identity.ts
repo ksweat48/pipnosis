@@ -807,16 +807,18 @@ export function getAlphaSystemPromptForStyle(style: StyleName): string {
   // INTRADAY:       entry=M15, trend=H1,  context=H4   → primary=M15, control=H4,  confirmation=H1
   //
   // SCALP NOTE: SSOT designates M1 as entry but the entire SCALP pipeline operates with
-  // M5 as the primary entry lens (PRIMARY_TF_MAP = M5, m5ContextPrompt, M5 ATR).
-  // M1 is used for timing refinement (confirmationTF) and fakeout detection only.
-  // This is intentional and internally consistent — do NOT migrate SCALP to M1-primary.
+  // CCIP-2026-04-11: SCALP primary lens migrated from M5 to M1.
+  // SCALP: M1 = entry lens (PRIMARY_TF_MAP = M1, recentPrimary = M1 candles)
+  //        M5 = trend validation and TP structural reference (confirmationTF)
+  //        M15 = session context (controlTF)
+  // MICRO_INTRADAY / INTRADAY: unchanged.
   //
   // primary = entry lens (Q1 direction source, Q9 wicks)
   // control = context TF (Q12 market phase, range position, bigger picture)
-  // confirmation = trend/timing TF (Q4 momentum timing, trigger validity)
-  const primaryTF = isScalp ? 'M5' : isMicro ? 'M5' : 'M15';
+  // confirmation = trend/validation TF (Q4 momentum timing, trigger validity)
+  const primaryTF = isScalp ? 'M1' : isMicro ? 'M5' : 'M15';
   const controlTF = isScalp ? 'M15' : isMicro ? 'H1' : 'H4';
-  const confirmationTF = isScalp ? 'M1' : isMicro ? 'M15' : 'H1';
+  const confirmationTF = isScalp ? 'M5' : isMicro ? 'M15' : 'H1';
 
   const arenaWalls = `HARD STOPS — mathematical impossibilities and data integrity gates only:
 - GEOMETRY: BUY requires SL < Entry < TP. SELL requires TP < Entry < SL. Any inversion = no structure.
@@ -844,7 +846,7 @@ BUY or SELL:
   "sl_structural_reference": "SL at [price] — behind [named level]. Invalidated if [condition]. ~[X] pips.",
   "tp_structural_reference": "TP at [price] — [named zone/level]. ~[X] pips. R:R [X]:1.",
   "tp_structural_justification": "Why TP is here vs alternatives — named structural reason.",
-  "estimated_duration_minutes": "${isScalp ? 'M5-scale estimate — a scalp should resolve within 30-90 minutes. Arithmetic shown. If my estimate exceeds 90 minutes I must explain why the TP is still a scalp-scale target and not a swing target.' : isMicro ? 'M15-scale estimate — a MICRO_INTRADAY trade should resolve within the session window (roughly 1-4 hours). Arithmetic shown. If my estimate exceeds 4 hours I must explain why the TP is still a M15-scale structural target and not an intraday campaign target.' : 'ATR-based estimate with arithmetic shown.'}",
+  "estimated_duration_minutes": "${isScalp ? 'M1-scale estimate — a scalp enters on M1 structure and targets a named M5 level. It should resolve within 5-30 minutes. Arithmetic shown. If my estimate exceeds 30 minutes I must explain why the TP is still a scalp-scale M5 target and not a swing target.' : isMicro ? 'M15-scale estimate — a MICRO_INTRADAY trade should resolve within the session window (roughly 1-4 hours). Arithmetic shown. If my estimate exceeds 4 hours I must explain why the TP is still a M15-scale structural target and not an intraday campaign target.' : 'ATR-based estimate with arithmetic shown.'}",
   "edge_summary": "1-2 sentences: specific structural reason for probability advantage.",
   "confidence_anchor": "What I am most certain about, move stage, primary uncertainty.",
   "reasoning": {
@@ -863,7 +865,7 @@ BUY or SELL:
   "counter_thesis_probability": <0-100>,
   "entry_mode": "execute_now|wait_pullback|push_confirmation",
   "thesis_coherence_statement": "My honest read of the trade: direction, structural basis, and conviction. If my answer_sheet contains conflicting readings, state them and how they affect my confidence. My action is always my own judgment.",${isScalp ? `
-  "scalp_structural_confirmation": "Named M5 anchor — swing high/low, FVG, BOS, or EMA at specific price.",` : ''}${isMicro ? `
+  "m1_structural_confirmation": "Named M1 anchor — M1 swing high/low, FVG, BOS, or EMA at specific price, confirmed by M5 trend direction.",` : ''}${isMicro ? `
   "m5_structural_confirmation": "Named M5 anchor this trade is built from — swing, FVG, BOS, or EMA at specific price. M15 validates the direction; M5 is the entry anchor.",` : ''}${isIntraday ? `
   "m15_structural_confirmation": "Named M15 anchor this trade is built from — swing, FVG, BOS, or EMA at specific price. H1 validates the trend direction; M15 is the entry anchor.",` : ''}
   ${isScalp ? '' : '"tp1": <price>,  // MANDATORY — conservative partial target. A response without this field is malformed.\n  '}"trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "tp1_action": "move_sl_to_breakeven|move_sl_to_level|hold_sl", "tp1_sl_level": <price — required only when tp1_action is move_sl_to_level>, "tp1_condition": "<optional named market condition for this instruction>", "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}

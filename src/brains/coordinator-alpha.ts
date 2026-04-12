@@ -1606,14 +1606,14 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: SCALP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are operating as a M5 SCALP trader.
-Timeframe stack: M5 (entry lens — my primary signal) | M1 (timing refinement and entry trigger) | M15 (trend/structural validation) | H1 (advisory context only).
-I read M5 candles as my primary entry signal. M1 refines the entry trigger and timing within the M5 structure. M15 validates the broader trend direction.
-TP is a single named M5 structural level — scalp targets one clean M5 leg, not an H1 pool.
-Name the specific M5 structural level you are trading from in scalp_structural_confirmation.
-Format: "[structure type] at [exact price] — [what confirms it]". Example: "M5 BOS at 1.08230 confirmed long bias on M15 trend".
-Valid M5 anchors: named M5 S/R levels, range boundaries (range top/bottom), session highs/lows, equal highs/lows, VWAP, EMA rejections, and prior M5 swing points.
-Record scalp_structural_confirmation, scalp_momentum_phase, and scalp_atr_traveled in the JSON response — these are audit fields required regardless of action.
+You are operating as a M1 SCALP trader.
+Timeframe stack: M1 (entry lens — my primary signal) | M5 (trend validation and TP structural reference) | M15 (context and session bias).
+I read M1 candles as my primary entry signal. M5 validates the trend direction and provides the structural levels I am targeting for TP. M15 gives session bias.
+TP is a single named M5 structural level — a scalp targets one clean M1 leg into a named M5 structural target. My entry anchor lives on M1; my TP destination is a named M5 level.
+Name the specific M1 structural level you are entering from in m1_structural_confirmation.
+Format: "[structure type] at [exact price] — [what M5 context confirms it]". Example: "M1 BOS at 1.08230 confirmed by M5 bullish trend bias".
+Valid M1 anchors: named M1 swing high/low, M1 FVG, M1 BOS, M1 EMA rejection, M1 equal highs/lows, M1 range boundary, session open level.
+Record m1_structural_confirmation, scalp_momentum_phase, and scalp_atr_traveled in the JSON response — these are audit fields required regardless of action.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : tradeStyle === 'MICRO_INTRADAY'
@@ -1810,7 +1810,12 @@ If the structure has materially changed — direction broken, key level invalida
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // M5 SCALP CONTEXT (ADVISORY - ONLY FOR SCALP STYLE)
+    // M5 STRUCTURAL VALIDATION CONTEXT (SCALP ONLY)
+    // CCIP-2026-04-11: Repositioned from "M5 entry lens reference" to
+    // "M5 structural validation layer". SCALP enters on M1 candles;
+    // M5 provides the trend direction and TP structural target sizing.
+    // M5 swing data is the correct reference for TP sizing — M1 swings
+    // are too small to use as TP targets for meaningful scalp profit.
     // ═══════════════════════════════════════════════════════════════════
     let m5ContextPrompt = '';
     if (getDisplayNameFromStyle(tradeStyle) === 'SCALP') {
@@ -1823,52 +1828,53 @@ If the structure has materially changed — direction broken, key level invalida
         m5ContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 M5 SCALP CONTEXT (${marketContext.symbol}) — ADVISORY REFERENCE
+M5 STRUCTURAL VALIDATION (${marketContext.symbol}) — TREND AUTHORITY & TP SIZING REFERENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Reference data for the M5 lens I am trading. Use to calibrate TP/SL placement:
+M5 is my validation layer. I enter on M1 structure; M5 validates trend direction and names the structural level I am targeting for TP.
+My M1 entry must be in the direction of M5 trend bias. My TP is a named M5 structural level — one clean M1 leg into a named M5 target.
 
-M5 Statistics (Recent Behavior):
+M5 Statistics (TP Sizing Reference):
 • Avg M5 Swing: ${m5Context.avgSwingPips} pips
 • Recent M5 Swings: ${m5Context.recentSwings.join(', ')} pips
-• Current M5 Progress: ${(m5Context.currentSwingProgress * 100).toFixed(0)}% through typical swing
-• M5 ATR: ${m5Context.m5ATR} pips (baseline stop size reference)
+• Current M5 Swing Progress: ${(m5Context.currentSwingProgress * 100).toFixed(0)}% through typical M5 swing
+• M5 ATR: ${m5Context.m5ATR} pips (stop sizing authority)
 
 Session Context:
 • Session: ${m5Context.session}
 • Typical ${m5Context.session} M5 Range: ${m5Context.sessionTypicalRange}
 
-Reference Ranges (GUIDANCE, not limits):
-• Suggested TP Range: ${m5Context.suggestedTPRange[0]}-${m5Context.suggestedTPRange[1]} pips
-• Suggested SL Range: ${m5Context.suggestedSLRange[0]}-${m5Context.suggestedSLRange[1]} pips
+TP Sizing Reference (GUIDANCE — I have full authority over TP placement):
+• Typical M5 TP Range: ${m5Context.suggestedTPRange[0]}-${m5Context.suggestedTPRange[1]} pips
+• Typical M5 SL Range: ${m5Context.suggestedSLRange[0]}-${m5Context.suggestedSLRange[1]} pips
 
-ADVISORY REMINDERS:
-- These are REFERENCE RANGES derived from recent M5 swing behavior
-- I have FULL AUTHORITY to exceed them when structural justification is documented
-- My TP targets ONE named M5 structural level — one clean M5 leg, not an H1 pool
-- If my TP exceeds the typical M5 range (>60 pips), I must name the structural reason
+VALIDATION REMINDERS:
+- I enter on M1 price action; my TP must land on a named M5 structural level
+- TP sizing is anchored to M5 swing behavior — M1 swings are too small for scalp TP targets
+- I have FULL AUTHORITY over TP/SL placement when I name the structural justification
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-        console.log(`[Alpha Coordinator] 📊 M5 Context: ${m5Context.avgSwingPips} pip avg, ${m5Context.session} session`);
+        console.log(`[Alpha Coordinator] M5 Validation Context: ${m5Context.avgSwingPips} pip avg, ${m5Context.session} session`);
       } catch (error) {
-        console.warn('[Alpha Coordinator] ⚠️ Failed to fetch M5 context:', error);
-        // Non-blocking - continue without M5 context
+        console.warn('[Alpha Coordinator] Failed to fetch M5 validation context (non-blocking):', error);
       }
     }
 
     // ═══════════════════════════════════════════════════════════════════
     // PRIMARY TIMEFRAME CANDLE CONTEXT (STYLE-AWARE - for entry advisory)
     // SSOT: MarketDataService is the single authority for candle data
-    // CCIP 2026-02-18: Entry advisory MUST analyze the trade's primary
-    // timeframe first. M1 is timing refinement only, not the primary signal.
-    // SSOT (timeframe-hierarchy.ts STYLE_MTF_CONFIGS):
-    // SCALP:          entry=M5,  trend=M15, context=M15
-    // MICRO_INTRADAY: entry=M5,  trend=M15, context=H1
-    // INTRADAY:       entry=M15, trend=H1,  context=H4
-    // CCIP-2026-04-08 cascade shift applied to all three styles.
+    // CCIP-2026-04-11: SCALP primary lens migrated from M5 to M1.
+    // Root cause: M5 as SCALP entry lens caused trades to hold through M5 legs
+    // instead of M1 legs, resulting in over-extension and stop-outs.
+    // SSOT authority: timeframe-hierarchy.ts STYLE_MTF_CONFIGS already declared
+    // M1 as SCALP entry TF — this map now honours that declaration.
+    // SCALP:          entry=M1 (20 candles), trend/TP-ref=M5, context=M15
+    // MICRO_INTRADAY: entry=M5 (15 candles), trend=M15, context=H1
+    // INTRADAY:       entry=M15 (15 candles), trend=H1, context=H4
+    // ATR NOTE: SCALP stop sizing uses M5 ATR (atr20) — M1 ATR is too noisy.
     // PRIMARY_TF_MAP fetches the entry timeframe candles — the primary signal lens.
     // ═══════════════════════════════════════════════════════════════════
     const PRIMARY_TF_MAP: Record<string, { timeframe: string; label: string; candleCount: number }> = {
-      'SCALP': { timeframe: 'M5', label: 'M5', candleCount: 15 },
+      'SCALP': { timeframe: 'M1', label: 'M1', candleCount: 20 },
       'MICRO_INTRADAY': { timeframe: 'M5', label: 'M5', candleCount: 15 },
       'INTRADAY': { timeframe: 'M15', label: 'M15', candleCount: 15 },
     };
@@ -2205,11 +2211,13 @@ ${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardle
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // SCALP M5 MOVE PHASE ADVISORY
-        // Entry analysis runs on M5 candles (recentPrimary = M5 per PRIMARY_TF_MAP).
-        // ATR reference is also M5 (atrForStopLoss = M5 ATR via atr20).
-        // Phase thresholds are expressed in M5 ATR units — consistent with the
-        // M5 primary entry lens. M1 is used for timing refinement only.
+        // SCALP M1 MOVE PHASE ADVISORY
+        // CCIP-2026-04-11: SCALP primary lens migrated from M5 to M1.
+        // Entry analysis now runs on M1 candles (recentPrimary = M1).
+        // ATR reference remains M5 (atrForStopLoss = M5 ATR via atr20) —
+        // M1 ATR is too noisy for stop sizing. Phase thresholds expressed in
+        // M5 ATR units so stop sizing is structurally grounded while the entry
+        // swing origin is derived from M1 price action.
         // Advisory only — Alpha retains full decision authority.
         // ═══════════════════════════════════════════════════════════════════
         if (styleName === 'SCALP' && atrForStopLoss > 0) {
@@ -2269,31 +2277,31 @@ ${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardle
 
           const fakeoutBlockM5 = fakeoutTypeM5
             ? `
-M5 FAKEOUT DETECTION:
-A ${fakeoutTypeM5} was detected ${fakeoutCandlesAgoM5} M5 candle(s) ago. A candle swept a recent M5 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5 ? 'YES — subsequent M5 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
+M1 FAKEOUT DETECTION:
+A ${fakeoutTypeM5} was detected ${fakeoutCandlesAgoM5} M1 candle(s) ago. A candle swept a recent M1 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5 ? 'YES — subsequent M1 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
 ${fakeoutTypeM5 === 'BEARISH_FAKEOUT'
-  ? 'BEARISH FAKEOUT: Price swept above a prior M5 high and rejected. This is a classic bull trap on the M5 chart. Entering LONG at current price carries fakeout-reversal risk — explicit M5 structural justification required.'
-  : 'BULLISH FAKEOUT: Price swept below a prior M5 low and rejected. This is a classic bear trap on the M5 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit M5 structural justification required.'}
+  ? 'BEARISH FAKEOUT: Price swept above a prior M1 high and rejected. This is a classic M1 bull trap. Entering LONG at current price carries fakeout-reversal risk — explicit M1 structural justification required.'
+  : 'BULLISH FAKEOUT: Price swept below a prior M1 low and rejected. This is a classic M1 bear trap. Entering SHORT at current price carries fakeout-reversal risk — explicit M1 structural justification required.'}
 `
             : '';
 
           scalpMovePhaseContext = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SCALP M5 MOVE STAGE ADVISORY (${marketContext.symbol})
+SCALP M1 MOVE STAGE ADVISORY (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed from M5 candle data (entry lens). ATR reference is M5 (stop sizing quality).
-ACTIVE M5 ATR: ${m5AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM5}p | Developing ${freshCeilingM5}–${developingCeilingM5}p | Exhausted > ${developingCeilingM5}p
+Pre-computed from M1 candle data (entry lens). ATR reference is M5 (stop sizing authority — M1 ATR is too noisy).
+ACTIVE M5 ATR: ${m5AtrPips.toFixed(1)} pips | Phase thresholds vs M5 ATR: Fresh < ${freshCeilingM5}p | Developing ${freshCeilingM5}–${developingCeilingM5}p | Exhausted > ${developingCeilingM5}p
 
-Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M5 swing origin (~${atrTraveledM5.toFixed(2)}x M5 ATR)
-M5 Move Phase: ${m5MovePhase}
+Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M1 swing origin (~${atrTraveledM5.toFixed(2)}x M5 ATR)
+M1 Move Phase: ${m5MovePhase}
 Assessment: ${phaseLabelM5}
 
 ${m5MovePhase === 'DEVELOPING'
-  ? `DEVELOPING STAGE — RUNWAY AUDIT: Document the remaining structural space from current price to your single SCALP TP. State: "Remaining runway to TP: ~X pips. R:R from current price: X:1." If R:R to your named TP is below 1.0:1, document whether you can tighten to the next achievable M5 structure — and reflect your honest R:R assessment in your conviction score. Alpha decides the action.`
+  ? `DEVELOPING STAGE — RUNWAY AUDIT: Document the remaining structural space from current price to your single SCALP TP (named M5 structural level). State: "Remaining runway to TP: ~X pips. R:R from current price: X:1." If R:R to your named TP is below 1.0:1, document whether you can tighten to the next achievable M5 structure — and reflect your honest R:R assessment in your conviction score. Alpha decides the action.`
   : m5MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The M5 leg has traveled > 1.5x ATR. Look for a reversal scalp or M5 structural retest setup rather than a continuation entry. Document the nearest M5 structural re-entry zone and achievable R:R from current price. Reflect your honest assessment of structural quality and R:R in your conviction score. Alpha decides the action.`
-    : `FRESH STAGE — Full confidence window. Structural space to your SCALP TP is available. Both continuation and pullback scalp entries are valid.`
+    ? `EXHAUSTED STAGE — The M1 leg has traveled > 1.5x M5 ATR. Look for a reversal scalp or M1 structural retest setup rather than a continuation entry. Document the nearest M5 structural re-entry zone and achievable R:R from current price. Reflect your honest assessment of structural quality and R:R in your conviction score. Alpha decides the action.`
+    : `FRESH STAGE — Full confidence window. Structural space to your SCALP TP is available. Both continuation and pullback M1 entries are valid.`
 }
 ${fakeoutBlockM5}MANDATORY JSON FIELDS — Include in your response regardless of action:
   "scalp_momentum_phase": "${m5MovePhase.toLowerCase()}"
@@ -3156,49 +3164,54 @@ ${intradayD1StructureBlock}
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // M1 MICRO PRICE ACTION CONTEXT (ALL STYLES - timing refinement)
-    // SSOT: MarketDataService is the single authority for candle data
-    // CCIP 2026-02-18: M1 is SECONDARY to the primary timeframe.
-    // Use M1 to refine entry timing WITHIN a primary-TF-confirmed zone.
-    // M1 signals alone do NOT override primary TF structure.
+    // M1 PRICE ACTION CONTEXT (ALL STYLES)
+    // CCIP-2026-04-11: For SCALP, M1 IS the primary entry timeframe.
+    // The M1 block is rendered with SCALP-specific headers and framing.
+    // For MICRO_INTRADAY and INTRADAY, M1 remains timing refinement only.
+    // SSOT: MarketDataService is the single authority for candle data.
+    // NOTE: For SCALP, this block is redundant with primaryTfCandlePrompt
+    // (which now fetches M1 candles via PRIMARY_TF_MAP). To avoid sending
+    // M1 data twice, this block is skipped for SCALP — the primary candle
+    // block already contains the M1 signal data Alpha needs.
     // ═══════════════════════════════════════════════════════════════════
     let m1MicroContextPrompt = '';
-    try {
-      const mds = MarketDataService.getInstance();
-      const m1CandleCount = tradeStyle === 'SCALP' ? 20 : tradeStyle === 'MICRO_INTRADAY' ? 12 : 8;
-      const m1Candles = await mds.getCandles(marketContext.symbol, 'M1', m1CandleCount);
+    if (tradeStyle !== 'SCALP') {
+      try {
+        const mds = MarketDataService.getInstance();
+        const m1CandleCount = tradeStyle === 'MICRO_INTRADAY' ? 12 : 8;
+        const m1Candles = await mds.getCandles(marketContext.symbol, 'M1', m1CandleCount);
 
-      if (m1Candles && m1Candles.length >= 5) {
-        const recentM1 = m1Candles.slice(0, m1CandleCount).reverse();
-        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+        if (m1Candles && m1Candles.length >= 5) {
+          const recentM1 = m1Candles.slice(0, m1CandleCount).reverse();
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
-        const m1Lines: string[] = recentM1.map((c, i) => {
-          const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
-          const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
-          const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
-          const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
-        });
+          const m1Lines: string[] = recentM1.map((c, i) => {
+            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          });
 
-        let consecutiveSameDir = 1;
-        for (let i = recentM1.length - 2; i >= 0; i--) {
-          const prevDir = recentM1[i].close > recentM1[i].open ? 'UP' : 'DN';
-          const lastDir = recentM1[recentM1.length - 1].close > recentM1[recentM1.length - 1].open ? 'UP' : 'DN';
-          if (prevDir === lastDir) consecutiveSameDir++;
-          else break;
-        }
+          let consecutiveSameDir = 1;
+          for (let i = recentM1.length - 2; i >= 0; i--) {
+            const prevDir = recentM1[i].close > recentM1[i].open ? 'UP' : 'DN';
+            const lastDir = recentM1[recentM1.length - 1].close > recentM1[recentM1.length - 1].open ? 'UP' : 'DN';
+            if (prevDir === lastDir) consecutiveSameDir++;
+            else break;
+          }
 
-        const lastCandle = recentM1[recentM1.length - 1];
-        const lastBody = Math.abs(lastCandle.close - lastCandle.open) / pipInfo.pipValue;
-        const lastUpperWick = (lastCandle.high - Math.max(lastCandle.open, lastCandle.close)) / pipInfo.pipValue;
-        const lastLowerWick = (Math.min(lastCandle.open, lastCandle.close) - lastCandle.low) / pipInfo.pipValue;
-        const hasRejectionWick = lastUpperWick > lastBody * 1.5 || lastLowerWick > lastBody * 1.5;
+          const lastCandleM1 = recentM1[recentM1.length - 1];
+          const lastBodyM1 = Math.abs(lastCandleM1.close - lastCandleM1.open) / pipInfo.pipValue;
+          const lastUpperWickM1 = (lastCandleM1.high - Math.max(lastCandleM1.open, lastCandleM1.close)) / pipInfo.pipValue;
+          const lastLowerWickM1 = (Math.min(lastCandleM1.open, lastCandleM1.close) - lastCandleM1.low) / pipInfo.pipValue;
+          const hasRejectionWickM1 = lastUpperWickM1 > lastBodyM1 * 1.5 || lastLowerWickM1 > lastBodyM1 * 1.5;
 
-        const m1High = Math.max(...recentM1.map(c => c.high));
-        const m1Low = Math.min(...recentM1.map(c => c.low));
-        const m1RangePips = (m1High - m1Low) / pipInfo.pipValue;
+          const m1High = Math.max(...recentM1.map(c => c.high));
+          const m1Low = Math.min(...recentM1.map(c => c.low));
+          const m1RangePips = (m1High - m1Low) / pipInfo.pipValue;
 
-        m1MicroContextPrompt = `
+          m1MicroContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 M1 MICRO PRICE ACTION (${marketContext.symbol}) — TIMING REFINEMENT (SECONDARY)
@@ -3211,7 +3224,7 @@ ${m1Lines.join('\n')}
 M1 MICRO SUMMARY:
 - M1 Range: ${m1RangePips.toFixed(1)} pips (High: ${m1High.toFixed(pipInfo.decimalPlaces)}, Low: ${m1Low.toFixed(pipInfo.decimalPlaces)})
 - Consecutive same-direction M1 candles: ${consecutiveSameDir}
-- Last M1 candle: ${hasRejectionWick ? 'REJECTION WICK detected (possible reversal/exhaustion)' : 'Normal candle'}
+- Last M1 candle: ${hasRejectionWickM1 ? 'REJECTION WICK detected (possible reversal/exhaustion)' : 'Normal candle'}
 - Momentum assessment: ${consecutiveSameDir >= 4 ? 'STRONG one-way momentum - retrace likely imminent' : consecutiveSameDir >= 3 ? 'Building momentum - watch for exhaustion' : 'Mixed/choppy - normal price action'}
 
 HIERARCHY REMINDER: A single M1 rejection wick does NOT override an impulsive ${primaryTfConfig.label} leg.
@@ -3219,10 +3232,11 @@ If the ${primaryTfConfig.label} shows 3+ consecutive same-direction candles, the
 regardless of what M1 shows — unless there is exceptional breakaway evidence.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-        console.log(`[Alpha Coordinator] M1 Micro: ${recentM1.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${m1RangePips.toFixed(1)} pips`);
+          console.log(`[Alpha Coordinator] M1 Micro: ${recentM1.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${m1RangePips.toFixed(1)} pips`);
+        }
+      } catch (error) {
+        console.warn('[Alpha Coordinator] M1 micro context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
       }
-    } catch (error) {
-      console.warn('[Alpha Coordinator] M1 micro context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
     }
 
     // ═══════════════════════════════════════════════════════════════════
