@@ -3,6 +3,7 @@ import { CandleData } from '../types/chart';
 import { databaseResilienceWrapper } from './database-resilience-wrapper';
 import { shouldDisableMetaAPI } from '../lib/environment';
 import { marketDataService } from './market-data-service';
+import { TIME_MS } from '../config/time-constants';
 
 interface DatabaseCandleRecord {
   id: string;
@@ -28,7 +29,9 @@ export interface GuarantorResult {
 }
 
 export class ChartDataGuarantor {
-  private static readonly BROKER_CLOCK_SKEW_MS = 4 * 60 * 60 * 1000;
+  // CCIP-BROKER-CLOCK-SKEW-2026-04-13: Value is governed in TIME_MS.BROKER.CLOCK_SKEW_MS (time-constants.ts).
+  // Do not redefine this constant anywhere else. All candle query upper bounds must use this offset.
+  private static readonly BROKER_CLOCK_SKEW_MS = TIME_MS.BROKER.CLOCK_SKEW_MS;
   private static readonly EMERGENCY_LIMIT = 15000;
   private static readonly DEV_EMERGENCY_LIMIT = 100;
 

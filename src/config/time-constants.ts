@@ -188,6 +188,42 @@ export const TIME_MS = {
     SNAPSHOT_CANDLE_FETCH_LIMIT: 300,   // How many candles to request from DB
   },
 
+  // BROKER CLOCK DOMAIN — Single Source of Truth
+  //
+  // CCIP-BROKER-CLOCK-SKEW-2026-04-13:
+  // Root cause: AAAfx broker writes open_time to the database in UTC+3 (EET/EEST).
+  // Any DB query that uses Date.now() (UTC) as its upper bound silently excludes
+  // all candles whose open_time is between UTC+now and UTC+now+3h.
+  //
+  // Symptom: charts loaded blank on the first render after a weekend/holiday break,
+  // because the only new candles for that day had broker-timestamped open_times
+  // that were approximately 3 hours ahead of UTC, outside the query window.
+  //
+  // Fix contract: every service that queries candles with a time upper bound MUST
+  // add BROKER_CLOCK_SKEW_MS to the upper bound before issuing the query.
+  //   endTime = new Date(Date.now() + TIME_MS.BROKER.CLOCK_SKEW_MS)
+  //
+  // SKEW value rationale:
+  //   UTC+3 broker offset  = 3 hours = 10 800 000 ms
+  //   DST safety headroom  = 1 hour  =  3 600 000 ms
+  //   Total buffer         = 4 hours = 14 400 000 ms
+  //
+  // Do NOT apply this buffer to:
+  //   - Crypto pairs (BTCUSD, ETHUSD): they trade 24/7 in UTC, no broker offset.
+  //   - Forming-candle period boundaries: use broker_time from realtime_prices
+  //     as the anchor instead (see chart-candle-poller.ts CCIP-2026-04-02).
+  //   - Server-side aggregators: probe latestBrokerTime from realtime_prices and
+  //     work entirely in the broker's clock domain (see continuous-candle-aggregator.ts).
+  //
+  // Owners of this contract:
+  //   Primary  — ChartDataGuarantor.guaranteeChartData()
+  //   Verify   — Any future service querying candles with a UTC upper bound
+  BROKER: {
+    CLOCK_SKEW_MS: 4 * 60 * 60 * 1000, // 14 400 000 ms — 3h broker offset + 1h DST headroom
+    BROKER_OFFSET_HOURS: 3,             // AAAfx EET UTC offset (without DST)
+    SAFETY_HEADROOM_HOURS: 1,           // Extra margin for DST transitions
+  },
+
   DEBOUNCE: {
     FAST: 100,
     STANDARD: 300,
