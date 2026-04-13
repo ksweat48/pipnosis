@@ -923,29 +923,55 @@ class AlphaOmegaOrchestrator {
     }
 
     // CCIP-2026-0405-DIAG: Degenerate scan detection.
-    // If ALL evaluated symbols returned NO_TRADE with an identical confidence value,
-    // this is statistically implausible for genuinely independent market analyses and
-    // indicates prompt anchoring or a stale OpenAI prompt cache serving a pre-fix prompt.
+    // Known degenerate values: confidence=30 (CCIP-2026-0409A), confidence=45 (CCIP-2026-0332A).
+    // TIER 1: ALL symbols returned NO_TRADE with identical confidence — statistically impossible.
+    // TIER 2: MAJORITY of symbols returned NO_TRADE with a known-degenerate confidence value
+    //         even if 1-2 symbols differ — the outlier(s) may be genuine but the batch pattern
+    //         indicates anchoring contamination. Threshold: >=60% of symbols.
     {
+      const KNOWN_DEGENERATE_VALUES = new Set([30, 45]);
       const evaluatedDecisions = Array.from(decisionMap.values());
       if (evaluatedDecisions.length >= 2) {
-        const allNoTrade = evaluatedDecisions.every(d => d.action === 'NO_TRADE');
+        const noTradeDecisions = evaluatedDecisions.filter(d => d.action === 'NO_TRADE');
+        const allNoTrade = noTradeDecisions.length === evaluatedDecisions.length;
+
         if (allNoTrade) {
-          const confidenceValues = evaluatedDecisions.map(d => d.confidence);
+          const confidenceValues = noTradeDecisions.map(d => d.confidence);
           const uniqueConfidences = new Set(confidenceValues);
           if (uniqueConfidences.size === 1) {
             const sharedConfidence = confidenceValues[0];
+            const isKnownDegenerate = KNOWN_DEGENERATE_VALUES.has(sharedConfidence);
             console.warn(
-              `[Alpha Orchestrator] CCIP-2026-0332A DEGENERATE_SCAN_DETECTED: ` +
+              `[Alpha Orchestrator] CCIP-2026-0405 DEGENERATE_SCAN_DETECTED (TIER 1): ` +
               `All ${evaluatedDecisions.length} symbols returned NO_TRADE with identical ` +
-              `confidence=${sharedConfidence}. This is statistically implausible for ` +
-              `independent market analyses. Likely cause: prompt anchoring or stale ` +
-              `OpenAI prompt cache. Check [Alpha Raw Response] logs for cache hit %.`
+              `confidence=${sharedConfidence}${isKnownDegenerate ? ' (KNOWN DEGENERATE VALUE)' : ''}. ` +
+              `Statistically implausible for independent market analyses. ` +
+              `Likely cause: prompt anchoring or stale OpenAI prompt cache. ` +
+              `Check [Alpha Raw Response] logs for completion_tokens (genuine=1300-1500, degenerate=150-340).`
             );
           } else {
             console.log(
               `[Alpha Orchestrator] All ${evaluatedDecisions.length} symbols returned NO_TRADE ` +
               `(varied confidence: ${[...uniqueConfidences].join(', ')}). Genuine no-edge scan.`
+            );
+          }
+        }
+
+        if (noTradeDecisions.length >= 2) {
+          const degenerateNoTrades = noTradeDecisions.filter(d => KNOWN_DEGENERATE_VALUES.has(d.confidence));
+          const degenerateRatio = degenerateNoTrades.length / evaluatedDecisions.length;
+          if (degenerateRatio >= 0.6 && !allNoTrade) {
+            const valueBreakdown = degenerateNoTrades.reduce((acc: Record<number, number>, d) => {
+              acc[d.confidence] = (acc[d.confidence] ?? 0) + 1;
+              return acc;
+            }, {});
+            const breakdownStr = Object.entries(valueBreakdown).map(([k, v]) => `confidence=${k}: ${v}x`).join(', ');
+            console.warn(
+              `[Alpha Orchestrator] CCIP-2026-0405 DEGENERATE_SCAN_SUSPECTED (TIER 2): ` +
+              `${degenerateNoTrades.length}/${evaluatedDecisions.length} symbols (${Math.round(degenerateRatio * 100)}%) ` +
+              `returned NO_TRADE with known-degenerate confidence values. ${breakdownStr}. ` +
+              `1-2 outliers may be genuine but the batch pattern suggests anchoring contamination. ` +
+              `Check [Alpha Raw Response] logs for completion_tokens (genuine=1300-1500, degenerate=150-340).`
             );
           }
         }

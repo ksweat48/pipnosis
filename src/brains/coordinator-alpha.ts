@@ -3724,11 +3724,24 @@ Return PURE JSON only — all required fields from the schema in my system promp
           `trade_confidence=${rawConfidenceMatch?.[1] ?? 'MISSING'} ` +
           `cache=${cacheHitPct}% (${cachedTokens}/${totalPromptTokens} tokens cached)`
         );
-        if (rawConfidenceMatch?.[1] === '45' && rawActionMatch?.[1] === 'NO_TRADE') {
+        const rawConfidenceVal = rawConfidenceMatch?.[1];
+        const rawAction = rawActionMatch?.[1];
+        const completionTokens = response.usage?.completion_tokens ?? 'unknown';
+        if (rawConfidenceVal === '45' && rawAction === 'NO_TRADE') {
           console.warn(
             `[Alpha Raw Response] CCIP-2026-0332A DEGENERATE SIGNAL: GPT-4o returned NO_TRADE with ` +
             `confidence=45 for ${marketContext.symbol} in the raw response. ` +
-            `This matches the known anchoring pattern. Cache hit=${cacheHitPct}%.`
+            `This matches the known anchoring pattern. Cache hit=${cacheHitPct}%. ` +
+            `completion_tokens=${completionTokens} (genuine scan: 1300-1500, degenerate: 150-340).`
+          );
+        }
+        if (rawConfidenceVal === '30' && rawAction === 'NO_TRADE') {
+          console.warn(
+            `[Alpha Raw Response] CCIP-2026-0409A DEGENERATE SIGNAL: GPT-4o returned NO_TRADE with ` +
+            `confidence=30 for ${marketContext.symbol} in the raw response. ` +
+            `This matches the CCIP-2026-0409A anchoring pattern. Cache hit=${cacheHitPct}%. ` +
+            `completion_tokens=${completionTokens} (genuine scan: 1300-1500, degenerate: 150-340). ` +
+            `If token count is low, a new numeric injection vector exists in alpha-identity.ts.`
           );
         }
       } catch {
@@ -4504,15 +4517,21 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // CCIP-2026-0405-DIAG: Sentinel — detect known-degenerate confidence values.
       // confidence=45 on NO_TRADE matches the CCIP-2026-0332A anchoring pattern (numeric threshold anchors in prompt).
       // confidence=30 on NO_TRADE matches the CCIP-2026-0409A anchoring pattern (Q8_move_position_pct FRESH=0-30% and <30%=indecision in candle format).
-      // If either fires, cross-reference [Alpha Raw Response] logs above to confirm whether
-      // GPT-4o emitted the value directly or it was introduced in post-processing.
+      // DIAGNOSIS PROTOCOL:
+      //   Step 1 — Cross-reference "[Alpha Raw Response]" log above for this symbol.
+      //            Look at completion_tokens. Genuine scans: 1300-1500 tokens. Degenerate anchoring: 150-340 tokens.
+      //   Step 2 — If token count is low AND cache_hit % is high, a stale cached prompt is being served.
+      //   Step 3 — If token count is low AND cache_hit % is normal, a numeric injection vector is in alpha-identity.ts.
+      //   Step 4 — If token count is normal, this is a genuine market assessment at confidence=30.
+      //            The sentinel fires as a coincidence — not a bug.
       if (action === 'NO_TRADE' && (tradeConfidence === 45 || tradeConfidence === 30)) {
         console.warn(
           `[Alpha Parse] SENTINEL: NO_TRADE with confidence=${tradeConfidence} for ${symbol}. ` +
-          `This matches a known prompt-anchoring degenerate pattern. ` +
-          `confidence=45: root cause was numeric threshold anchors ("50", "50-69", "below 50") — fixed by CCIP-2026-0404C. ` +
-          `confidence=30: root cause was Q8_move_position_pct FRESH=0-30% and body ratio <30%=indecision anchors — fixed by CCIP-2026-0409A. ` +
-          `If this sentinel fires after those fixes, audit for new numeric injection vectors in alpha-identity.ts and coordinator-alpha.ts.`
+          `Matches known-degenerate confidence value. ` +
+          `DIAGNOSE: Check "[Alpha Raw Response]" log for this symbol — look at completion_tokens. ` +
+          `Genuine scan = 1300-1500 tokens. Degenerate anchor = 150-340 tokens. ` +
+          `confidence=45 fix: CCIP-2026-0404C. confidence=30 fix: CCIP-2026-0409A. ` +
+          `If firing after those fixes with LOW token count: new numeric injection vector exists in alpha-identity.ts.`
         );
       }
 
