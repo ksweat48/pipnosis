@@ -186,6 +186,19 @@ async function fetchRecentPrices(symbol: string, lookbackMinutes: number): Promi
   return data || [];
 }
 
+async function fetchLatestBrokerTime(symbol: string): Promise<Date | null> {
+  const { data, error } = await supabase
+    .from('realtime_prices')
+    .select('broker_time')
+    .eq('symbol', symbol)
+    .order('broker_time', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return new Date(data.broker_time);
+}
+
 async function getLastCandleTime(symbol: string, timeframe: string): Promise<Date | null> {
   const { data, error } = await supabase
     .from('forex_candles')
@@ -479,11 +492,26 @@ async function aggregateCandlesForSymbol(
   const lastM1CandleTime = await getLastCandleTime(symbol, 'M1');
   const now = new Date();
 
+  // BROKER CLOCK SKEW FIX: For forex pairs the broker sends broker_time at UTC+3 (EET).
+  // open_time in forex_candles is stored using broker_time as the candle boundary, meaning
+  // candle open_times are ~3 hours ahead of Date.now() (UTC). If we compute
+  // gapMinutes = (Date.now() - lastM1CandleTime) the result is negative, making
+  // lookbackMinutes negative, which sets the cutoffTime in the FUTURE and returns zero ticks.
+  // Fix: probe the latest broker_time first to determine effectiveNow, then compute
+  // gapMinutes against effectiveNow so both sides are in the same clock domain.
+  const latestBrokerTime = isCryptoSymbol(symbol) ? null : await fetchLatestBrokerTime(symbol);
+  const effectiveNowForLookback = (!isCryptoSymbol(symbol) && latestBrokerTime) ? latestBrokerTime : now;
+
   let lookbackMinutes: number;
   if (lastM1CandleTime) {
-    const gapMinutes = Math.ceil((now.getTime() - lastM1CandleTime.getTime()) / 60000);
-    lookbackMinutes = Math.min(gapMinutes + 2, MAX_REALTIME_RETENTION_MINUTES);
-    console.log(`[CandleAggregator]   ${symbol}: Last M1 was ${gapMinutes}min ago — using ${lookbackMinutes}min lookback`);
+    const gapMinutes = Math.ceil((effectiveNowForLookback.getTime() - lastM1CandleTime.getTime()) / 60000);
+    if (gapMinutes <= 0) {
+      console.log(`[CandleAggregator]   ${symbol}: Last M1 open_time (${lastM1CandleTime.toISOString()}) is ahead of effectiveNow (${effectiveNowForLookback.toISOString()}) — using 10min lookback`);
+      lookbackMinutes = 10;
+    } else {
+      lookbackMinutes = Math.min(gapMinutes + 2, MAX_REALTIME_RETENTION_MINUTES);
+      console.log(`[CandleAggregator]   ${symbol}: Last M1 was ${gapMinutes}min ago (broker-clock-aligned) — using ${lookbackMinutes}min lookback`);
+    }
   } else {
     lookbackMinutes = MAX_REALTIME_RETENTION_MINUTES;
     console.log(`[CandleAggregator]   ${symbol}: No prior M1 — using max ${lookbackMinutes}min lookback`);
@@ -506,8 +534,8 @@ async function aggregateCandlesForSymbol(
   const firstPriceTime = new Date(prices[0].broker_time);
   const lastPriceTime = new Date(prices[prices.length - 1].broker_time);
 
-  // BROKER CLOCK SKEW: AAAfx broker sends broker_time at UTC+3 (EET).
-  // Use latest broker_time as effective "now" for forex to align candle boundaries.
+  // Use latest broker_time as effectiveNow for candle boundary calculations.
+  // This is consistent with how open_time is stored in forex_candles.
   const effectiveNow = isCryptoSymbol(symbol) ? now : lastPriceTime;
   const clockSkewMs = effectiveNow.getTime() - now.getTime();
   if (!isCryptoSymbol(symbol) && Math.abs(clockSkewMs) > 60000) {
