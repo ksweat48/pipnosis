@@ -440,12 +440,18 @@ export async function fetchPreAggregatedCandles(
             return;
           }
 
-          // CRITICAL FIX: Check for extreme candle range (> 5% indicates bad data)
+          // Check for extreme candle range that indicates bad/corrupted data.
+          // Thresholds by asset class:
+          //   Forex pairs (EURUSD, GBPUSD, etc.): 3% is extreme for any timeframe
+          //   Gold (XAUUSD): 5% is conceivable on a high-volatility news day (M5)
+          //   Indices (US30, NAS100): 10% intraday swings are possible during crashes
+          //   Crypto (BTCUSD, ETHUSD): 15% single-candle moves happen
+          // Use 15% as a hard ceiling to catch only genuine data corruption
           const candleRange = candleData.high - candleData.low;
           const avgPrice = (candleData.open + candleData.close) / 2;
-          const rangePercent = (candleRange / avgPrice) * 100;
+          const rangePercent = avgPrice > 0 ? (candleRange / avgPrice) * 100 : 0;
 
-          if (rangePercent > 5) {
+          if (rangePercent > 15) {
             console.warn(`[fetchPreAggregatedCandles] ❌ REJECTED candle ${index} for ${symbol}: extreme range ${rangePercent.toFixed(2)}% (O:${candleData.open} H:${candleData.high} L:${candleData.low} C:${candleData.close})`);
             return;
           }

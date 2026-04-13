@@ -944,8 +944,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
       : 0;
 
-    // STRICT OVERLAP PREVENTION: Reject any candle with timestamp <= last historical
-    if (latestCandle.time <= lastHistoricalTime) {
+    // Reject candles that are strictly older than what we already have in historical
+    if (latestCandle.time < lastHistoricalTime) {
       console.warn(`[Chart] OVERLAP PREVENTED: Rejecting polled candle at ${new Date(latestCandle.time * 1000).toISOString()} (last historical: ${new Date(lastHistoricalTime * 1000).toISOString()})`);
       return;
     }
@@ -959,10 +959,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
     }
 
-    const isNewCompletedCandle = currentCandleRef.current && latestCandle.time > currentCandleRef.current.time;
+    // A candle is "new completed" when it is strictly ahead of the last historical candle.
+    // This covers two cases:
+    //   1. Normal progression: currentCandleRef closed and a brand-new candle started.
+    //   2. First-poll-after-load: the DB candle == lastHistoricalTime (same candle, update only).
+    const isNewCompletedCandle = latestCandle.time > lastHistoricalTime;
 
     if (isNewCompletedCandle) {
-      console.log(`[Chart] 🔄 DB confirmed completed candle at ${new Date(latestCandle.time * 1000).toLocaleTimeString()}`);
+      console.log(`[Chart] 🔄 DB confirmed new completed candle at ${new Date(latestCandle.time * 1000).toLocaleTimeString()}`);
       historicalCandlesRef.current.push(latestCandle);
 
       if (historicalCandlesRef.current.length > 500) {
@@ -972,10 +976,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       // Update the cached historical candles to keep them in sync
       chartCandlePoller.setFullHistoricalCandles(symbol, timeframe, historicalCandlesRef.current);
 
-      currentCandleRef.current = null;
-    } else if (!isNewCompletedCandle) {
-      // If no current candle exists yet, initialize from database
-      // But if we already have a live candle, don't overwrite it - let the merge logic below handle it
+      // If currentCandleRef was the forming version of this candle, clear it so
+      // the chart shows the DB-confirmed version going forward
+      if (currentCandleRef.current && currentCandleRef.current.time === latestCandle.time) {
+        currentCandleRef.current = null;
+      }
+    } else {
+      // latestCandle.time === lastHistoricalTime: this is an update to the most recent
+      // historical candle (e.g. a tick updated the close). Update currentCandleRef if not live.
       if (!currentCandleRef.current) {
         const candleTimeMs = latestCandle.time * 1000;
         const timeframeMinutes = getTimeframeMinutes(timeframe);
@@ -1112,9 +1120,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           const mergedAvg = (safeCandle.open + mergedClose) / 2;
           const mergedRangePct = mergedAvg > 0 ? (mergedRange / mergedAvg) * 100 : 0;
 
-          if (mergedRangePct > 5) {
+          if (mergedRangePct > 15) {
             console.warn(
-              `[Chart] CCIP-2026-03-13d: Merged candle range ${mergedRangePct.toFixed(2)}% > 5% — ` +
+              `[Chart] CCIP-2026-03-13d: Merged candle range ${mergedRangePct.toFixed(2)}% > 15% — ` +
               `discarding live tick high/low, keeping database candle to prevent corrupted wick`
             );
             finalCandle = safeCandle;

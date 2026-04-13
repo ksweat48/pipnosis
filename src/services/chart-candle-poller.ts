@@ -287,8 +287,10 @@ class ChartCandlePoller {
           staleTracker.staleCount++;
           this.staleDataTracker.set(staleKey, staleTracker);
 
-          // If we've seen the same candle 10+ times AND no forming candle, stop notifying listeners
-          if (staleTracker.staleCount >= 10) {
+          // If we've seen the same candle 200+ times AND no forming candle, stop notifying listeners.
+          // 200 polls × 3s = 600s = 10 minutes. This is long enough to survive between candles
+          // on any timeframe (M1=60s, M5=300s, M15=900s) without false suppression.
+          if (staleTracker.staleCount >= 200) {
             logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Stale data detected for ${symbol} ${timeframe} - suppressing notifications`);
             return; // Don't update cache or notify listeners
           }
