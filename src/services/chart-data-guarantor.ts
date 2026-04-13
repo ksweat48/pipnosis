@@ -28,6 +28,7 @@ export interface GuarantorResult {
 }
 
 export class ChartDataGuarantor {
+  private static readonly BROKER_CLOCK_SKEW_MS = 4 * 60 * 60 * 1000;
   private static readonly EMERGENCY_LIMIT = 15000;
   private static readonly DEV_EMERGENCY_LIMIT = 100;
 
@@ -103,8 +104,9 @@ export class ChartDataGuarantor {
         throw new Error(`Invalid timeframe: ${timeframe}`);
       }
 
-      const endTime = new Date();
-      const startTime = this.calculateStartTime(endTime, timeframe, targetCount);
+      const now = new Date();
+      const endTime = new Date(now.getTime() + this.BROKER_CLOCK_SKEW_MS);
+      const startTime = this.calculateStartTime(now, timeframe, targetCount);
 
       if (isNaN(startTime.getTime())) {
         throw new Error('Invalid start time calculated');
