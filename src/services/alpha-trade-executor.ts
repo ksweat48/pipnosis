@@ -1741,27 +1741,38 @@ class AlphaTradeExecutor {
           ? 'entry_intent'
           : 'entry_price_fallback';
 
-    // CCIP-2026-0408A: entry_price_fallback zero-width zone fix.
+    // CCIP-2026-0408A: entry_price_fallback directional zone fix.
     // When no explicit zone is available (CCIP-0402A downgrade: execute_now → wait_pullback
-    // without a wait_condition), both rawZoneMin/Max would collapse to the single entry price,
-    // creating a zero-width zone the server monitor can never hit exactly.
-    // Fix: construct a symmetric zone centred on the entry price using 30% of the SL distance
-    // as half-width (capped at 0.5x the full SL distance). This gives a realistic pullback band
-    // that reflects where price needs to retrace before Alpha's entry is valid.
+    // without a wait_condition), synthesise a directionally-biased zone that reflects where
+    // price must RETRACE to before the entry is valid.
+    //
+    // For a SELL: the pullback zone must be ABOVE the entry price (price must rise first).
+    //   zoneMin = entry, zoneMax = entry + 0.60 * slDistance
+    // For a BUY: the pullback zone must be BELOW the entry price (price must fall first).
+    //   zoneMin = entry - 0.60 * slDistance, zoneMax = entry
+    //
+    // This ensures price is NEVER already inside the zone at intent creation time, fixing the
+    // incorrect "Good Entry" green banner shown immediately after a wait_pullback downgrade.
     if (rawZoneMin == null || rawZoneMax == null || rawZoneMax <= rawZoneMin) {
       const entryPrice = decision.entry;
       const slDistance = Math.abs(entryPrice - decision.stopLoss);
-      const halfWidth = slDistance > 0
-        ? Math.min(slDistance * 0.30, slDistance * 0.50)
+      const zoneWidth = slDistance > 0
+        ? slDistance * 0.60
         : entryPrice * 0.0015;
-      rawZoneMin = entryPrice - halfWidth;
-      rawZoneMax = entryPrice + halfWidth;
+      const isSell = direction === 'short';
+      if (isSell) {
+        rawZoneMin = entryPrice;
+        rawZoneMax = entryPrice + zoneWidth;
+      } else {
+        rawZoneMin = entryPrice - zoneWidth;
+        rawZoneMax = entryPrice;
+      }
       logger.warn(
         LogCategory.GOVERNANCE,
-        '[AlphaTradeExecutor] CCIP-2026-0408A: entry_price_fallback zone synthesised from SL geometry. ' +
+        '[AlphaTradeExecutor] CCIP-2026-0408A: entry_price_fallback zone synthesised from SL geometry (directional). ' +
         'No wait_condition or entry_advisory zone available (likely CCIP-0402A downgrade). ' +
-        'Zone centered on entry price with 30% SL distance as half-width.',
-        { symbol: decision.symbol, entryPrice, stopLoss: decision.stopLoss, slDistance, zoneMin: rawZoneMin, zoneMax: rawZoneMax }
+        `Zone placed ${isSell ? 'ABOVE' : 'BELOW'} entry price — price must retrace before entry is valid.`,
+        { symbol: decision.symbol, direction, entryPrice, stopLoss: decision.stopLoss, slDistance, zoneMin: rawZoneMin, zoneMax: rawZoneMax }
       );
     }
 
@@ -1821,7 +1832,8 @@ class AlphaTradeExecutor {
         alpha_take_profit: resolvedTakeProfit,
         alpha_tp1_price: decision.tp1Price ?? null,
         alpha_tp2_price: decision.tp2Price ?? null,
-        invalidation_price: decision.stopLoss
+        invalidation_price: decision.stopLoss,
+        zone_source: zoneSource
       })
       .select()
       .single();

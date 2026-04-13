@@ -322,11 +322,17 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   const intentMode: string = intent.intent_mode || 'pullback_to_zone';
   const isPushConfirmMode = intentMode === 'push_confirmation_zone' || entryMode === 'push_confirmation';
   const m5Confirmed: boolean = intent.m5_candle_close_confirmed ?? false;
+  const zoneSource: string = intent.zone_source || 'unknown';
+  const isFallbackZone = zoneSource === 'entry_price_fallback';
 
   const isWaitPullbackMode = entryMode === 'wait_pullback';
   const verdictFallback = isWaitPullbackMode ? 'PULLBACK_EXPECTED' : 'GOOD_ENTRY';
   const verdict = advisory?.verdict || verdictFallback;
-  const isPullbackExpected = !isPushConfirmMode && (verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK');
+  const isPullbackExpected = !isPushConfirmMode && (
+    verdict === 'PULLBACK_EXPECTED' ||
+    verdict === 'WAIT_FOR_PULLBACK' ||
+    (isWaitPullbackMode && isFallbackZone)
+  );
   const isWaitHigherEdge = !isPushConfirmMode && !isPullbackExpected && (entryMode === 'WAIT_HIGHER_EDGE' || verdict === 'WAIT_HIGHER_EDGE');
   const pullbackZoneMin = advisory?.pullback_zone_min ?? intent.entry_zone_min ?? null;
   const pullbackZoneMax = advisory?.pullback_zone_max ?? intent.entry_zone_max ?? null;
@@ -335,14 +341,19 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
     if (!isPullbackExpected || !currentPrice || !pullbackZoneMin || !pullbackZoneMax) return null;
 
     if (direction === 'long') {
+      // BUY: zone is BELOW entry — price must fall into it
       if (currentPrice <= pullbackZoneMax && currentPrice >= pullbackZoneMin) return 'REACHED';
       if (currentPrice < pullbackZoneMin) return 'REACHED';
+      // Price is above the zone; measure how much it has dropped toward the zone
       const distNow = currentPrice - pullbackZoneMax;
       const distEntry = (alphaEntry || currentPrice) - pullbackZoneMax;
       return distNow < distEntry * 0.7 ? 'APPROACHING' : 'RETREATING';
     } else {
+      // SELL: zone is ABOVE entry — price must rise into it
       if (currentPrice >= pullbackZoneMin && currentPrice <= pullbackZoneMax) return 'REACHED';
-      if (currentPrice > pullbackZoneMax) return 'REACHED';
+      // Price has overshot above the zone — treat as retreating (not a valid entry)
+      if (currentPrice > pullbackZoneMax) return 'RETREATING';
+      // Price is below the zone; measure how much it has risen toward the zone
       const distNow = pullbackZoneMin - currentPrice;
       const distEntry = pullbackZoneMin - (alphaEntry || currentPrice);
       return distNow < distEntry * 0.7 ? 'APPROACHING' : 'RETREATING';
