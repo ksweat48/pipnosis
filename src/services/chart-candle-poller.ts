@@ -134,11 +134,7 @@ class ChartCandlePoller {
       return;
     }
 
-    // CRYPTO FIX: Check if this specific symbol's market is open (crypto trades 24/7)
-    if (!isSymbolMarketOpen(symbol)) {
-      logger.debug(LogCategory.CHART_POLLER, `[ChartPoller] Market closed for ${symbol} - skipping poll`);
-      return;
-    }
+    const marketOpen = isSymbolMarketOpen(symbol);
 
     try {
       const dbTimeframe = appTimeframeToDb(timeframe);
@@ -271,8 +267,8 @@ class ChartCandlePoller {
       const hasNewData = cache.lastCandleTime === null || latestCandle.time > cache.lastCandleTime;
 
       // CRITICAL FIX: Fetch forming candle from realtime_prices BEFORE stale detection
-      // This ensures we detect live activity and merge it with historical data
-      const formingCandle = await this.pollFormingCandle(symbol, timeframe, cache, data);
+      // Only poll for forming candle when market is open — no live ticks when closed
+      const formingCandle = marketOpen ? await this.pollFormingCandle(symbol, timeframe, cache, data) : null;
       const hasFormingCandle = formingCandle !== null;
 
       // Track stale data to prevent wasteful notifications during market closure
