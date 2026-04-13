@@ -132,34 +132,15 @@ class CurrentCandleReconstructor {
         `[CandleReconstructor] Found ${ticks.length} ticks for current candle period`
       );
 
-      // CRITICAL FIX: Filter ticks with strict quality and timestamp validation
-      // This prevents stale/misaligned ticks from creating abnormal candles
+      // Filter ticks: only keep those that fall within the current candle period.
+      // We rely solely on the candle boundary (currentCandleStartMs) derived from the
+      // authoritative broker_time anchor — no secondary age checks that can misfire
+      // when broker_time is in a non-UTC timezone (e.g., AAAfx UTC+3).
       const currentPeriodTicks = ticks.filter(tick => {
         const tickTime = new Date(tick.broker_time || tick.created_at).getTime();
 
-        // Reject ticks outside current candle period
+        // Reject ticks before the current candle period started
         if (tickTime < currentCandleStartMs) {
-          return false;
-        }
-
-        // CRITICAL: Reject ticks older than the full timeframe window (stale data protection)
-        // For M5, allow ticks up to 5 minutes old; for H1, up to 1 hour old, etc.
-        const maxTickAge = timeframeMinutes * 60 * 1000 + 30000; // Add 30s buffer for clock skew
-        const tickAge = now - tickTime;
-        if (tickAge > maxTickAge) {
-          logger.debug(
-            LogCategory.CHART_POLLER,
-            `[CandleReconstructor] Rejecting stale tick: ${tickAge / 1000}s old (max: ${maxTickAge / 1000}s)`
-          );
-          return false;
-        }
-
-        // CRITICAL: Reject ticks from the future (clock skew protection)
-        if (tickTime > now + 5000) {
-          logger.debug(
-            LogCategory.CHART_POLLER,
-            `[CandleReconstructor] Rejecting future tick: ${(tickTime - now) / 1000}s ahead`
-          );
           return false;
         }
 
