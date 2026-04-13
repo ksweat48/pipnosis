@@ -272,6 +272,7 @@ class LLMReasoningLogger {
             market_regime_at_entry,
             regime_bucket,
             trade_confidence,
+            confidence_tier,
             setup_type,
             tp1_reasoning,
             tp2_reasoning
@@ -299,6 +300,7 @@ class LLMReasoningLogger {
           market_regime_at_entry: tradeRecord?.market_regime_at_entry ?? null,
           regime_bucket: tradeRecord?.regime_bucket ?? null,
           trade_confidence_from_record: tradeRecord?.trade_confidence ?? null,
+          confidence_tier_from_record: tradeRecord?.confidence_tier ?? null,
           setup_type_from_record: tradeRecord?.setup_type ?? null,
           tp1_reasoning_from_record: tradeRecord?.tp1_reasoning ?? null,
           tp2_reasoning_from_record: tradeRecord?.tp2_reasoning ?? null,

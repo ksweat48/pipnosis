@@ -130,10 +130,26 @@ function humanizeRegime(regime: string | null | undefined): { label: string; col
   return { label: regime.replace(/_/g, ' '), color: 'text-gray-400 bg-gray-400/10 border-gray-400/25' };
 }
 
-function convictionLabel(confidence: number | null | undefined): string {
+function convictionLabel(confidence: number | null | undefined, tier: string | null | undefined): string {
+  if (confidence == null && !tier) return '';
+  if (tier) {
+    const tierLabels: Record<string, string> = {
+      extreme:   'extreme conviction',
+      very_high: 'very high conviction',
+      high:      'high conviction',
+      confident: 'confident conviction',
+      moderate:  'moderate conviction',
+      cautious:  'cautious conviction',
+      low:       'low conviction',
+      no_read:   'no clear read',
+    };
+    const label = tierLabels[tier] ?? tier;
+    const pct = confidence != null ? ` (${confidence}%)` : '';
+    return `Alpha entered this trade with ${label}${pct}.`;
+  }
   if (confidence == null) return '';
   if (confidence >= 80) return `Alpha entered this trade with strong conviction at ${confidence}% confidence.`;
-  if (confidence >= 65) return `Alpha entered this trade with moderate conviction at ${confidence}% confidence.`;
+  if (confidence >= 65) return `Alpha entered this trade with confident conviction at ${confidence}% confidence.`;
   if (confidence >= 50) return `Alpha entered this trade with cautious conviction at ${confidence}% confidence.`;
   return `Alpha entered this trade with low conviction at ${confidence}% confidence, indicating a higher-risk setup.`;
 }
@@ -178,6 +194,7 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
   const displayedPattern = cleanPattern(entry.pattern_identified, entry.setup_type_from_record, normalizedStyle);
   const regimeInfo = humanizeRegime(entry.market_regime_at_entry ?? entry.regime_bucket);
   const effectiveConfidence = entry.trade_confidence_from_record ?? entry.conviction_level ?? null;
+  const effectiveTier = entry.confidence_tier_from_record ?? null;
 
   return (
     <div
@@ -346,9 +363,9 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
             <h4 className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-1.5">
               <Brain className="w-3.5 h-3.5" /> Why Alpha Took This Trade
             </h4>
-            {effectiveConfidence != null && (
+            {(effectiveConfidence != null || effectiveTier) && (
               <p className="text-xs text-gray-400 mb-2 italic leading-relaxed">
-                {convictionLabel(effectiveConfidence)}
+                {convictionLabel(effectiveConfidence, effectiveTier)}
               </p>
             )}
             <p className="text-sm text-gray-300 leading-relaxed">
@@ -453,9 +470,18 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
           </div>
           <div className="bg-gray-700/30 rounded-lg p-2">
             <span className="text-xs text-gray-500 block mb-0.5">Conviction</span>
-            <p className="text-xs text-gray-300 font-medium">
-              {effectiveConfidence != null ? `${effectiveConfidence}%` : 'N/A'}
-            </p>
+            {effectiveTier ? (
+              <p className="text-xs text-gray-300 font-medium capitalize">
+                {effectiveTier.replace('_', ' ')}
+                {effectiveConfidence != null && (
+                  <span className="text-gray-500 font-normal ml-1">({effectiveConfidence}%)</span>
+                )}
+              </p>
+            ) : (
+              <p className="text-xs text-gray-300 font-medium">
+                {effectiveConfidence != null ? `${effectiveConfidence}%` : 'N/A'}
+              </p>
+            )}
             {effectiveConfidence != null && (
               <div className="mt-1 h-1 w-full bg-gray-600/50 rounded-full overflow-hidden">
                 <div

@@ -2176,6 +2176,7 @@ class AlphaTradeExecutor {
       current_price: status === 'open' ? entryPrice : null,
       current_pnl: 0,
       trade_confidence: decision.confidence,
+      confidence_tier: decision.confidence_tier ?? null,
       confidence_penalty: totalPenalty,
       regime_bucket: regimeBucket,
       planned_entry_price: decision.entry,

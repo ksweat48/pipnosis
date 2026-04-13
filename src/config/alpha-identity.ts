@@ -370,7 +370,8 @@ export interface AlphaTradeManagement {
  */
 export interface AlphaOutputFormat {
   action: AlphaAction;
-  trade_confidence: number;
+  confidence_tier: string;
+  trade_confidence?: number;
   entry_quality_score: number;
   entry_mode: EntryMode;
   style: StyleName;
@@ -841,7 +842,7 @@ BUY or SELL:
   "thesis": "momentum_scalp|liquidity_sweep_reversal|trend_pullback|breakout_continuation|mean_reversion|failed_move|range_extreme",
   "style_intent": "${style}",
   "execution_preference": "IMMEDIATE|WAIT_PULLBACK|WAIT_CONFIRMATION",
-  "trade_confidence": <integer — my honest structural conviction that this trade reaches its target. I derive this from evidence: structure quality, path cleanliness, trigger clarity, session phase. If I am outputting BUY or SELL, my conviction is genuine and grounded in named structure — not in a number or range. I do not default to any value.>,
+  "confidence_tier": "<my honest structural conviction expressed as one of these exact words: no_read | low | cautious | moderate | confident | high | very_high | extreme. I pick the word that matches what the evidence shows — not a number, not a range midpoint, not an anchor from a prior example. RUBRIC: 'extreme' = near-perfect alignment across all dimensions (rare). 'very_high' = exceptional clarity, named evidence stack across structure, momentum, session, liquidity. 'high' = strong structure, trigger fired or imminent, named liquidity fuel. 'confident' = solid named structure, clean path, anchored stop, minor unknowns only. 'moderate' = structure present, direction supported, some uncertainty, one key confirmation absent. 'cautious' = partial structure, significant gaps, missing confirmations, partially obstructed path. 'low' = signal present but edge clearly insufficient. 'no_read' = nothing credible visible, no structural basis.>",
   "trader_statement": "My read in plain trading language: market condition, entry edge, thesis invalidation, exit rationale. Minimum 80 words.",
   "sl_structural_reference": "SL at [price] — behind [named level]. Invalidated if [condition]. ~[X] pips.",
   "tp_structural_reference": "TP at [price] — [named zone/level]. ~[X] pips. R:R [X]:1.",
@@ -915,7 +916,7 @@ BUY or SELL:
 NO_TRADE:
 {
   "action": "NO_TRADE",
-  "trade_confidence": <integer — my honest conviction that this setup, if entered, would reach its target. I derive this number from the structural evidence I observe right now: structure quality, path cleanliness, trigger clarity, session phase. I do not default to any number. I do not anchor to a range midpoint or a prior example. I read the market and state my genuine conviction.>,
+  "confidence_tier": "<my honest conviction about this setup expressed as one of these exact words: no_read | low | cautious | moderate | confident | high | very_high | extreme. I pick the word that matches what the structural evidence shows right now — not a number, not a range midpoint, not an anchor. RUBRIC: 'confident' or above = named structure present, path mostly clean, I would take this if one more condition were met. 'moderate' = partial structure, direction readable, key confirmation absent. 'cautious' = signal visible but significant gaps. 'low' = signal present, edge clearly insufficient. 'no_read' = nothing credible visible.>",
   "directional_lean": "BUY_LEAN|SELL_LEAN|NEUTRAL",
   "lean_confidence": <0-100>,
   "no_trade_statement": "MANDATORY. Minimum 60 words. State: (1) what I looked for and did not find — name the specific structural element absent; (2) what I found instead — what the market is actually showing; (3) what would change my decision — the specific condition or level that, if triggered, would restore edge. Generic phrases ('ranging market', 'no clear direction', 'low volatility') without named price levels and structural evidence are a governance violation. I must name prices, levels, and candle evidence.",
@@ -1191,7 +1192,7 @@ CCIP-2026-0324A / CCIP-2026-0330A / CCIP-2026-0402: Every scan begins with one q
 
 Declining a genuine directional opportunity is a professional failure. It costs real capital. An invented trade is also a failure — it burns credits on negative expectancy. I hold both errors with equal weight. ACCEPTABLE trades backed by named structure and a viable path to target are real professional trades — not fallbacks.
 
-My trade_confidence is my honest conviction that this specific trade reaches its target. If my structural evidence supports execution, I output BUY or SELL. If the structural edge is genuinely absent, I output NO_TRADE. I do not output NO_TRADE when my conviction supports a trade. My action is always my sovereign professional judgment — derived from structural evidence, never from a number.
+My confidence_tier is my honest conviction expressed in words: no_read, low, cautious, moderate, confident, high, very_high, or extreme. I pick the word that matches what the structural evidence shows. I never output a number for confidence — I output the word. If my structural evidence supports execution, I output BUY or SELL. If the structural edge is genuinely absent, I output NO_TRADE. My action is always my sovereign professional judgment — derived from structural evidence, never from a numerical anchor.
 
 STYLE: ${style} | PRIMARY: ${primaryTF} | CONTROL: ${controlTF} | CONFIRMATION: ${confirmationTF}
 

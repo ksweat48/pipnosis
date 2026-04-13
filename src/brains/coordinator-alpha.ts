@@ -81,6 +81,7 @@ import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
+import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER } from '../config/confidence-tier';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
@@ -257,6 +258,10 @@ export interface AlphaDecision {
   tp2Price?: number; // Full profit target (standard TP)
   tp2Reasoning?: string; // Alpha's explanation for TP2 placement
   confidence: number;
+  // CCIP-2026-0413-CONFIDENCE-TEXT: Alpha's original text tier (e.g. "confident", "high").
+  // The numeric `confidence` field is derived from this via CONFIDENCE_TIER_TO_NUMBER.
+  // Alpha never sees numbers — this is what he actually said.
+  confidence_tier?: string;
   reasoning: string;
   omega_summary: string;
   omega_votes?: OmegaCouncilVotes;
@@ -3706,42 +3711,50 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       const content = response.choices[0]?.message?.content || '{}';
 
-      // CCIP-2026-0405-DIAG: Raw response instrumentation — log trade_confidence at the
-      // point of receipt BEFORE any parsing or post-processing. This diagnostic was added
-      // to detect the CCIP-2026-0332A degenerate pattern (confidence=45 across all symbols)
-      // and to distinguish between GPT-4o outputting 45 vs. a downstream transformation.
-      // Also logs prompt cache hit/miss status to detect stale cached system prompt delivery.
+      // CCIP-2026-0413-CONFIDENCE-TEXT: Raw response instrumentation.
+      // Alpha now outputs confidence_tier (text) not trade_confidence (integer).
+      // Detect: (1) Alpha reverting to a numeric confidence field (schema violation),
+      //         (2) Alpha outputting an unrecognized tier string,
+      //         (3) short token counts indicating degenerate anchoring behavior.
       try {
-        const rawConfidenceMatch = content.match(/"trade_confidence"\s*:\s*(\d+)/);
+        const rawTierMatch = content.match(/"confidence_tier"\s*:\s*"([^"]+)"/);
+        const rawNumericConfidenceMatch = content.match(/"trade_confidence"\s*:\s*(\d+)/);
         const rawActionMatch = content.match(/"action"\s*:\s*"([^"]+)"/);
         const cachedTokens = (response.usage as any)?.prompt_tokens_details?.cached_tokens ?? 'unknown';
         const totalPromptTokens = response.usage?.prompt_tokens ?? 'unknown';
         const cacheHitPct = typeof cachedTokens === 'number' && typeof totalPromptTokens === 'number' && totalPromptTokens > 0
           ? Math.round((cachedTokens / totalPromptTokens) * 100)
           : 'unknown';
-        console.log(
-          `[Alpha Raw Response] symbol=${marketContext.symbol} action=${rawActionMatch?.[1] ?? 'MISSING'} ` +
-          `trade_confidence=${rawConfidenceMatch?.[1] ?? 'MISSING'} ` +
-          `cache=${cacheHitPct}% (${cachedTokens}/${totalPromptTokens} tokens cached)`
-        );
-        const rawConfidenceVal = rawConfidenceMatch?.[1];
-        const rawAction = rawActionMatch?.[1];
         const completionTokens = response.usage?.completion_tokens ?? 'unknown';
-        if (rawConfidenceVal === '45' && rawAction === 'NO_TRADE') {
+        const rawTier = rawTierMatch?.[1];
+        const rawAction = rawActionMatch?.[1];
+        console.log(
+          `[Alpha Raw Response] symbol=${marketContext.symbol} action=${rawAction ?? 'MISSING'} ` +
+          `confidence_tier=${rawTier ?? 'MISSING'} ` +
+          `cache=${cacheHitPct}% (${cachedTokens}/${totalPromptTokens} tokens cached) ` +
+          `completion_tokens=${completionTokens}`
+        );
+        if (rawNumericConfidenceMatch && !rawTierMatch) {
           console.warn(
-            `[Alpha Raw Response] CCIP-2026-0332A DEGENERATE SIGNAL: GPT-4o returned NO_TRADE with ` +
-            `confidence=45 for ${marketContext.symbol} in the raw response. ` +
-            `This matches the known anchoring pattern. Cache hit=${cacheHitPct}%. ` +
-            `completion_tokens=${completionTokens} (genuine scan: 1300-1500, degenerate: 150-340).`
+            `[Alpha Raw Response] CCIP-2026-0413 SCHEMA_VIOLATION: Alpha output a numeric trade_confidence=${rawNumericConfidenceMatch[1]} ` +
+            `instead of confidence_tier text for ${marketContext.symbol}. ` +
+            `This means the model is ignoring the prompt schema update. ` +
+            `Cache hit=${cacheHitPct}%. completion_tokens=${completionTokens}. ` +
+            `Check prompt cache staleness — prompt may need a cache-busting change.`
           );
         }
-        if (rawConfidenceVal === '30' && rawAction === 'NO_TRADE') {
+        if (rawTier && !VALID_CONFIDENCE_TIERS.has(rawTier)) {
           console.warn(
-            `[Alpha Raw Response] CCIP-2026-0409A DEGENERATE SIGNAL: GPT-4o returned NO_TRADE with ` +
-            `confidence=30 for ${marketContext.symbol} in the raw response. ` +
-            `This matches the CCIP-2026-0409A anchoring pattern. Cache hit=${cacheHitPct}%. ` +
-            `completion_tokens=${completionTokens} (genuine scan: 1300-1500, degenerate: 150-340). ` +
-            `If token count is low, a new numeric injection vector exists in alpha-identity.ts.`
+            `[Alpha Raw Response] CCIP-2026-0413 UNRECOGNIZED_TIER: Alpha output confidence_tier="${rawTier}" ` +
+            `for ${marketContext.symbol} — not a valid tier. Valid: ${[...VALID_CONFIDENCE_TIERS].join(', ')}. ` +
+            `Will resolve to confidence=0 (system failure bucket). completion_tokens=${completionTokens}.`
+          );
+        }
+        if (rawTier && VALID_CONFIDENCE_TIERS.has(rawTier) && (completionTokens as number) < 400 && rawAction === 'NO_TRADE') {
+          console.warn(
+            `[Alpha Raw Response] CCIP-2026-0413 SUSPECTED_DEGENERATE: NO_TRADE with confidence_tier="${rawTier}" ` +
+            `for ${marketContext.symbol} — low token count (${completionTokens}) suggests abbreviated reasoning. ` +
+            `Genuine scans: 1300-1500 tokens. Check whether the prompt schema was cached.`
           );
         }
       } catch {
@@ -3874,8 +3887,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
               narrative: marketThesisText,
               regime: regimeSnapshot?.category || 'unknown',
               liquidityContext: parsedJSON.market_narrative || undefined,
-              confidenceBand: parsedJSON.trade_confidence > 70 ? 'strong' as const :
-                             parsedJSON.trade_confidence > 50 ? 'medium' as const : 'weak' as const,
+              confidenceBand: (() => {
+                const tierNum = parsedJSON.confidence_tier
+                  ? (CONFIDENCE_TIER_TO_NUMBER[parsedJSON.confidence_tier as keyof typeof CONFIDENCE_TIER_TO_NUMBER] ?? 0)
+                  : (parsedJSON.trade_confidence ?? 0);
+                return tierNum > 70 ? 'strong' as const : tierNum > 50 ? 'medium' as const : 'weak' as const;
+              })(),
               thesisSummary: marketThesisText.substring(0, 100)
             }
           ).catch(err => {
@@ -4501,37 +4518,40 @@ Return PURE JSON only — all required fields from the schema in my system promp
         throw new Error(`[CCIP-2026-0333] Alpha returned invalid action "${action}". Expected BUY | SELL | NO_TRADE.`);
       }
 
-      // Extract new Alpha output format fields
-      const tradeConfidence = parsed.trade_confidence ?? parsed.confidence ?? 0;
+      // CCIP-2026-0413-CONFIDENCE-TEXT: Confidence conversion boundary.
+      // Alpha outputs confidence_tier (text). Convert to numeric for all downstream consumers.
+      // Alpha never sees numbers — the tier-to-number mapping is internal only.
+      const rawTier = parsed.confidence_tier as string | undefined;
+      const confidenceTier = rawTier && VALID_CONFIDENCE_TIERS.has(rawTier) ? rawTier : null;
+      const tradeConfidence = confidenceTier
+        ? tierToNumber(confidenceTier)
+        : (parsed.trade_confidence ?? parsed.confidence ?? 0);
 
-      // CCIP-2026-0405-DIAG: Post-parse confidence log — captures the resolved confidence
-      // value and the raw fields from GPT-4o's JSON before any downstream transformation.
-      // Use this to confirm whether confidence=45 originates from GPT-4o or is introduced here.
+      // CCIP-2026-0413: Post-parse confidence log.
       console.log(
         `[Alpha Parse] symbol=${symbol} action=${parsed.action} ` +
-        `raw.trade_confidence=${parsed.trade_confidence ?? 'MISSING'} ` +
-        `raw.confidence=${parsed.confidence ?? 'MISSING'} ` +
-        `resolved=${tradeConfidence}`
+        `confidence_tier=${rawTier ?? 'MISSING'} ` +
+        `resolved_numeric=${tradeConfidence}` +
+        (confidenceTier ? '' : ` (LEGACY_FALLBACK: raw.trade_confidence=${parsed.trade_confidence ?? 'MISSING'})`)
       );
 
-      // CCIP-2026-0405-DIAG: Sentinel — detect known-degenerate confidence values.
-      // confidence=45 on NO_TRADE matches the CCIP-2026-0332A anchoring pattern (numeric threshold anchors in prompt).
-      // confidence=30 on NO_TRADE matches the CCIP-2026-0409A anchoring pattern (Q8_move_position_pct FRESH=0-30% and <30%=indecision in candle format).
-      // DIAGNOSIS PROTOCOL:
-      //   Step 1 — Cross-reference "[Alpha Raw Response]" log above for this symbol.
-      //            Look at completion_tokens. Genuine scans: 1300-1500 tokens. Degenerate anchoring: 150-340 tokens.
-      //   Step 2 — If token count is low AND cache_hit % is high, a stale cached prompt is being served.
-      //   Step 3 — If token count is low AND cache_hit % is normal, a numeric injection vector is in alpha-identity.ts.
-      //   Step 4 — If token count is normal, this is a genuine market assessment at confidence=30.
-      //            The sentinel fires as a coincidence — not a bug.
-      if (action === 'NO_TRADE' && (tradeConfidence === 45 || tradeConfidence === 30)) {
+      // CCIP-2026-0413: Detect schema violation — Alpha output a number instead of a tier.
+      if (!rawTier && (parsed.trade_confidence != null || parsed.confidence != null)) {
         console.warn(
-          `[Alpha Parse] SENTINEL: NO_TRADE with confidence=${tradeConfidence} for ${symbol}. ` +
-          `Matches known-degenerate confidence value. ` +
-          `DIAGNOSE: Check "[Alpha Raw Response]" log for this symbol — look at completion_tokens. ` +
-          `Genuine scan = 1300-1500 tokens. Degenerate anchor = 150-340 tokens. ` +
-          `confidence=45 fix: CCIP-2026-0404C. confidence=30 fix: CCIP-2026-0409A. ` +
-          `If firing after those fixes with LOW token count: new numeric injection vector exists in alpha-identity.ts.`
+          `[Alpha Parse] CCIP-2026-0413 SCHEMA_VIOLATION for ${symbol}: ` +
+          `Alpha omitted confidence_tier and fell back to numeric confidence=${parsed.trade_confidence ?? parsed.confidence}. ` +
+          `The prompt schema requires confidence_tier text. ` +
+          `This may indicate the model is using a stale cached prompt. Check completion_tokens in [Alpha Raw Response] log.`
+        );
+      }
+
+      // CCIP-2026-0413: Detect unrecognized tier string — Alpha invented a word.
+      if (rawTier && !VALID_CONFIDENCE_TIERS.has(rawTier)) {
+        console.warn(
+          `[Alpha Parse] CCIP-2026-0413 UNRECOGNIZED_TIER for ${symbol}: ` +
+          `Alpha returned confidence_tier="${rawTier}" which is not in the valid tier set. ` +
+          `Resolving to confidence=0 (system failure bucket). ` +
+          `Valid tiers: ${[...VALID_CONFIDENCE_TIERS].join(', ')}.`
         );
       }
 
@@ -5183,6 +5203,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
           execution_status: executionStatus,
           directional_lean: directionalLean,
           lean_confidence: leanConfidence,
+          // CCIP-2026-0413-CONFIDENCE-TEXT: Pass the original text tier through so the database
+          // and UI can display what Alpha actually said (not just the derived number).
+          confidence_tier: confidenceTier || undefined,
           // CCIP-2026-0332A: Audit fields — governance check below enforces non-null
           no_trade_statement: noTradeStatementRaw || undefined,
           // CCIP-2026-0404A: Validate block_reason against LEGITIMATE_BLOCK_CONDITIONS + NO_EDGE.
@@ -5604,7 +5627,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // CCIP-2026-0321A: Alpha's stated tolerance — passed to executor for enforcement
         max_entry_deviation_pips: action !== 'NO_TRADE' ? alphaMaxDeviationPips : undefined,
         // CCIP-2026-0324G: Pass trader_statement through for audit trail and UI display
-        trader_statement: rawTraderStatement
+        trader_statement: rawTraderStatement,
+        // CCIP-2026-0413-CONFIDENCE-TEXT: Alpha's original text tier — passed through for DB and UI
+        confidence_tier: confidenceTier || undefined
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
