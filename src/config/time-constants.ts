@@ -108,6 +108,17 @@ export const TIME_MS = {
       BACKOFF_MULTIPLIER: 1.0,
       CIRCUIT_BREAKER_THRESHOLD: 0.2, // 20% threshold (less critical)
     },
+    // CCIP-GOAL-NOTIFICATIONS-BLOAT-2026-04-13
+    // Fail-fast timeout for the AlertExecutor expired-alerts query.
+    // No retries: retrying on a loaded DB amplifies the problem.
+    // Query now uses idx_goal_notifications_pending_execution partial index
+    // after the 89k-row bloat purge migration.
+    ALERT_EXECUTOR: {
+      QUERY_TIMEOUT: 8_000,        // Fail fast — do NOT retry a timed-out DB
+      RETRY_COUNT: 0,              // Zero retries (next 5s cycle will pick it up)
+      BACKOFF_MULTIPLIER: 1.0,     // N/A (no retries)
+      CIRCUIT_BREAKER_THRESHOLD: 0.15, // Log governance event at 15% timeout rate
+    },
   },
 
   CACHE: {

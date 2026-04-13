@@ -9,6 +9,7 @@
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { SystemTableRPCWrapper } from './system-table-rpc-wrapper';
+import { TIME_MS } from '../config/time-constants';
 
 class MidTradeAlertExecutor {
   private intervalId: NodeJS.Timeout | null = null;
@@ -55,10 +56,17 @@ class MidTradeAlertExecutor {
 
     this.isExecuting = true;
 
+    // CCIP-GOAL-NOTIFICATIONS-BLOAT-2026-04-13:
+    // Fail-fast AbortController prevents this query from causing 57014 statement
+    // timeouts under DB load. No retry: the next 5s cycle will pick up any alerts
+    // that were skipped. See TIME_MS.SERVICE_TIMEOUTS.ALERT_EXECUTOR for governance.
+    const abortController = new AbortController();
+    const abortTimer = setTimeout(
+      () => abortController.abort(),
+      TIME_MS.SERVICE_TIMEOUTS.ALERT_EXECUTOR.QUERY_TIMEOUT
+    );
+
     try {
-      // TIER 1.8 NOTE: Query fetches all expired alerts, then filters by trade status individually
-      // Trade status IS checked (line 128), just not at query level
-      // This is acceptable for small batches (limit 10) and avoids complex JSONB joins
       const { data: expiredAlerts, error: fetchError } = await supabase
         .from('goal_notifications')
         .select('*')
@@ -66,11 +74,15 @@ class MidTradeAlertExecutor {
         .eq('executed', false)
         .lte('auto_execute_at', new Date().toISOString())
         .order('auto_execute_at', { ascending: true })
-        .limit(10);
+        .limit(10)
+        .abortSignal(abortController.signal);
+
+      clearTimeout(abortTimer);
 
       if (fetchError) {
-        // Suppress AbortError during initialization
-        if (!(fetchError.message && fetchError.message.includes('AbortError'))) {
+        if (fetchError.message && fetchError.message.includes('AbortError')) {
+          logger.warn('[AlertExecutor] Query timed out — skipping cycle, will retry next interval');
+        } else {
           logger.error('[AlertExecutor] Error fetching expired alerts:', fetchError);
         }
         this.isExecuting = false;
@@ -91,6 +103,7 @@ class MidTradeAlertExecutor {
         await this.executeAlert(alert);
       }
     } catch (error) {
+      clearTimeout(abortTimer);
       logger.error('[AlertExecutor] Exception in checkAndExecuteExpiredAlerts:', error);
     } finally {
       this.isExecuting = false;
