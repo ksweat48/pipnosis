@@ -7,8 +7,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const SYMBOLS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "US30"];
-const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1"];
+const FOREX_SYMBOLS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "US30", "NAS100", "SPX500"];
+const CRYPTO_SYMBOLS = ["BTCUSD", "ETHUSD"];
+const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
 
 const TIMEFRAME_MINUTES: Record<string, number> = {
   M1: 1,
@@ -18,8 +19,11 @@ const TIMEFRAME_MINUTES: Record<string, number> = {
   H1: 60,
   H4: 240,
   D1: 1440,
-  W1: 10080,
 };
+
+function isCrypto(symbol: string): boolean {
+  return CRYPTO_SYMBOLS.includes(symbol);
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -37,14 +41,15 @@ Deno.serve(async (req: Request) => {
     let totalCandles = 0;
     let totalTicks = 0;
 
-    for (const symbol of SYMBOLS) {
-      // Fetch recent ticks from realtime_prices - get last 200 per symbol
+    const allSymbols = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
+
+    for (const symbol of allSymbols) {
       const { data: ticks, error: tickError } = await supabase
         .from("realtime_prices")
         .select("bid, ask, mid, broker_time, received_at")
         .eq("symbol", symbol)
         .order("broker_time", { ascending: true })
-        .limit(200);
+        .limit(500);
 
       if (tickError || !ticks || ticks.length === 0) {
         results.push({ symbol, error: tickError?.message || "no ticks", ticksProcessed: 0 });
@@ -53,49 +58,52 @@ Deno.serve(async (req: Request) => {
 
       totalTicks += ticks.length;
 
+      const lastTick = ticks[ticks.length - 1];
+      const lastTickTime = new Date(lastTick.broker_time || lastTick.received_at);
+      const serverNow = new Date();
+
+      const effectiveNow = isCrypto(symbol) ? serverNow : lastTickTime;
+
+      const skewMs = effectiveNow.getTime() - serverNow.getTime();
+      if (!isCrypto(symbol) && Math.abs(skewMs) > 60000) {
+        console.log(`[AggregateCandles] ${symbol}: broker skew = ${Math.round(skewMs / 60000)}min, using broker_time as effectiveNow`);
+      }
+
       for (const timeframe of TIMEFRAMES) {
         const minutesPerCandle = TIMEFRAME_MINUTES[timeframe];
+        if (!minutesPerCandle) continue;
+
+        const candleDurationMs = minutesPerCandle * 60 * 1000;
         const candlesCreated: number[] = [];
 
-        // Group ticks into candle buckets
-        const buckets = new Map<number, { open: number; high: number; low: number; close: number; volume: number; tickCount: number; openTime: Date }>();
+        const buckets = new Map<number, { open: number; high: number; low: number; close: number; volume: number; tickCount: number }>();
 
         for (const tick of ticks) {
-          const price = parseFloat(tick.bid ?? tick.mid ?? tick.ask);
+          const price = parseFloat(tick.mid ?? tick.bid ?? tick.ask);
           if (isNaN(price) || price <= 0) continue;
 
           const tickTime = new Date(tick.broker_time || tick.received_at);
-          const bucketMs = Math.floor(tickTime.getTime() / (minutesPerCandle * 60 * 1000)) * (minutesPerCandle * 60 * 1000);
+          const bucketMs = Math.floor(tickTime.getTime() / candleDurationMs) * candleDurationMs;
 
           if (!buckets.has(bucketMs)) {
-            buckets.set(bucketMs, {
-              open: price,
-              high: price,
-              low: price,
-              close: price,
-              volume: 1,
-              tickCount: 1,
-              openTime: new Date(bucketMs),
-            });
+            buckets.set(bucketMs, { open: price, high: price, low: price, close: price, volume: 1, tickCount: 1 });
           } else {
-            const bucket = buckets.get(bucketMs)!;
-            bucket.high = Math.max(bucket.high, price);
-            bucket.low = Math.min(bucket.low, price);
-            bucket.close = price;
-            bucket.volume += 1;
-            bucket.tickCount += 1;
+            const b = buckets.get(bucketMs)!;
+            b.high = Math.max(b.high, price);
+            b.low = Math.min(b.low, price);
+            b.close = price;
+            b.volume++;
+            b.tickCount++;
           }
         }
 
-        // Skip the current (incomplete) candle bucket
-        const now = Date.now();
-        const currentBucketMs = Math.floor(now / (minutesPerCandle * 60 * 1000)) * (minutesPerCandle * 60 * 1000);
+        const currentBucketMs = Math.floor(effectiveNow.getTime() / candleDurationMs) * candleDurationMs;
 
-        const completedBuckets = Array.from(buckets.entries()).filter(([bucketMs]) => bucketMs < currentBucketMs);
+        const completedBuckets = Array.from(buckets.entries()).filter(([bMs]) => bMs < currentBucketMs);
 
         for (const [bucketMs, candle] of completedBuckets) {
           const openTime = new Date(bucketMs);
-          const closeTime = new Date(bucketMs + minutesPerCandle * 60 * 1000 - 1000);
+          const closeTime = new Date(bucketMs + candleDurationMs - 1000);
 
           const { error: upsertError } = await supabase
             .from("forex_candles")
@@ -111,12 +119,9 @@ Deno.serve(async (req: Request) => {
                 close: candle.close,
                 volume: candle.volume,
                 tick_count: candle.tickCount,
-                data_source: "aggregate_candles_v2",
+                data_source: "aggregate_candles_v3",
               },
-              {
-                onConflict: "symbol,timeframe,open_time",
-                ignoreDuplicates: false,
-              }
+              { onConflict: "symbol,timeframe,open_time", ignoreDuplicates: false }
             );
 
           if (!upsertError) {
@@ -125,25 +130,11 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        results.push({
-          symbol,
-          timeframe,
-          candlesCreated: candlesCreated.length,
-          ticksProcessed: ticks.length,
-          errors: [],
-        });
+        if (candlesCreated.length > 0) {
+          results.push({ symbol, timeframe, candlesCreated: candlesCreated.length, ticksProcessed: ticks.length });
+        }
       }
     }
-
-    // Log aggregation run
-    await supabase.from("candle_aggregation_log").insert({
-      status: "success",
-      ticks_processed: totalTicks,
-      candles_created: totalCandles,
-      symbols_processed: SYMBOLS.length,
-      duration_ms: Date.now() - startTime,
-      details: results,
-    });
 
     return new Response(
       JSON.stringify({

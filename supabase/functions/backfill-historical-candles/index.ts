@@ -7,8 +7,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const FOREX_SYMBOLS = [
-  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
+const ALL_SYMBOLS = [
+  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'
 ];
 
 const TIMEFRAMES = [
@@ -22,17 +22,14 @@ const TIMEFRAMES = [
 ];
 
 interface MetaApiCandle {
-  symbol: string;
-  timeframe: string;
   time: string;
-  brokerTime: string;
+  brokerTime?: string;
   open: number;
   high: number;
   low: number;
   close: number;
-  tickVolume: number;
-  spread: number;
-  volume: number;
+  tickVolume?: number;
+  volume?: number;
 }
 
 interface BackfillResult {
@@ -40,22 +37,74 @@ interface BackfillResult {
   timeframe: string;
   candlesFetched: number;
   candlesSaved: number;
-  errors: string[];
+  error?: string;
+}
+
+async function fetchMetaApiCandles(
+  token: string,
+  accountId: string,
+  region: string,
+  symbol: string,
+  timeframe: string,
+  startTime: Date,
+  endTime?: Date
+): Promise<MetaApiCandle[]> {
+  const domains = [
+    `mt-client-api-v1.${region}.agiliumtrade.ai`,
+    `mt-market-data-client-api-v1.${region}.agiliumtrade.ai`,
+  ];
+
+  const path = `/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles`;
+
+  for (const domain of domains) {
+    let url = `https://${domain}${path}?startTime=${startTime.toISOString()}`;
+    if (endTime) url += `&endTime=${endTime.toISOString()}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'auth-token': token,
+          'Content-Type': 'application/json'
+        },
+        signal: AbortSignal.timeout(30000)
+      });
+
+      if (response.status === 404) {
+        console.log(`[Backfill] 404 from ${domain} for ${symbol} ${timeframe}, trying next...`);
+        continue;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`[Backfill] ${domain} error ${response.status} for ${symbol} ${timeframe}: ${text}`);
+        continue;
+      }
+
+      const data = await response.json();
+      if (!Array.isArray(data)) {
+        console.error(`[Backfill] Non-array response from ${domain} for ${symbol} ${timeframe}`);
+        continue;
+      }
+
+      console.log(`[Backfill] Success from ${domain}: ${data.length} candles for ${symbol} ${timeframe}`);
+      return data;
+    } catch (err) {
+      console.error(`[Backfill] Fetch error from ${domain} for ${symbol} ${timeframe}:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  return [];
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
-    });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  const startTime = Date.now();
+  const startMs = Date.now();
 
   try {
-    console.log('🚀 Starting historical candle backfill...');
-
     const metaapiToken = Deno.env.get('METAAPI_TOKEN');
     const metaapiAccountId = Deno.env.get('METAAPI_ACCOUNT_ID');
     const metaapiRegion = Deno.env.get('METAAPI_REGION') || 'london';
@@ -71,283 +120,126 @@ Deno.serve(async (req: Request) => {
     const url = new URL(req.url);
     const specificSymbol = url.searchParams.get('symbol');
     const specificTimeframe = url.searchParams.get('timeframe');
-    const candleLimit = parseInt(url.searchParams.get('limit') || '200', 10);
-    const daysBack = parseInt(url.searchParams.get('days') || '0', 10);
-    const startDate = url.searchParams.get('startDate');
-    const endDate = url.searchParams.get('endDate');
-    const replaceGapFills = url.searchParams.get('replaceGapFills') === 'true';
-    const priorityMode = url.searchParams.get('priority') || 'normal';
+    const daysBack = parseInt(url.searchParams.get('days') || '3', 10);
 
-    const symbolsToFetch = specificSymbol ? [specificSymbol] : FOREX_SYMBOLS;
+    const symbolsToFetch = specificSymbol ? [specificSymbol] : ALL_SYMBOLS;
     const timeframesToFetch = specificTimeframe
       ? TIMEFRAMES.filter(tf => tf.name === specificTimeframe)
       : TIMEFRAMES;
 
-    if (priorityMode === 'high') {
-      symbolsToFetch.sort((a, b) => {
-        const priority = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
-        return priority.indexOf(a) - priority.indexOf(b);
-      });
-    }
+    const endTime = new Date();
+    const startTime = new Date(endTime.getTime() - daysBack * 24 * 60 * 60 * 1000);
 
-    if (daysBack > 0) {
-      console.log(`📊 Backfilling ${daysBack} days of data for ${symbolsToFetch.length} symbols and ${timeframesToFetch.length} timeframes`);
-    } else {
-      console.log(`📊 Backfilling ${candleLimit} candles for ${symbolsToFetch.length} symbols and ${timeframesToFetch.length} timeframes`);
-    }
+    console.log(`[Backfill] Starting: ${symbolsToFetch.length} symbols × ${timeframesToFetch.length} timeframes | ${daysBack} days back | region=${metaapiRegion}`);
 
     const results: BackfillResult[] = [];
-    let totalCandlesFetched = 0;
-    let totalCandlesSaved = 0;
-    let totalErrors = 0;
+    let totalFetched = 0;
+    let totalSaved = 0;
 
     for (const symbol of symbolsToFetch) {
-      console.log(`\n📈 Processing symbol: ${symbol}`);
-
-      for (const timeframe of timeframesToFetch) {
+      for (const tf of timeframesToFetch) {
         const result: BackfillResult = {
           symbol,
-          timeframe: timeframe.name,
+          timeframe: tf.name,
           candlesFetched: 0,
           candlesSaved: 0,
-          errors: []
         };
 
         try {
-          console.log(`  ⏳ Fetching ${timeframe.name} candles...`);
-
           const candles = await fetchMetaApiCandles(
             metaapiToken,
             metaapiAccountId,
             metaapiRegion,
             symbol,
-            timeframe.name,
-            daysBack > 0 ? daysBack : undefined,
-            candleLimit,
-            timeframe.minutes,
-            startDate,
-            endDate
+            tf.name,
+            startTime,
+            endTime
           );
 
           result.candlesFetched = candles.length;
-          totalCandlesFetched += candles.length;
+          totalFetched += candles.length;
 
           if (candles.length > 0) {
-            const transformedCandles = candles.map(candle => ({
-              symbol: candle.symbol,
-              timeframe: candle.timeframe,
-              open_time: candle.time,
-              close_time: new Date(
-                new Date(candle.time).getTime() + timeframe.minutes * 60000
-              ).toISOString(),
-              open: parseFloat(String(candle.open)),
-              high: parseFloat(String(candle.high)),
-              low: parseFloat(String(candle.low)),
-              close: parseFloat(String(candle.close)),
-              volume: parseFloat(String(candle.tickVolume || 0)),
-              tick_count: 1
-            }));
+            const rows = candles
+              .filter(c => c.open > 0 && c.high >= c.low && c.high > 0)
+              .map(c => {
+                const openTime = new Date(c.time);
+                const closeTime = new Date(openTime.getTime() + tf.minutes * 60000);
+                return {
+                  symbol,
+                  timeframe: tf.name,
+                  open_time: openTime.toISOString(),
+                  close_time: closeTime.toISOString(),
+                  open: parseFloat(String(c.open)),
+                  high: parseFloat(String(c.high)),
+                  low: parseFloat(String(c.low)),
+                  close: parseFloat(String(c.close)),
+                  volume: parseFloat(String(c.tickVolume ?? c.volume ?? 0)),
+                  tick_count: 1,
+                  data_source: 'metaapi_backfill',
+                  candle_status: 'confirmed',
+                  quality_score: 95,
+                };
+              });
 
-            const savedCount = await saveCandlesToDatabase(
-              supabase,
-              transformedCandles,
-              result,
-              replaceGapFills
-            );
+            if (rows.length > 0) {
+              const { error } = await supabase
+                .from('forex_candles')
+                .upsert(rows, {
+                  onConflict: 'symbol,timeframe,open_time',
+                  ignoreDuplicates: false
+                });
 
-            result.candlesSaved = savedCount;
-            totalCandlesSaved += savedCount;
-
-            console.log(`  ✅ ${symbol} ${timeframe.name}: ${savedCount}/${candles.length} candles saved`);
-          } else {
-            console.log(`  ⚠️ ${symbol} ${timeframe.name}: No candles returned from MetaAPI`);
+              if (error) {
+                result.error = error.message;
+                console.error(`[Backfill] DB error for ${symbol} ${tf.name}: ${error.message}`);
+              } else {
+                result.candlesSaved = rows.length;
+                totalSaved += rows.length;
+                console.log(`[Backfill] Saved ${rows.length} ${symbol} ${tf.name} candles`);
+              }
+            }
           }
 
-          await new Promise(resolve => setTimeout(resolve, 200));
-
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          result.errors.push(errorMessage);
-          totalErrors++;
-          console.error(`  ❌ ${symbol} ${timeframe.name}: ${errorMessage}`);
+          await new Promise(r => setTimeout(r, 150));
+        } catch (err) {
+          result.error = err instanceof Error ? err.message : 'Unknown error';
+          console.error(`[Backfill] Error for ${symbol} ${tf.name}:`, result.error);
         }
 
         results.push(result);
       }
+
+      await new Promise(r => setTimeout(r, 300));
     }
 
-    const duration = Date.now() - startTime;
-    const summary = {
-      success: true,
-      message: 'Historical candle backfill completed',
-      daysBackfilled: daysBack,
-      symbolsProcessed: symbolsToFetch.length,
-      timeframesProcessed: timeframesToFetch.length,
-      totalCandlesFetched,
-      totalCandlesSaved,
-      totalErrors,
-      durationMs: duration,
-      durationMinutes: (duration / 60000).toFixed(2),
-      results
-    };
+    const durationMs = Date.now() - startMs;
 
-    console.log('\n✅ Backfill complete!');
-    console.log(`📊 Total candles fetched: ${totalCandlesFetched}`);
-    console.log(`💾 Total candles saved: ${totalCandlesSaved}`);
-    console.log(`⏱️ Duration: ${summary.durationMinutes} minutes`);
-    console.log(`❌ Errors: ${totalErrors}`);
-
-    return new Response(
-      JSON.stringify(summary, null, 2),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
-
-  } catch (error) {
-    console.error('❌ Backfill job failed:', error);
+    console.log(`[Backfill] Complete: fetched=${totalFetched}, saved=${totalSaved}, duration=${(durationMs/1000).toFixed(1)}s`);
 
     return new Response(
       JSON.stringify({
+        success: true,
+        daysBack,
+        symbolsProcessed: symbolsToFetch.length,
+        timeframesProcessed: timeframesToFetch.length,
+        totalFetched,
+        totalSaved,
+        durationMs,
+        results
+      }, null, 2),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (err) {
+    console.error('[Backfill] Fatal error:', err);
+    return new Response(
+      JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        duration: Date.now() - startTime
+        error: err instanceof Error ? err.message : 'Unknown error',
+        durationMs: Date.now() - startMs
       }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
-
-async function fetchMetaApiCandles(
-  token: string,
-  accountId: string,
-  region: string,
-  symbol: string,
-  timeframe: string,
-  daysBack?: number,
-  candleLimit?: number,
-  timeframeMinutes?: number,
-  startDate?: string | null,
-  endDate?: string | null
-): Promise<MetaApiCandle[]> {
-  let startTime: Date;
-  let endTime: Date | undefined;
-
-  if (startDate) {
-    startTime = new Date(startDate);
-    if (endDate) {
-      endTime = new Date(endDate);
-    }
-  } else if (daysBack !== undefined && daysBack > 0) {
-    startTime = new Date();
-    startTime.setDate(startTime.getDate() - daysBack);
-  } else if (candleLimit && timeframeMinutes) {
-    startTime = new Date();
-    const minutesBack = candleLimit * timeframeMinutes * 1.5;
-    startTime.setMinutes(startTime.getMinutes() - minutesBack);
-  } else {
-    startTime = new Date();
-    startTime.setDate(startTime.getDate() - 30);
-  }
-
-  let url = `https://mt-client-api-v1.${region}.agiliumtrade.ai/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/${timeframe}/candles?startTime=${startTime.toISOString()}`;
-
-  if (endTime) {
-    url += `&endTime=${endTime.toISOString()}`;
-  }
-
-  console.log(`    Fetching from: ${startTime.toISOString()}${endTime ? ` to ${endTime.toISOString()}` : ''}`);
-
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'auth-token': token,
-      'Content-Type': 'application/json'
-    }
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`MetaAPI error (${response.status}): ${errorText}`);
-  }
-
-  const candles = await response.json();
-
-  if (!Array.isArray(candles)) {
-    throw new Error('Invalid candle data from MetaAPI');
-  }
-
-  if (candleLimit && candles.length > candleLimit) {
-    return candles.slice(-candleLimit);
-  }
-
-  return candles;
-}
-
-async function saveCandlesToDatabase(
-  supabase: any,
-  candles: any[],
-  result: BackfillResult,
-  replaceGapFills: boolean = true
-): Promise<number> {
-  let savedCount = 0;
-
-  if (replaceGapFills) {
-    for (const candle of candles) {
-      const { data: existing } = await supabase
-        .from('forex_candles')
-        .select('data_source')
-        .eq('symbol', candle.symbol)
-        .eq('timeframe', candle.timeframe)
-        .eq('open_time', candle.open_time)
-        .maybeSingle();
-
-      if (!existing || existing.data_source?.includes('gap_fill')) {
-        const candleWithSource = {
-          ...candle,
-          data_source: 'backfill',
-          candle_status: 'backfilled',
-          completion_score: 90
-        };
-
-        const { error } = await supabase
-          .from('forex_candles')
-          .upsert(candleWithSource, {
-            onConflict: 'symbol,timeframe,open_time',
-            ignoreDuplicates: false
-          });
-
-        if (!error) {
-          savedCount++;
-        } else {
-          result.errors.push(`Failed to save candle: ${error.message}`);
-        }
-      }
-    }
-  } else {
-    const candlesWithSource = candles.map(c => ({
-      ...c,
-      data_source: 'backfill',
-      candle_status: 'backfilled',
-      completion_score: 90
-    }));
-
-    const { error: forexError } = await supabase
-      .from('forex_candles')
-      .upsert(candlesWithSource, {
-        onConflict: 'symbol,timeframe,open_time',
-        ignoreDuplicates: false
-      });
-
-    if (forexError) {
-      result.errors.push(`forex_candles: ${forexError.message}`);
-    } else {
-      savedCount = candles.length;
-    }
-  }
-
-  return savedCount;
-}

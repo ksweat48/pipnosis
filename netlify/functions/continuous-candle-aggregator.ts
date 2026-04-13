@@ -732,14 +732,18 @@ async function runKrakenDeadManSwitch(
   return totalSaved;
 }
 
-const DUKASCOPY_SYMBOL_MAP: Record<string, string> = {
-  'EURUSD': 'eurusd',
-  'GBPUSD': 'gbpusd',
-  'USDJPY': 'usdjpy',
-  'XAUUSD': 'xauusd',
+// Finnhub supports all 7 forex/index symbols we trade
+const FINNHUB_SYMBOL_MAP: Record<string, string> = {
+  'EURUSD': 'OANDA:EUR_USD',
+  'GBPUSD': 'OANDA:GBP_USD',
+  'USDJPY': 'OANDA:USD_JPY',
+  'XAUUSD': 'OANDA:XAU_USD',
+  'US30': 'OANDA:US30_USD',
+  'NAS100': 'OANDA:NAS100_USD',
+  'SPX500': 'OANDA:SPX500_USD',
 };
 
-const DUKASCOPY_TIMEFRAME_MAP: Record<string, string> = {
+const FINNHUB_RESOLUTION_MAP: Record<string, string> = {
   'M1': '1',
   'M5': '5',
   'M15': '15',
@@ -749,108 +753,77 @@ const DUKASCOPY_TIMEFRAME_MAP: Record<string, string> = {
   'D1': 'D',
 };
 
-async function backfillFromDukascopy(
+async function backfillFromFinnhub(
   symbol: string,
   timeframe: string,
   sinceDate: Date
 ): Promise<number> {
-  const dukascopySymbol = DUKASCOPY_SYMBOL_MAP[symbol];
-  if (!dukascopySymbol) {
+  const finnhubSymbol = FINNHUB_SYMBOL_MAP[symbol];
+  if (!finnhubSymbol) return 0;
+
+  const resolution = FINNHUB_RESOLUTION_MAP[timeframe];
+  if (!resolution) return 0;
+
+  const finnhubApiKey = process.env.FINNHUB_API_KEY;
+  if (!finnhubApiKey || finnhubApiKey === 'not-needed-in-development') {
+    console.log(`[CandleAggregator] [FinnhubSwitch] FINNHUB_API_KEY not configured, skipping`);
     return 0;
   }
 
-  const periodCode = DUKASCOPY_TIMEFRAME_MAP[timeframe];
-  if (!periodCode) return 0;
-
   try {
-    const startTs = sinceDate.getTime();
-    const endTs = Date.now();
+    const fromTs = Math.floor(sinceDate.getTime() / 1000);
+    const toTs = Math.floor(Date.now() / 1000);
+    const intervalSec = TIMEFRAME_MINUTES[timeframe] * 60;
 
-    const response = await axios.get('https://freeserv.dukascopy.com/2.0/', {
-      params: {
-        path: 'chart/candles/get.json',
-        symbol: dukascopySymbol,
-        timeframe: periodCode,
-        start: startTs,
-        end: endTs,
-        format: 'json'
-      },
-      timeout: 15000,
-      headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
-    });
+    const url = `https://finnhub.io/api/v1/forex/candle?symbol=${encodeURIComponent(finnhubSymbol)}&resolution=${resolution}&from=${fromTs}&to=${toTs}&token=${finnhubApiKey}`;
 
-    if (!response.data || !Array.isArray(response.data) || response.data.length === 0) {
-      console.log(`[CandleAggregator] [DukascopySwitch] No data returned for ${symbol} ${timeframe}`);
+    const response = await axios.get(url, { timeout: 15000 });
+
+    if (!response.data || response.data.s === 'no_data' || response.data.s !== 'ok') {
+      console.log(`[CandleAggregator] [FinnhubSwitch] No data for ${symbol} ${timeframe}: ${response.data?.s}`);
       return 0;
     }
 
-    const intervalMs = TIMEFRAME_MINUTES[timeframe] * 60 * 1000;
-    const now = new Date();
+    const { t, o, h, l, c, v } = response.data;
+    if (!t || t.length === 0) return 0;
 
-    const validCandles = response.data
-      .map((item: any[]) => ({
-        timestamp: item[0],
-        open: item[1],
-        high: item[2],
-        low: item[3],
-        close: item[4],
-        volume: item[5] || 0
-      }))
-      .filter((c: any) => {
-        if (!c.open || !c.high || !c.low || !c.close) return false;
-        if (c.high < c.low || c.open <= 0) return false;
-        const closeTime = new Date(c.timestamp + intervalMs);
-        return closeTime <= now;
+    const records = [];
+    for (let i = 0; i < t.length; i++) {
+      if (!o[i] || !h[i] || !l[i] || !c[i]) continue;
+      if (h[i] < l[i] || o[i] <= 0) continue;
+      const openTime = new Date(t[i] * 1000);
+      const closeTime = new Date((t[i] + intervalSec) * 1000);
+      records.push({
+        symbol,
+        timeframe,
+        open_time: openTime.toISOString(),
+        close_time: closeTime.toISOString(),
+        open: o[i],
+        high: h[i],
+        low: l[i],
+        close: c[i],
+        volume: v[i] || 0,
+        tick_count: v[i] || 0,
+        data_source: 'finnhub_deadman',
+        quality_score: 90,
       });
-
-    if (validCandles.length === 0) return 0;
-
-    const existingCheck = await supabase
-      .from('forex_candles')
-      .select('open_time')
-      .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
-      .gte('open_time', sinceDate.toISOString());
-
-    const existingTimes = new Set(
-      (existingCheck.data || []).map((r: any) => new Date(r.open_time).getTime())
-    );
-
-    const newCandles = validCandles.filter((c: any) => !existingTimes.has(c.timestamp));
-
-    if (newCandles.length === 0) {
-      console.log(`[CandleAggregator] [DukascopySwitch] All ${validCandles.length} ${symbol} ${timeframe} candles already exist`);
-      return 0;
     }
 
-    const records = newCandles.map((c: any) => ({
-      symbol,
-      timeframe,
-      open_time: new Date(c.timestamp).toISOString(),
-      close_time: new Date(c.timestamp + intervalMs).toISOString(),
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      volume: c.volume,
-      tick_count: c.volume,
-      data_source: 'dukascopy_deadman',
-      quality_score: 90,
-    }));
+    if (records.length === 0) return 0;
 
     const { error } = await supabase
       .from('forex_candles')
       .upsert(records, { onConflict: 'symbol,timeframe,open_time', ignoreDuplicates: false });
 
     if (error) {
-      console.error(`[CandleAggregator] [DukascopySwitch] DB error for ${symbol} ${timeframe}:`, error.message);
+      console.error(`[CandleAggregator] [FinnhubSwitch] DB error for ${symbol} ${timeframe}:`, error.message);
       return 0;
     }
 
-    console.log(`[CandleAggregator] [DukascopySwitch] Saved ${newCandles.length} ${symbol} ${timeframe} candles from Dukascopy`);
-    return newCandles.length;
+    console.log(`[CandleAggregator] [FinnhubSwitch] Saved ${records.length} ${symbol} ${timeframe} candles from Finnhub`);
+    return records.length;
   } catch (err) {
-    console.error(`[CandleAggregator] [DukascopySwitch] Error for ${symbol} ${timeframe}:`, err instanceof Error ? err.message : err);
+    console.error(`[CandleAggregator] [FinnhubSwitch] Error for ${symbol} ${timeframe}:`, err instanceof Error ? err.message : err);
     return 0;
   }
 }
@@ -859,10 +832,6 @@ async function runForexDeadManSwitch(
   symbol: string,
   lastM1CandleTime: Date | null
 ): Promise<number> {
-  if (!DUKASCOPY_SYMBOL_MAP[symbol]) {
-    return 0;
-  }
-
   const now = new Date();
   const gapMinutes = lastM1CandleTime
     ? (now.getTime() - lastM1CandleTime.getTime()) / 60000
@@ -874,7 +843,7 @@ async function runForexDeadManSwitch(
     ? `${Math.round(gapMinutes)}min gap since ${lastM1CandleTime.toISOString()}`
     : 'no M1 candles found';
 
-  console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: ${gapDesc} — triggering Dukascopy backfill`);
+  console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: ${gapDesc} — triggering Finnhub backfill`);
 
   const sinceDate = lastM1CandleTime
     ? new Date(lastM1CandleTime.getTime() - 60 * 1000)
@@ -886,14 +855,15 @@ async function runForexDeadManSwitch(
 
   let totalSaved = 0;
   for (const tf of timeframesToBackfill) {
-    const saved = await backfillFromDukascopy(symbol, tf, sinceDate);
+    const saved = await backfillFromFinnhub(symbol, tf, sinceDate);
     totalSaved += saved;
+    if (saved > 0) await new Promise(r => setTimeout(r, 1100));
   }
 
   if (totalSaved > 0) {
-    console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Filled ${totalSaved} candles from Dukascopy (${timeframesToBackfill.join(', ')})`);
+    console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Filled ${totalSaved} candles from Finnhub (${timeframesToBackfill.join(', ')})`);
   } else {
-    console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Dukascopy returned no new candles (gap: ${Math.round(gapMinutes)}min)`);
+    console.log(`[CandleAggregator] [ForexDeadManSwitch] ${symbol}: Finnhub returned no new candles (gap: ${Math.round(gapMinutes)}min)`);
   }
 
   return totalSaved;
@@ -937,14 +907,14 @@ async function aggregateCandlesForSymbol(
         console.log(`[CandleAggregator]   [DeadManSwitch] ${symbol}: Kraken backfill saved ${krakenSaved} candles`);
         return { candlesCreated: krakenSaved, timedOut: false };
       }
-    } else if (DUKASCOPY_SYMBOL_MAP[symbol]) {
-      const dukascopyForexSaved = await runForexDeadManSwitch(symbol, lastM1CandleTime);
-      if (dukascopyForexSaved > 0) {
-        console.log(`[CandleAggregator]   [ForexDeadManSwitch] ${symbol}: Dukascopy backfill saved ${dukascopyForexSaved} candles`);
-        return { candlesCreated: dukascopyForexSaved, timedOut: false };
-      }
     } else {
-      console.log(`[CandleAggregator]   [NoFallback] ${symbol}: No tick data and no dead-man fallback available (index with no OHLC source)`);
+      const finnhubSaved = await runForexDeadManSwitch(symbol, lastM1CandleTime);
+      if (finnhubSaved > 0) {
+        console.log(`[CandleAggregator]   [ForexDeadManSwitch] ${symbol}: Finnhub backfill saved ${finnhubSaved} candles`);
+        return { candlesCreated: finnhubSaved, timedOut: false };
+      } else {
+        console.log(`[CandleAggregator]   [NoFallback] ${symbol}: No tick data and Finnhub returned no candles`);
+      }
     }
 
     return { candlesCreated: 0, timedOut: false };
@@ -957,15 +927,27 @@ async function aggregateCandlesForSymbol(
     if (krakenSaved > 0) {
       console.log(`[CandleAggregator]   [DeadManSwitch] ${symbol}: Gap-fill saved ${krakenSaved} candles alongside tick aggregation`);
     }
-  } else if (DUKASCOPY_SYMBOL_MAP[symbol]) {
-    const dukascopyForexSaved = await runForexDeadManSwitch(symbol, lastM1CandleTime);
-    if (dukascopyForexSaved > 0) {
-      console.log(`[CandleAggregator]   [ForexDeadManSwitch] ${symbol}: Dukascopy gap-fill saved ${dukascopyForexSaved} candles alongside tick aggregation`);
+  } else {
+    const finnhubForexSaved = await runForexDeadManSwitch(symbol, lastM1CandleTime);
+    if (finnhubForexSaved > 0) {
+      console.log(`[CandleAggregator]   [ForexDeadManSwitch] ${symbol}: Finnhub gap-fill saved ${finnhubForexSaved} candles alongside tick aggregation`);
     }
   }
 
   const firstPriceTime = new Date(prices[0].broker_time);
   const lastPriceTime = new Date(prices[prices.length - 1].broker_time);
+
+  // BROKER TIME CLOCK SKEW FIX: AAAfx broker sends broker_time at UTC+3 (EET).
+  // Server Date.now() is UTC. Using server time for candle slot boundaries causes a 3-hour
+  // mismatch — ticks with broker_time=03:45 never match a slot computed from server 00:45.
+  // Solution: for forex symbols, use the latest broker_time tick as the effective "now"
+  // so that candle boundaries align with the broker's time reference.
+  const effectiveNow = isCryptoSymbol(symbol) ? now : lastPriceTime;
+  const clockSkewMs = effectiveNow.getTime() - now.getTime();
+  if (!isCryptoSymbol(symbol) && Math.abs(clockSkewMs) > 60000) {
+    console.log(`[CandleAggregator]   🕐 ${symbol}: Broker clock skew detected: ${Math.round(clockSkewMs / 60000)}min. Using broker_time=${effectiveNow.toISOString()} as effective now.`);
+  }
+
   console.log(`[CandleAggregator]   📈 ${symbol}: Fetched ${prices.length} prices from ${firstPriceTime.toISOString()} to ${lastPriceTime.toISOString()}`);
 
   let candlesCreated = 0;
@@ -986,7 +968,7 @@ async function aggregateCandlesForSymbol(
 
     // OPTIMIZATION: Fetch ALL existing candles for this time range in ONE query
     // Use the same adaptive lookback window so we catch all candles that may need updating
-    const lookbackTime = new Date(now.getTime() - lookbackMinutes * 60 * 1000);
+    const lookbackTime = new Date(effectiveNow.getTime() - lookbackMinutes * 60 * 1000);
     const { data: existingCandles } = await supabase
       .from('forex_candles')
       .select('open_time')
@@ -1003,7 +985,8 @@ async function aggregateCandlesForSymbol(
     console.log(`[CandleAggregator]       📋 Found ${existingCandleTimes.size} existing ${timeframe} candles`);
 
     // INTELLIGENT LOOKBACK: Check last saved candle and fill from there
-    const currentCandleStart = roundTimeToCandle(now, timeframeMinutes);
+    // Use effectiveNow (broker_time based for forex) to align candle boundaries with broker clock
+    const currentCandleStart = roundTimeToCandle(effectiveNow, timeframeMinutes);
     const previousCandleStart = new Date(currentCandleStart.getTime() - timeframeMinutes * 60 * 1000);
 
     // Get the last saved candle — use DB result from Set (window-scoped), or fall back to
@@ -1044,8 +1027,9 @@ async function aggregateCandlesForSymbol(
       const candleEndTime = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
 
       // Skip if candle period is not complete yet (with 30 second safety buffer for faster completion)
+      // Use effectiveNow (broker_time based for forex) to correctly evaluate candle completeness
       const bufferMs = 30 * 1000; // REDUCED from 60s to 30s for faster candle finalization
-      if (candleEndTime > new Date(now.getTime() - bufferMs)) {
+      if (candleEndTime > new Date(effectiveNow.getTime() - bufferMs)) {
         break;
       }
 
