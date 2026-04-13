@@ -29,15 +29,14 @@ export interface HunterLearningContext {
 
 interface LossTrade {
   direction: string | null;
-  exit_reason: string | null;
   entry_price: number | null;
   stop_loss: number | null;
   take_profit: number | null;
   profit_loss: number | null;
   entry_mode: string | null;
-  trade_style: string | null;
+  alpha_style: string | null;
   created_at: string | null;
-  mistakes_identified: string[] | null;
+  close_reason: string | null;
 }
 
 interface EntryModeStat {
@@ -105,7 +104,7 @@ class AlphaHunterLearningContextService {
 
     const { data: lossTrades, error } = await supabase
       .from('goal_session_trades')
-      .select('direction, exit_reason, entry_price, stop_loss, take_profit, profit_loss, entry_mode, trade_style, created_at, mistakes_identified')
+      .select('direction, close_reason, entry_price, stop_loss, take_profit, profit_loss, entry_mode, alpha_style, created_at')
       .eq('user_id', userId)
       .eq('symbol', symbol)
       .eq('status', 'closed')
@@ -119,36 +118,28 @@ class AlphaHunterLearningContextService {
     const losses = lossTrades as LossTrade[];
 
     const directionCounts: Record<string, number> = {};
-    const exitReasonCounts: Record<string, number> = {};
+    const closeReasonCounts: Record<string, number> = {};
     const entryModeCounts: Record<string, number> = {};
-    const mistakeCounts: Record<string, number> = {};
 
     for (const trade of losses) {
       if (trade.direction) {
         directionCounts[trade.direction] = (directionCounts[trade.direction] || 0) + 1;
       }
-      if (trade.exit_reason) {
-        const reason = trade.exit_reason.replace(/_/g, ' ');
-        exitReasonCounts[reason] = (exitReasonCounts[reason] || 0) + 1;
+      if (trade.close_reason) {
+        const reason = trade.close_reason.replace(/_/g, ' ');
+        closeReasonCounts[reason] = (closeReasonCounts[reason] || 0) + 1;
       }
       if (trade.entry_mode) {
         entryModeCounts[trade.entry_mode] = (entryModeCounts[trade.entry_mode] || 0) + 1;
-      }
-      if (Array.isArray(trade.mistakes_identified)) {
-        for (const mistake of trade.mistakes_identified.slice(0, 2)) {
-          if (mistake) {
-            mistakeCounts[mistake] = (mistakeCounts[mistake] || 0) + 1;
-          }
-        }
       }
     }
 
     const lines: string[] = [];
     lines.push(`LOSS PATTERN INTELLIGENCE (${symbol} — last 30 days, ${losses.length} losses — context only, not a gate):`);
 
-    const topExitReason = Object.entries(exitReasonCounts).sort((a, b) => b[1] - a[1])[0];
-    if (topExitReason && topExitReason[1] >= 2) {
-      lines.push(`  Most common exit: "${topExitReason[0]}" (${topExitReason[1]}/${losses.length} losses)`);
+    const topCloseReason = Object.entries(closeReasonCounts).sort((a, b) => b[1] - a[1])[0];
+    if (topCloseReason && topCloseReason[1] >= 2) {
+      lines.push(`  Most common exit: "${topCloseReason[0]}" (${topCloseReason[1]}/${losses.length} losses)`);
     }
 
     const topDirection = Object.entries(directionCounts).sort((a, b) => b[1] - a[1])[0];
@@ -160,14 +151,6 @@ class AlphaHunterLearningContextService {
     const topEntryMode = Object.entries(entryModeCounts).sort((a, b) => b[1] - a[1])[0];
     if (topEntryMode && topEntryMode[1] >= 2) {
       lines.push(`  Entry mode in losses: ${topEntryMode[0].replace(/_/g, ' ')} used in ${topEntryMode[1]}/${losses.length} losses`);
-    }
-
-    const topMistakes = Object.entries(mistakeCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 2)
-      .filter(([, count]) => count >= 2);
-    if (topMistakes.length > 0) {
-      lines.push(`  Recurring pattern: ${topMistakes.map(([m, c]) => `"${m}" (${c}x)`).join(', ')}`);
     }
 
     lines.push('  Use this to refine WHEN and HOW to enter — a clean structural setup remains valid.');
@@ -194,7 +177,7 @@ class AlphaHunterLearningContextService {
       .limit(100);
 
     if (tradeStyle) {
-      query = query.eq('trade_style', tradeStyle);
+      query = query.eq('alpha_style', tradeStyle);
     }
 
     const { data: trades, error } = await query;

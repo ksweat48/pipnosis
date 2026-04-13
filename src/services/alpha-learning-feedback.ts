@@ -76,12 +76,12 @@ export class AlphaLearningFeedbackService {
     // ✅ SSOT: Fetch full trade data to check milestone status
     const { data: tradeData } = await supabase
       .from('goal_session_trades')
-      .select('tp1_hit, tp2_hit, close_reason, trailing_active, breakeven_moved, trade_style')
+      .select('tp1_hit, tp2_hit, close_reason, alpha_style')
       .eq('id', outcome.tradeId)
       .maybeSingle();
 
-    if (tradeData?.trade_style && !outcome.tradeStyle) {
-      outcome = { ...outcome, tradeStyle: tradeData.trade_style };
+    if (tradeData?.alpha_style && !outcome.tradeStyle) {
+      outcome = { ...outcome, tradeStyle: tradeData.alpha_style };
     }
 
     // Map analysis close reason to CloseReason type for filtering
@@ -91,9 +91,7 @@ export class AlphaLearningFeedbackService {
     const milestoneData = tradeData ? {
       tp1_hit: tradeData.tp1_hit,
       tp2_hit: tradeData.tp2_hit,
-      sl_hit: mappedCloseReason === 'stop_loss', // SL hit inferred from close reason
-      trailing_active: tradeData.trailing_active,
-      breakeven_moved: tradeData.breakeven_moved
+      sl_hit: mappedCloseReason === 'stop_loss',
     } : undefined;
 
     if (!shouldIncludeInLearning(mappedCloseReason, milestoneData)) {

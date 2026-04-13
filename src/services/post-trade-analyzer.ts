@@ -384,7 +384,7 @@ class PostTradeAnalyzer {
     try {
       const { data: trade } = await supabase
         .from('goal_session_trades')
-        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe, alpha_reasoning_snapshot, tp1_reasoning, tp2_reasoning, micro_regime_at_entry, regime_confidence_at_entry, regime_used_dynamic_baseline')
+        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, alpha_style, alpha_reasoning_snapshot, tp1_reasoning, tp2_reasoning, micro_regime_at_entry, regime_confidence_at_entry, regime_used_dynamic_baseline')
         .eq('id', tradeData.id)
         .maybeSingle();
 
@@ -401,8 +401,7 @@ class PostTradeAnalyzer {
           tp1Hit: tradeData.tp1Hit ?? trade.tp1_hit,
           tp2Hit: tradeData.tp2Hit ?? trade.tp2_hit,
           peakProfit: tradeData.peakProfit ?? trade.peak_profit ?? null,
-          tradeStyle: tradeData.tradeStyle ?? trade.trade_style ?? null,
-          timeframe: tradeData.timeframe ?? trade.timeframe ?? null,
+          tradeStyle: tradeData.tradeStyle ?? trade.alpha_style ?? null,
           alphaReasoningSnapshot: trade.alpha_reasoning_snapshot ?? null,
           tp1ReasoningFromRecord: trade.tp1_reasoning ?? null,
           tp2ReasoningFromRecord: trade.tp2_reasoning ?? null,

@@ -185,7 +185,7 @@ class GoalAchievementCoordinator {
       // Find the currently open trade for this session
       const { data: openTrade } = await supabase
         .from('goal_session_trades')
-        .select('id, symbol, direction, entry_price, stop_loss, take_profit, created_at, user_id, trade_style, timeframe')
+        .select('id, symbol, direction, entry_price, stop_loss, take_profit, created_at, user_id, alpha_style')
         .eq('goal_session_id', sessionId)
         .eq('status', 'open')
         .order('created_at', { ascending: false })
@@ -322,7 +322,7 @@ class GoalAchievementCoordinator {
         .then(r => r.data),
     ]);
 
-    const rawStyle: string = openTrade.trade_style || sessionRow?.trade_style || '';
+    const rawStyle: string = openTrade.alpha_style || sessionRow?.trade_style || '';
     const styleMap: Record<string, string> = {
       scalper: 'Scalp', scalp: 'Scalp',
       micro: 'Micro', micro_intraday: 'Micro',
