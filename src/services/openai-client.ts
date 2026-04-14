@@ -442,6 +442,9 @@ class OpenAIClient {
             const data: ChatCompletionResponse = await response.json();
 
             // CCIP-2026-0329A: Log cached_tokens for cache hit rate monitoring
+            // CCIP-CACHE-BUST-2026-04-14: Elevated to warn when cache hit >10% on alpha_coordination
+            // requests — indicates the scan fingerprint may not be defeating the cache, which is
+            // the leading indicator of degenerate abbreviated completions.
             const cachedTokens = data.usage?.prompt_tokens_details?.cached_tokens ?? 0;
             const totalPrompt = data.usage?.prompt_tokens ?? 0;
             const cacheHitPct = totalPrompt > 0 ? Math.round((cachedTokens / totalPrompt) * 100) : 0;
@@ -455,6 +458,16 @@ class OpenAIClient {
               rateLimitDaily,
               finishReason: data.choices[0]?.finish_reason
             });
+
+            if (cacheHitPct > 10 && options.requestType === 'alpha_coordination') {
+              console.warn(
+                `[OpenAI Client] CCIP-CACHE-BUST WARNING: Alpha scan cache hit=${cacheHitPct}% ` +
+                `(${cachedTokens}/${totalPrompt} cached prompt tokens) for endpoint=${options.endpoint ?? 'unknown'} symbol=${options.symbol ?? 'unknown'}. ` +
+                `A cache hit >10% on an alpha_coordination request indicates the scan fingerprint ` +
+                `may not be defeating OpenAI's prompt cache. Degenerate abbreviated completions are likely. ` +
+                `Investigate coordinator-alpha.ts buildAlphaMessages() fingerprint injection.`
+              );
+            }
 
             if (rateLimitHourly && parseInt(rateLimitHourly) < 10) {
               console.warn(`[OpenAI Client] Low hourly quota: ${rateLimitHourly} requests remaining`);
