@@ -3749,9 +3749,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const completionTokens = response.usage?.completion_tokens ?? 'unknown';
         const rawTier = rawTierMatch?.[1];
         const rawAction = rawActionMatch?.[1];
+        const initialFinishReason = response.choices[0]?.finish_reason ?? 'unknown';
         console.log(
           `[Alpha Raw Response] symbol=${marketContext.symbol} action=${rawAction ?? 'MISSING'} ` +
-          `confidence_tier=${rawTier ?? 'MISSING'} ` +
+          `confidence_tier=${rawTier ?? 'MISSING'} finish_reason=${initialFinishReason} ` +
           `cache=${cacheHitPct}% (${cachedTokens}/${totalPromptTokens} tokens cached) ` +
           `completion_tokens=${completionTokens}`
         );
@@ -3771,44 +3772,60 @@ Return PURE JSON only — all required fields from the schema in my system promp
             `Will resolve to confidence=0 (system failure bucket). completion_tokens=${completionTokens}.`
           );
         }
-        if (typeof completionTokens === 'number' && completionTokens < 600 && rawAction === 'NO_TRADE') {
-          // CCIP-CACHE-BUST-2026-04-14: Degenerate scan auto-retry gate.
-          //
-          // A genuine Alpha scan produces 1300-1500 completion tokens. When OpenAI returns a
-          // stale cached completion, the output is abbreviated (~150-400 tokens) and always
-          // resolves to NO_TRADE because the model short-circuited its reasoning chain.
-          //
-          // ACTION: Automatically re-issue the call with an escalated cache-bust fingerprint.
-          // The retry fingerprint includes the original nonce + RETRY:1 + a fresh timestamp,
-          // making it impossible for OpenAI to match any existing cache entry.
-          // Capped at 1 retry to prevent runaway cost.
+
+        // CCIP-DEGENERATE-FIX-2026-04-14 v2: Expanded degenerate gate.
+        //
+        // ORIGINAL GATE: fired only when completion_tokens < 600 AND action === NO_TRADE.
+        // PROBLEM: the gate was also triggering on genuine short NO_TRADE responses and
+        // missing truncations on BUY/SELL responses where finish_reason=length cut the JSON.
+        //
+        // NEW GATE (two independent triggers):
+        //   1. Token floor: completion_tokens < 600 AND action === NO_TRADE
+        //      (same as before — abbreviated NO_TRADE is always degenerate)
+        //   2. Incomplete finish: finish_reason !== 'stop' AND finish_reason !== 'length'
+        //      (finish_reason=null or unknown means the response was aborted mid-stream)
+        //      Note: finish_reason='length' is handled separately by the TOKEN_BUDGET_EXCEEDED gate below.
+        //
+        // ROOT CAUSE OF PERSISTENT FAILURE (2026-04-14):
+        //   The `max_tokens` parameter is deprecated for gpt-4o. OpenAI now requires
+        //   `max_completion_tokens`. Sending only `max_tokens` causes gpt-4o to default
+        //   to a much lower internal ceiling (~256 tokens), which is why ALL symbols
+        //   return ~225-247 tokens regardless of the requested 2000-token budget.
+        //   FIX: The Netlify function now sends BOTH max_completion_tokens AND max_tokens.
+        //   This gate remains as a safety net to catch any future infrastructure failures.
+        const isShortNoTrade = typeof completionTokens === 'number' && completionTokens < 600 && rawAction === 'NO_TRADE';
+        const isIncompleteFinish = initialFinishReason !== 'stop' && initialFinishReason !== 'length' && initialFinishReason !== 'unknown';
+
+        if (isShortNoTrade || isIncompleteFinish) {
+          const degenerateReason = isShortNoTrade
+            ? `completion_tokens=${completionTokens} below 600-token genuine-scan floor (action=NO_TRADE)`
+            : `finish_reason=${initialFinishReason} indicates aborted/incomplete response`;
           console.warn(
-            `[Alpha Raw Response] CCIP-CACHE-BUST DEGENERATE_DETECTED: NO_TRADE with confidence_tier="${rawTier}" ` +
-            `for ${marketContext.symbol} — completion_tokens=${completionTokens} is below the 600-token genuine-scan floor. ` +
-            `Genuine scans produce 1300-1500 tokens. Auto-retrying with escalated cache-bust fingerprint.`
+            `[Alpha Raw Response] CCIP-DEGENERATE DETECTED: ${degenerateReason} ` +
+            `for ${marketContext.symbol}. Auto-retrying with escalated fingerprint.`
           );
 
           const retryLabel = `RETRY:1|NONCE:${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
           try {
             const retryResponse = await openAIClient.chat(buildAlphaMessages(retryLabel), alphaCallOptions);
             const retryCompletionTokens = retryResponse.usage?.completion_tokens ?? 0;
+            const retryFinishReason = retryResponse.choices[0]?.finish_reason ?? 'unknown';
             const retryContent = retryResponse.choices[0]?.message?.content || '{}';
             const retryAction = retryContent.match(/"action"\s*:\s*"([^"]+)"/)?.[1];
 
             console.log(
-              `[Alpha Raw Response] CCIP-CACHE-BUST RETRY_RESULT: symbol=${marketContext.symbol} ` +
-              `completion_tokens=${retryCompletionTokens} action=${retryAction ?? 'MISSING'}`
+              `[Alpha Raw Response] CCIP-DEGENERATE RETRY_RESULT: symbol=${marketContext.symbol} ` +
+              `completion_tokens=${retryCompletionTokens} finish_reason=${retryFinishReason} action=${retryAction ?? 'MISSING'}`
             );
 
-            if (retryCompletionTokens >= 600) {
-              // Retry produced a genuine scan — use it
-              console.log(`[Alpha Raw Response] CCIP-CACHE-BUST RETRY_SUCCESS: Genuine scan recovered for ${marketContext.symbol} (${retryCompletionTokens} tokens)`);
+            const retryIsGenuine = retryCompletionTokens >= 600 && retryFinishReason === 'stop';
+            if (retryIsGenuine) {
+              console.log(`[Alpha Raw Response] CCIP-DEGENERATE RETRY_SUCCESS: Genuine scan recovered for ${marketContext.symbol} (${retryCompletionTokens} tokens, finish_reason=stop)`);
               response = retryResponse;
             } else {
-              // Retry is also degenerate — this is a SCAN_FAILURE, not a reasoned NO_TRADE
               console.error(
-                `[Alpha Raw Response] CCIP-CACHE-BUST SCAN_FAILURE: Retry also produced degenerate output ` +
-                `(${retryCompletionTokens} tokens) for ${marketContext.symbol}. ` +
+                `[Alpha Raw Response] CCIP-DEGENERATE SCAN_FAILURE: Retry also produced degenerate output ` +
+                `(${retryCompletionTokens} tokens, finish_reason=${retryFinishReason}) for ${marketContext.symbol}. ` +
                 `Returning SCAN_FAILURE to prevent false NO_TRADE from suppressing live opportunities.`
               );
               return {
@@ -3819,17 +3836,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
                 stopLoss: marketContext.price,
                 takeProfit: marketContext.price,
                 confidence: 0,
-                reasoning: `SCAN_FAILURE: Alpha returned abbreviated reasoning on both the initial scan and the cache-bust retry for ${marketContext.symbol}. ` +
+                reasoning: `SCAN_FAILURE: Alpha returned abbreviated reasoning on both the initial scan and the retry for ${marketContext.symbol}. ` +
+                  `Initial: ${completionTokens} tokens, finish_reason=${initialFinishReason}. ` +
+                  `Retry: ${retryCompletionTokens} tokens, finish_reason=${retryFinishReason}. ` +
                   `This is an infrastructure failure — the LLM is not performing genuine analysis. ` +
-                  `Token counts: initial=${completionTokens}, retry=${retryCompletionTokens}. ` +
                   `This is NOT a market decision. The scan should be retried on the next cycle.`,
                 omega_summary: '',
                 risk_pct: 0
               };
             }
           } catch (retryErr) {
-            console.error(`[Alpha Raw Response] CCIP-CACHE-BUST RETRY_ERROR: Retry call failed for ${marketContext.symbol}:`, retryErr);
-            // Fall through with original response — best-effort
+            console.error(`[Alpha Raw Response] CCIP-DEGENERATE RETRY_ERROR: Retry call failed for ${marketContext.symbol}:`, retryErr);
           }
         }
       } catch {

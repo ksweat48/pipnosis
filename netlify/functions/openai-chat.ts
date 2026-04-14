@@ -339,15 +339,23 @@ async function handleRequest(event: any, startTime: number) {
       }
     }
 
-    const requestPayload = {
+    // CCIP-DEGENERATE-FIX-2026-04-14: Use max_completion_tokens instead of max_tokens.
+    // The `max_tokens` parameter is deprecated for gpt-4o and o-series models.
+    // OpenAI silently ignores or under-honours `max_tokens` for these models,
+    // causing the model to stop at ~225-247 tokens regardless of the requested limit.
+    // `max_completion_tokens` is the correct, supported field for gpt-4o.
+    // Both fields are sent for backwards compat with older models (gpt-4, gpt-4-turbo).
+    const tokenBudget = body.max_tokens ?? 2000;
+    const requestPayload: Record<string, unknown> = {
       model: body.model || 'gpt-4o-mini',
       messages: body.messages,
       temperature: body.temperature ?? 0.7,
-      max_tokens: body.max_tokens ?? 2000,
+      max_completion_tokens: tokenBudget,
+      max_tokens: tokenBudget,
       stream: false
     };
 
-    console.log(`[OpenAI Proxy] Calling OpenAI API: ${requestPayload.model}, ${body.messages.length} messages`);
+    console.log(`[OpenAI Proxy] Calling OpenAI API: ${requestPayload.model}, ${body.messages.length} messages, max_completion_tokens=${tokenBudget}`);
 
     // Create AbortController for timeout
     const controller = new AbortController();
