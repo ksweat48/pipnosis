@@ -339,19 +339,18 @@ async function handleRequest(event: any, startTime: number) {
       }
     }
 
-    // CCIP-DEGENERATE-FIX-2026-04-14: Use max_completion_tokens instead of max_tokens.
+    // CCIP-DEGENERATE-FIX-2026-04-14: Use max_completion_tokens ONLY (not max_tokens).
     // The `max_tokens` parameter is deprecated for gpt-4o and o-series models.
     // OpenAI silently ignores or under-honours `max_tokens` for these models,
     // causing the model to stop at ~225-247 tokens regardless of the requested limit.
     // `max_completion_tokens` is the correct, supported field for gpt-4o.
-    // Both fields are sent for backwards compat with older models (gpt-4, gpt-4-turbo).
+    // CRITICAL: Do NOT send both fields simultaneously — OpenAI returns HTTP 400 if both are present.
     const tokenBudget = body.max_tokens ?? 2000;
     const requestPayload: Record<string, unknown> = {
       model: body.model || 'gpt-4o-mini',
       messages: body.messages,
       temperature: body.temperature ?? 0.7,
       max_completion_tokens: tokenBudget,
-      max_tokens: tokenBudget,
       stream: false
     };
 
