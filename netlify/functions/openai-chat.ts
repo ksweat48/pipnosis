@@ -141,17 +141,11 @@ const FUNCTION_TIMEOUT_MS = 55000; // CCIP-2026-03-13e: Self-kill at 55s, 5s bef
 const OPENAI_REQUEST_TIMEOUT_MS = 45000; // CCIP-2026-03-13e: Restored to 45s — 20s was too short for 1500-token responses.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
-// CCIP-2026-0329A: OpenAI Prompt Caching
-// OpenAI automatically caches the longest stable prefix of prompts exceeding 1024 tokens.
-// Alpha prompts are 16k-21k tokens with a static system prompt prefix (~3.5k tokens).
-// Cached tokens are billed at 50% of the standard input rate.
-// The proxy reads prompt_tokens_details.cached_tokens from the response and logs it.
-// calculateCost() uses the cached rate for cached tokens and full rate for uncached tokens.
 const MODEL_PRICING = {
-  'gpt-4o': { input: 0.0025, inputCached: 0.00125, output: 0.010 },
-  'gpt-4o-mini': { input: 0.00015, inputCached: 0.000075, output: 0.0006 },
-  'gpt-4-turbo': { input: 0.01, inputCached: 0.005, output: 0.03 },
-  'gpt-4': { input: 0.03, inputCached: 0.015, output: 0.06 }
+  'gpt-4o': { input: 0.0025, output: 0.010 },
+  'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
+  'gpt-4-turbo': { input: 0.01, output: 0.03 },
+  'gpt-4': { input: 0.03, output: 0.06 }
 } as const;
 
 interface ChatMessage {
@@ -169,11 +163,9 @@ interface ChatRequest {
   endpoint?: string;
 }
 
-// CCIP-2026-0329A: cachedTokens param uses 50% rate; uncached tokens use full rate.
-function calculateCost(model: string, promptTokens: number, completionTokens: number, cachedTokens = 0): number {
+function calculateCost(model: string, promptTokens: number, completionTokens: number): number {
   const pricing = MODEL_PRICING[model as keyof typeof MODEL_PRICING] || MODEL_PRICING['gpt-4o-mini'];
-  const uncachedTokens = Math.max(0, promptTokens - cachedTokens);
-  const inputCost = (uncachedTokens / 1000) * pricing.input + (cachedTokens / 1000) * pricing.inputCached;
+  const inputCost = (promptTokens / 1000) * pricing.input;
   const outputCost = (completionTokens / 1000) * pricing.output;
   return inputCost + outputCost;
 }
@@ -347,17 +339,12 @@ async function handleRequest(event: any, startTime: number) {
       }
     }
 
-    // CCIP-2026-0329A: store:true opts into OpenAI automatic prompt caching.
-    // Prompts >1024 tokens have their longest stable prefix cached server-side.
-    // Alpha system prompts (~3.5k tokens) are fully static per style variant —
-    // identical byte sequences between calls guarantee high cache hit rates.
     const requestPayload = {
       model: body.model || 'gpt-4o-mini',
       messages: body.messages,
       temperature: body.temperature ?? 0.7,
       max_tokens: body.max_tokens ?? 2000,
-      stream: false,
-      store: true
+      stream: false
     };
 
     console.log(`[OpenAI Proxy] Calling OpenAI API: ${requestPayload.model}, ${body.messages.length} messages`);
@@ -482,12 +469,9 @@ async function handleRequest(event: any, startTime: number) {
 
       const data = await response.json();
       const usage = data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-      // CCIP-2026-0329A: Extract cached_tokens from prompt_tokens_details (OpenAI caching response field)
-      const cachedTokens: number = usage.prompt_tokens_details?.cached_tokens ?? 0;
-      const cost = calculateCost(requestPayload.model, usage.prompt_tokens, usage.completion_tokens, cachedTokens);
-      const cacheHitPct = usage.prompt_tokens > 0 ? Math.round((cachedTokens / usage.prompt_tokens) * 100) : 0;
+      const cost = calculateCost(requestPayload.model, usage.prompt_tokens, usage.completion_tokens);
 
-      console.log(`[OpenAI Proxy] Success: ${usage.total_tokens} tokens (${cachedTokens} cached / ${cacheHitPct}% hit), $${cost.toFixed(6)}, ${latency}ms`);
+      console.log(`[OpenAI Proxy] Success: ${usage.total_tokens} tokens, $${cost.toFixed(6)}, ${latency}ms`);
 
       // Fire and forget - don't wait for these to complete
       supabase.rpc('increment_rate_limit', { p_user_id: userId })
@@ -507,9 +491,6 @@ async function handleRequest(event: any, startTime: number) {
         p_success: true,
         p_error_message: null,
         p_latency_ms: latency
-        // CCIP-2026-0329A: cached_tokens is available in usage.prompt_tokens_details.cached_tokens
-        // and is already factored into p_cost_usd via calculateCost(). The RPC schema does not
-        // yet have a p_cached_tokens column — add a migration if per-call cache analytics are needed.
       }).then(result => {
         if (result.error) console.error('[OpenAI Proxy] Usage logging failed:', result.error);
       });
