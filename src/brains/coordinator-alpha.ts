@@ -3589,12 +3589,37 @@ SCAN MANDATE (CCIP-2026-0330A): My first question every scan: what is this marke
 
 NO_TRADE means genuine absence of directional edge — not absence of a perfect setup.
 
-CONVICTION STANDARD (for this scan):
-- EXCELLENT: Execute — overwhelming structural alignment, textbook evidence across all dimensions
-- SOLID: Execute — strong structural case, clear confluence on primary and secondary dimensions
-- ACCEPTABLE: Execute — valid professional trade with genuine structural basis and real pip potential. Named structure, clean path, correct RR. This is the hidden gem category.
-- INSUFFICIENT: NO_TRADE — genuine absence of directional edge. Conflicting signals alone do not produce INSUFFICIENT — only genuine absence of a profitable direction does.
-My confidence is my honest read of which conviction tier my structural evidence places me in. I do not anchor to any number. I derive my conviction from what the candles, structure, and session phase actually show.
+CONVICTION STANDARD — TIER-TO-ACTION MAP (CCIP-2026-0415A):
+My confidence_tier determines which actions are available to me. This is not a formula — it is the honest relationship between structural clarity and execution readiness.
+
+  no_read    → NO_TRADE only.
+               Nothing credible visible. There is no direction to wait for. A wait on a no_read is waiting for nothing.
+
+  low        → NO_TRADE or Wait Intent (execute_now is NOT available).
+               A signal is present but structural basis is too thin to execute. I may see a directional lean,
+               but valid stop placement cannot be confirmed or R:R is mathematically impossible at this level.
+               If I have a directional lean and a zone to monitor: wait_pullback or push_confirmation.
+               If even a lean cannot be structured: NO_TRADE.
+
+  cautious   → Wait Intent or Execute Now (NO_TRADE is NOT available at this tier).
+  moderate   → Wait Intent or Execute Now (NO_TRADE is NOT available at this tier).
+               Partial-to-solid structure. Direction is readable. I have identified a named level and a credible
+               path. The only question is whether entry conditions are met now or require zone confirmation.
+               If trigger has fired or price is at the structural level: execute_now.
+               If price is extended and I want a better entry: wait_pullback or push_confirmation.
+
+  confident  → Wait Intent or Execute Now (NO_TRADE is NOT available at this tier).
+  high       → Wait Intent or Execute Now (NO_TRADE is NOT available at this tier).
+               Strong named structure, clean path, stop anchored. I trade this.
+               If I want to wait for a zone pullback: wait_pullback or push_confirmation.
+               If price is already at the level: execute_now.
+
+  very_high  → Execute Now only (wait and NO_TRADE are NOT available at this tier).
+  extreme    → Execute Now only (wait and NO_TRADE are NOT available at this tier).
+               Exceptional or near-perfect structural clarity. The edge is live. Waiting surrenders it.
+               execute_now is the only valid response.
+
+My confidence_tier is my honest read of what the structural evidence shows. My action and entry_mode must be consistent with the permitted set for that tier. A response that selects an action outside the permitted set for the stated tier is a governance violation — the system will correct it.
 
 I read macro intelligence first, then interpret candle evidence through that lens. My system prompt defines how I think. What follows is the market data for this scan.
 
@@ -4778,6 +4803,116 @@ Return PURE JSON only — all required fields from the schema in my system promp
         );
       }
 
+      // CCIP-2026-0415A: Tier-to-action governance enforcement.
+      //
+      // The tier-to-action map defines which outputs are permitted per confidence tier:
+      //   no_read               → NO_TRADE only
+      //   low                   → NO_TRADE or Wait Intent (execute_now forbidden)
+      //   cautious, moderate    → Wait Intent or Execute Now (NO_TRADE forbidden)
+      //   confident, high       → Wait Intent or Execute Now (NO_TRADE forbidden)
+      //   very_high, extreme    → Execute Now only (wait and NO_TRADE forbidden)
+      //
+      // Violations are corrected here — the goal is to honour Alpha's intent while
+      // enforcing the structural logic of the tier system.
+      // Corrections applied:
+      //   - NO_TRADE at cautious/moderate/confident/high → downgraded to wait_pullback BUY/SELL
+      //     (Alpha has directional clarity at these tiers — we surface it as a wait intent)
+      //   - NO_TRADE at very_high/extreme → overridden to execute_now with the stated direction
+      //     (exceptional clarity must result in execution)
+      //   - execute_now at low → corrected to wait_pullback
+      //     (low confidence cannot support an immediate market order)
+      //   - wait_pullback/push_confirmation at very_high/extreme → corrected to execute_now
+      //     (edge is live and sharp — waiting surrenders it)
+      //   - NO_TRADE at no_read → passes through unchanged (valid)
+      //   - NO_TRADE at low → passes through unchanged (valid when no lean can be structured)
+      {
+        const tier = confidenceTier as string | null;
+        const NO_TRADE_FORBIDDEN_TIERS = new Set(['cautious', 'moderate', 'confident', 'high', 'very_high', 'extreme']);
+        const EXECUTE_NOW_ONLY_TIERS = new Set(['very_high', 'extreme']);
+        const WAIT_ONLY_TIERS = new Set(['low']);
+
+        if (action === 'NO_TRADE' && tier && NO_TRADE_FORBIDDEN_TIERS.has(tier)) {
+          // Alpha has structural clarity at this tier — NO_TRADE is not permitted.
+          // We must surface his directional lean as a wait intent or execution.
+          // Use directional_lean to determine the action, defaulting to BUY_LEAN path.
+          const lean = (parsed.directional_lean as string | undefined) ?? 'NEUTRAL';
+          const correctedAction = (lean === 'SELL_LEAN') ? 'SELL' : 'BUY';
+          const correctedEntryMode = EXECUTE_NOW_ONLY_TIERS.has(tier) ? 'execute_now' : 'wait_pullback';
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0415A: NO_TRADE_TIER_VIOLATION — ` +
+            `Alpha returned NO_TRADE at confidence_tier="${tier}" where NO_TRADE is forbidden. ` +
+            `Directional lean: ${lean}. ` +
+            `Correcting to action=${correctedAction} entry_mode=${correctedEntryMode}. ` +
+            `Symbol=${symbol}. All thesis fields preserved.`
+          );
+          // Mutate action and entry_mode on parsed object so downstream parse picks them up.
+          // The thesis, levels, and all structural fields are preserved.
+          (parsed as Record<string, unknown>).action = correctedAction;
+          (parsed as Record<string, unknown>).entry_mode = correctedEntryMode;
+          // If no wait_condition present, build a minimal one from SL geometry so the
+          // entry monitor has a zone to work with. The executor will refine at execution.
+          if (correctedEntryMode !== 'execute_now' && !parsed.wait_condition) {
+            (parsed as Record<string, unknown>).wait_condition = {
+              target_entry_zone_min: parsed.entry ?? currentPrice,
+              target_entry_zone_max: parsed.entry ?? currentPrice,
+              invalidation_price: parsed.stopLoss ?? parsed.stop_loss ?? currentPrice,
+              wait_reasoning: `CCIP-2026-0415A: Auto-generated wait zone. Alpha chose NO_TRADE at tier=${tier} but this tier requires execution or wait. Zone inferred from entry geometry.`,
+              expected_wait_minutes: 30,
+            };
+          }
+          logViolation({
+            violationType: 'NO_TRADE_TIER_VIOLATION',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'no_trade_at_forbidden_tier',
+            callLocation: 'coordinator-alpha.tier_action_governance',
+            blocked: false,
+            errorDetails: {
+              tier,
+              original_action: 'NO_TRADE',
+              corrected_action: correctedAction,
+              corrected_entry_mode: correctedEntryMode,
+              directional_lean: lean,
+              description: `NO_TRADE forbidden at tier=${tier}. Corrected to ${correctedAction}/${correctedEntryMode}.`,
+            },
+          }).catch(() => {});
+        } else if (action === 'BUY' || action === 'SELL') {
+          const rawEntryMode = (parsed.entry_mode as string | undefined) ?? (parsed.entry_spec?.entry_mode as string | undefined);
+          if (tier && WAIT_ONLY_TIERS.has(tier) && rawEntryMode === 'execute_now') {
+            // execute_now at low confidence — correct to wait_pullback
+            console.warn(
+              `[Alpha Coordinator] CCIP-2026-0415A: EXECUTE_NOW_AT_LOW_TIER — ` +
+              `Alpha returned execute_now at confidence_tier="${tier}" where execute_now is forbidden. ` +
+              `Correcting entry_mode: execute_now → wait_pullback. Symbol=${symbol}.`
+            );
+            (parsed as Record<string, unknown>).entry_mode = 'wait_pullback';
+            logViolation({
+              violationType: 'EXECUTE_NOW_AT_LOW_TIER',
+              symbol: marketContext.symbol,
+              attemptedOperation: 'execute_now_at_low_confidence',
+              callLocation: 'coordinator-alpha.tier_action_governance',
+              blocked: false,
+              errorDetails: { tier, entry_mode_before: 'execute_now', entry_mode_after: 'wait_pullback' },
+            }).catch(() => {});
+          } else if (tier && EXECUTE_NOW_ONLY_TIERS.has(tier) && rawEntryMode && rawEntryMode !== 'execute_now') {
+            // wait at very_high/extreme — edge is live, correct to execute_now
+            console.warn(
+              `[Alpha Coordinator] CCIP-2026-0415A: WAIT_AT_VERY_HIGH_TIER — ` +
+              `Alpha returned entry_mode="${rawEntryMode}" at confidence_tier="${tier}" where only execute_now is permitted. ` +
+              `Correcting entry_mode → execute_now. Symbol=${symbol}.`
+            );
+            (parsed as Record<string, unknown>).entry_mode = 'execute_now';
+            logViolation({
+              violationType: 'WAIT_AT_VERY_HIGH_TIER',
+              symbol: marketContext.symbol,
+              attemptedOperation: 'wait_at_very_high_confidence',
+              callLocation: 'coordinator-alpha.tier_action_governance',
+              blocked: false,
+              errorDetails: { tier, entry_mode_before: rawEntryMode, entry_mode_after: 'execute_now' },
+            }).catch(() => {});
+          }
+        }
+      }
+
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       // CCIP-2026-0319A (Fix 2): entry_mode is only valid for BUY/SELL decisions.
       // CCIP-2026-0333: entry_mode is a routing decision (immediate vs. monitored).
@@ -4786,7 +4921,14 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // For NO_TRADE, strip any hallucinated entry_mode to undefined.
       // CCIP-2026-0323A: let (not const) — Q10 FORCED guard may correct execute_now → wait_pullback
       let entryMode: string | undefined;
-      if (action === 'NO_TRADE') {
+      // Re-read action after CCIP-2026-0415A corrections above
+      const correctedAction = (parsed.action as string | undefined) ?? action;
+      if (correctedAction !== action) {
+        // 0415A changed the action — update the local binding so all downstream
+        // code (entry_mode parse, NO_TRADE early-return, trade object assembly) sees the correction.
+        (parsed as Record<string, unknown>).action = correctedAction;
+      }
+      if (correctedAction === 'NO_TRADE') {
         entryMode = undefined;
       } else if (!parsed.entry_mode && !parsed.entry_spec?.entry_mode) {
         logViolation({
@@ -4804,7 +4946,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }
         }).catch(() => {});
         console.error(
-          `[CCIP-2026-0333] MISSING_ENTRY_MODE — Alpha returned ${action} for ${marketContext.symbol} without entry_mode. ` +
+          `[CCIP-2026-0333] MISSING_ENTRY_MODE — Alpha returned ${correctedAction} for ${marketContext.symbol} without entry_mode. ` +
           `Trade BLOCKED. Alpha must explicitly declare execution intent.`
         );
         return {
@@ -4820,7 +4962,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           symbol: marketContext.symbol,
           decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
           alpha_original_decision: {
-            action: action as 'BUY' | 'SELL',
+            action: correctedAction as 'BUY' | 'SELL',
             entry: parsed.entry ?? currentPrice,
             stopLoss: parsed.stopLoss ?? currentPrice,
             takeProfit: parsed.takeProfit ?? currentPrice,
@@ -5381,7 +5523,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       // If NO_TRADE, return simple response
-      if (action === 'NO_TRADE') {
+      // CCIP-2026-0415A: Use correctedAction here — 0415A may have upgraded action from NO_TRADE → BUY/SELL.
+      if (correctedAction === 'NO_TRADE') {
         // CCIP (2026-03-07): Reasoned NO_TRADE (LLM completed successfully) must carry confidence >= 10
         // so governance can distinguish it from a system-failure NO_TRADE (confidence === 0).
         // A system failure is: data missing, parse error, wall violation, hard block before LLM.
@@ -5516,7 +5659,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
       let stopLoss = parsed.stopLoss;
       let takeProfit: number;
-      const isBuy = action === 'BUY';
+      // CCIP-2026-0415A: Use correctedAction — 0415A may have upgraded NO_TRADE → BUY/SELL.
+      const isBuy = correctedAction === 'BUY';
 
       // Extract Alpha's TP decisions based on style
       if (tradeStyle === 'SCALP') {
@@ -5798,7 +5942,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             narrativeValidation: narrativeValidation || undefined,
             decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
             alpha_original_decision: {
-              action: action as 'BUY' | 'SELL',
+              action: correctedAction as 'BUY' | 'SELL',
               entry: entry ?? currentPrice,
               stopLoss: stopLoss ?? currentPrice,
               takeProfit: takeProfit ?? currentPrice,
@@ -5821,7 +5965,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
       const traderStatementWordCount = rawTraderStatement
         ? rawTraderStatement.trim().split(/\s+/).filter(Boolean).length
         : 0;
-      if (action === 'BUY' || action === 'SELL') {
+      // CCIP-2026-0415A: Use correctedAction — 0415A may have upgraded NO_TRADE → BUY/SELL.
+      if (correctedAction === 'BUY' || correctedAction === 'SELL') {
         if (!rawTraderStatement || traderStatementWordCount < 30) {
           logViolation({
             violationType: 'TRADER_STATEMENT_ABSENT_OR_TOO_SHORT',
@@ -5857,14 +6002,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
         } else {
           alphaMaxDeviationPips = 20;
         }
-        if (action !== 'NO_TRADE') {
+        if (correctedAction !== 'NO_TRADE') {
           console.warn(`[Alpha Coordinator] max_entry_deviation_pips missing from Alpha response — applying ${alphaMaxDeviationPips} pip fallback for ${symbol}`);
         }
       }
 
       return {
-        action,
-        decision: action,
+        // CCIP-2026-0415A: Use correctedAction — may differ from original action const after tier correction.
+        action: correctedAction as 'BUY' | 'SELL' | 'NO_TRADE',
+        decision: correctedAction,
         entry,
         stopLoss,
         takeProfit,
@@ -5895,7 +6041,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
         entry_advisory: entryAdvisory || undefined,
         answer_sheet: answerSheet,
         // CCIP-2026-0321A: Alpha's stated tolerance — passed to executor for enforcement
-        max_entry_deviation_pips: action !== 'NO_TRADE' ? alphaMaxDeviationPips : undefined,
+        max_entry_deviation_pips: correctedAction !== 'NO_TRADE' ? alphaMaxDeviationPips : undefined,
         // CCIP-2026-0324G: Pass trader_statement through for audit trail and UI display
         trader_statement: rawTraderStatement,
         // CCIP-2026-0413-CONFIDENCE-TEXT: Alpha's original text tier — passed through for DB and UI
