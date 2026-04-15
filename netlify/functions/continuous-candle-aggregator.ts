@@ -772,7 +772,10 @@ async function aggregateCandlesForSymbol(
   }
 
   // Correct wicks on recently saved sparse-tick M5 candles using broker OHLC
-  if (timeframesToProcess.includes('M5')) {
+  // CCIP-2026-04-15: Disabled for crypto symbols — Kraken is the authoritative price source
+  // for BTCUSD/ETHUSD. MetaAPI does not serve reliable crypto OHLC from the same feed,
+  // causing inflated highs (650-800+ USD above real price) that corrupt candle wicks.
+  if (timeframesToProcess.includes('M5') && !isCryptoSymbol(symbol)) {
     try {
       await correctSparseCandleWicks(symbol);
     } catch (wickErr) {
