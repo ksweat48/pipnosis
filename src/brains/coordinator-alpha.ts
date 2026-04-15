@@ -525,6 +525,48 @@ export interface AlphaDecision {
    * would be used. SSOT: AlphaOutputFormat.spread_estimate_pips in alpha-identity.ts.
    */
   spread_estimate_pips?: number;
+  /**
+   * CCIP-2026-0415: Decision Origin Classification System.
+   *
+   * Every NO_TRADE is self-documenting. This field records WHY the outcome is NO_TRADE —
+   * distinguishing Alpha's genuine judgment from system failures, infrastructure errors,
+   * data outages, and system blocks on Alpha's actual BUY/SELL intent.
+   *
+   * ALPHA_GENUINE          — Alpha searched, found no structural edge (real NO_TRADE)
+   * ALPHA_BLOCKED_GEOMETRY — Alpha found a trade; geometry validation blocked it
+   * ALPHA_BLOCKED_COMPLIANCE — Alpha found a trade; missing required field blocked it
+   * ALPHA_BLOCKED_SURVIVAL — Alpha found a trade; Omega-9 survival gate blocked it
+   * SYSTEM_DATA_MISSING    — Candle/structural data unavailable; Alpha could not reason
+   * SYSTEM_PARSE_FAILURE   — LLM response could not be parsed
+   * SYSTEM_DEGENERATE      — LLM returned abbreviated/empty output (both attempts)
+   * SYSTEM_TRUNCATED       — LLM hit token budget and response was cut off
+   * SYSTEM_NETWORK_FAILURE — Infrastructure/network error in coordinate()
+   * SYSTEM_FRESHNESS_BLOCK — Price data was stale; freshness gate blocked execution
+   * ENGINE_RISK_BLOCKED    — Risk manager blocked execution post-Alpha
+   * ENGINE_FEASIBILITY_BLOCKED — Goal feasibility blocked execution
+   * ENGINE_CAPACITY_BLOCKED — Concurrent trade limit reached
+   */
+  decision_origin?: 'ALPHA_GENUINE' | 'ALPHA_BLOCKED_GEOMETRY' | 'ALPHA_BLOCKED_COMPLIANCE' | 'ALPHA_BLOCKED_SURVIVAL' | 'SYSTEM_DATA_MISSING' | 'SYSTEM_PARSE_FAILURE' | 'SYSTEM_DEGENERATE' | 'SYSTEM_TRUNCATED' | 'SYSTEM_NETWORK_FAILURE' | 'SYSTEM_FRESHNESS_BLOCK' | 'ENGINE_RISK_BLOCKED' | 'ENGINE_FEASIBILITY_BLOCKED' | 'ENGINE_CAPACITY_BLOCKED';
+  /**
+   * CCIP-2026-0415: Preserved original Alpha decision when system blocked it.
+   * Only set when decision_origin starts with ALPHA_BLOCKED_* or ENGINE_*.
+   * Tells us what Alpha actually said before the system intervened.
+   */
+  alpha_original_decision?: {
+    action: 'BUY' | 'SELL';
+    entry: number;
+    stopLoss: number;
+    takeProfit: number;
+    confidence: number;
+    entry_mode?: string;
+    reasoning?: string;
+  };
+  /**
+   * CCIP-2026-0415: djb2 hash of (first 120 chars + last 80 chars + completion_tokens).
+   * Used to detect GPT-4o KV-prefix cache contamination across symbols in the same batch.
+   * Identical fingerprints across different symbols = cache hit, not independent analysis.
+   */
+  response_fingerprint?: string;
 }
 
 /**
@@ -1268,6 +1310,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         takeProfit: marketContext.price,
         confidence: 0,
         reasoning: 'MTF_PATTERN_FETCH_FAILED: Multi-timeframe pattern analysis could not complete. Cannot assess structural alignment without HTF/MTF/LTF candle data.',
+        decision_origin: 'SYSTEM_DATA_MISSING' as const,
       };
     }
     {
@@ -1282,6 +1325,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
           takeProfit: marketContext.price,
           confidence: 0,
           reasoning: `MTF_PATTERN_DATA_ABSENT: HTF (${dc.htfTimeframe}: ${dc.htfCandles} candles) and MTF (${dc.mtfTimeframe}: ${dc.mtfCandles} candles) data insufficient. Alpha requires structural context to assess trade validity.`,
+          decision_origin: 'SYSTEM_DATA_MISSING' as const,
         };
       }
     }
@@ -2413,6 +2457,7 @@ ${consecutiveSameDir >= 3
             takeProfit: marketContext.price,
             confidence: 0,
             reasoning: `MTF_DATA_MISSING: ${htfConfig.label} controlling timeframe candle data is required for ${styleName} analysis but is unavailable. Cannot assess structural bias without ${htfConfig.label} context.`,
+            decision_origin: 'SYSTEM_DATA_MISSING' as const,
           };
         }
 
@@ -2531,6 +2576,7 @@ ${htfStructuralEvidenceBlock}
           takeProfit: marketContext.price,
           confidence: 0,
           reasoning: `MTF_DATA_MISSING: ${htfConfig.label} controlling timeframe data fetch failed for ${styleName}. Cannot proceed without structural context.`,
+          decision_origin: 'SYSTEM_DATA_MISSING' as const,
         };
       }
     }
@@ -3804,12 +3850,42 @@ Return PURE JSON only — all required fields from the schema in my system promp
         //   return ~225-247 tokens regardless of the requested 2000-token budget.
         //   FIX: The Netlify function now sends BOTH max_completion_tokens AND max_tokens.
         //   This gate remains as a safety net to catch any future infrastructure failures.
-        const isShortNoTrade = typeof completionTokens === 'number' && completionTokens < 600 && rawAction === 'NO_TRADE';
+        // CCIP-DEGENERATE-FIX-2026-04-15 v3: Content-based degenerate detection for NO_TRADE.
+        //
+        // PROBLEM WITH v2: The 600-token floor for NO_TRADE was triggering on genuine Alpha NO_TRADE
+        // responses (200-350 tokens is normal for a well-reasoned "no setup today"). Every real
+        // NO_TRADE was being retried unnecessarily, causing GPT-4o rate limit pressure and
+        // misclassifying good Alpha judgment as infrastructure failure.
+        //
+        // NEW APPROACH: For NO_TRADE, validate by content (does it have substance?).
+        //   - Genuine NO_TRADE: has no_trade_statement ≥50 chars OR reasoning ≥60 chars OR directional_lean present
+        //   - Degenerate NO_TRADE: < 200 tokens AND fails all content checks (empty stub)
+        // For BUY/SELL: keep 600-token floor (abbreviated BUY/SELL is still always degenerate)
+        let isShortNoTrade = false;
+        const isNoTradeResponse = rawAction === 'NO_TRADE';
+        if (isNoTradeResponse && typeof completionTokens === 'number') {
+          let rawParsed: any = null;
+          try { rawParsed = JSON.parse(content.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')); } catch { /* ok */ }
+          const noTradeStatement: string = rawParsed?.no_trade_statement ?? '';
+          const reasoningText: string = rawParsed?.reasoning ?? rawParsed?.no_trade_reasoning ?? '';
+          const hasLean = rawParsed?.directional_lean && rawParsed.directional_lean !== 'NEUTRAL';
+          const hasSubstantiveStatement = noTradeStatement.trim().length >= 50;
+          const hasSubstantiveReasoning = reasoningText.trim().length >= 60;
+          const looksGenuine = hasSubstantiveStatement || hasSubstantiveReasoning || hasLean;
+          isShortNoTrade = completionTokens < 200 && !looksGenuine;
+          if (!isShortNoTrade && completionTokens < 600) {
+            console.log(`[Alpha Raw Response] CCIP-DEGENERATE v3: NO_TRADE for ${marketContext.symbol} has ${completionTokens} tokens — content-based validation PASSED (genuine). Skipping retry.`);
+          }
+        } else if (!isNoTradeResponse && typeof completionTokens === 'number') {
+          isShortNoTrade = completionTokens < 600;
+        }
         const isIncompleteFinish = initialFinishReason !== 'stop' && initialFinishReason !== 'length' && initialFinishReason !== 'unknown';
 
         if (isShortNoTrade || isIncompleteFinish) {
           const degenerateReason = isShortNoTrade
-            ? `completion_tokens=${completionTokens} below 600-token genuine-scan floor (action=NO_TRADE)`
+            ? (isNoTradeResponse
+                ? `completion_tokens=${completionTokens} below 200-token floor AND content is stub (NO_TRADE)`
+                : `completion_tokens=${completionTokens} below 600-token genuine-scan floor (BUY/SELL)`)
             : `finish_reason=${initialFinishReason} indicates aborted/incomplete response`;
           console.warn(
             `[Alpha Raw Response] CCIP-DEGENERATE DETECTED: ${degenerateReason} ` +
@@ -3829,7 +3905,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
               `completion_tokens=${retryCompletionTokens} finish_reason=${retryFinishReason} action=${retryAction ?? 'MISSING'}`
             );
 
-            const retryIsGenuine = retryCompletionTokens >= 600 && retryFinishReason === 'stop';
+            let retryIsGenuine = retryFinishReason === 'stop';
+            if (retryIsGenuine && retryAction === 'NO_TRADE') {
+              let retryParsed: any = null;
+              try { retryParsed = JSON.parse(retryContent.replace(/\/\/[^\n]*/g, '')); } catch { /* ok */ }
+              const retryStatement: string = retryParsed?.no_trade_statement ?? '';
+              const retryReasoning: string = retryParsed?.reasoning ?? retryParsed?.no_trade_reasoning ?? '';
+              const retryLooksGenuine = retryStatement.trim().length >= 50 || retryReasoning.trim().length >= 60 || retryParsed?.directional_lean;
+              retryIsGenuine = retryCompletionTokens >= 200 || retryLooksGenuine;
+            } else if (retryIsGenuine && retryAction !== 'NO_TRADE') {
+              retryIsGenuine = retryCompletionTokens >= 600;
+            }
             if (retryIsGenuine) {
               console.log(`[Alpha Raw Response] CCIP-DEGENERATE RETRY_SUCCESS: Genuine scan recovered for ${marketContext.symbol} (${retryCompletionTokens} tokens, finish_reason=stop)`);
               response = retryResponse;
@@ -3853,7 +3939,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
                   `This is an infrastructure failure — the LLM is not performing genuine analysis. ` +
                   `This is NOT a market decision. The scan should be retried on the next cycle.`,
                 omega_summary: '',
-                risk_pct: 0
+                risk_pct: 0,
+                decision_origin: 'SYSTEM_DEGENERATE' as const,
               };
             }
           } catch (retryErr) {
@@ -3882,7 +3969,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
           confidence: 0,
           reasoning: `NOT ENOUGH TOKENS — Alpha's response was cut off before the trade structure could be written. This is a system configuration issue, not a market decision. The token budget needs to be raised.`,
           omega_summary: '',
-          risk_pct: 0
+          risk_pct: 0,
+          decision_origin: 'SYSTEM_TRUNCATED' as const,
         };
       }
 
@@ -4010,6 +4098,24 @@ Return PURE JSON only — all required fields from the schema in my system promp
         });
       }
 
+      // CCIP-2026-0415: Response fingerprinting for GPT-4o KV-prefix cache contamination detection.
+      // djb2 hash of (first 120 chars + last 80 chars + completion_tokens).
+      // Identical fingerprints across different symbols in the same batch = cache hit, not independent analysis.
+      let responseFingerprint: string | undefined;
+      try {
+        const rawContent = response.choices[0]?.message?.content || '';
+        const tokens = response.usage?.completion_tokens ?? 0;
+        const head = rawContent.substring(0, 120).replace(/\s+/g, ' ').trim();
+        const tail = rawContent.substring(Math.max(0, rawContent.length - 80)).replace(/\s+/g, ' ').trim();
+        const fingerprintSource = `${tokens}|${head}|${tail}`;
+        let hash = 5381;
+        for (let i = 0; i < fingerprintSource.length; i++) {
+          hash = ((hash << 5) + hash) ^ fingerprintSource.charCodeAt(i);
+          hash = hash >>> 0;
+        }
+        responseFingerprint = hash.toString(16).padStart(8, '0');
+      } catch { /* Non-fatal */ }
+
       let decision = await this.parseDecision(
         content,
         marketContext.price,
@@ -4027,6 +4133,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
         tradeStyle,
         dualArenaWalls
       );
+
+      if (responseFingerprint) {
+        decision.response_fingerprint = responseFingerprint;
+      }
 
       // DUAL-ARENA WALL CHECK — Pure binary pass/fail enforcement
       // CCIP (2026-02-17): Walls are physics. Alpha's values are NEVER auto-adjusted.
@@ -4330,7 +4440,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
             reasoning: `OMEGA-9 VETO: ${validation.reasoning}. Alpha's decision blocked due to mathematical survival violation.`,
             omega_summary: decision.omega_summary,
             omega8_liquidity_bias: decision.omega8_liquidity_bias,
-            omega9_validation: validation
+            omega9_validation: validation,
+            decision_origin: 'ALPHA_BLOCKED_SURVIVAL' as const,
+            alpha_original_decision: decision.action !== 'NO_TRADE' ? {
+              action: decision.action as 'BUY' | 'SELL',
+              entry: decision.entry ?? marketContext.price,
+              stopLoss: decision.stopLoss ?? marketContext.price,
+              takeProfit: decision.takeProfit ?? marketContext.price,
+              confidence: decision.confidence,
+              entry_mode: decision.entry_mode,
+              reasoning: decision.reasoning,
+            } : undefined,
           };
         }
 
@@ -4492,7 +4612,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
         takeProfit: marketContext.price,
         confidence: 0,
         reasoning: 'Coordination failed',
-        omega_summary: 'Error in coordination'
+        omega_summary: 'Error in coordination',
+        decision_origin: 'SYSTEM_NETWORK_FAILURE' as const,
       };
     }
   }
@@ -4689,10 +4810,24 @@ Return PURE JSON only — all required fields from the schema in my system promp
         );
         return {
           action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: currentPrice,
+          stopLoss: currentPrice,
+          takeProfit: currentPrice,
           confidence: tradeConfidence,
           reasoning: 'GOVERNANCE_BLOCK: Alpha omitted entry_mode — prompt compliance failure. Trade blocked.',
+          omega_summary: '',
+          risk_pct: 0,
           symbol: marketContext.symbol,
-          tradeStyle,
+          decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
+          alpha_original_decision: {
+            action: action as 'BUY' | 'SELL',
+            entry: parsed.entry ?? currentPrice,
+            stopLoss: parsed.stopLoss ?? currentPrice,
+            takeProfit: parsed.takeProfit ?? currentPrice,
+            confidence: tradeConfidence,
+            reasoning: parsed.reasoning,
+          },
         };
       } else {
         entryMode = parsed.entry_mode ?? parsed.entry_spec?.entry_mode;
@@ -5331,6 +5466,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
             }
             return rawBlockReason;
           })(),
+          // CCIP-2026-0415: This is Alpha's genuine judgment — he searched and found no edge.
+          decision_origin: 'ALPHA_GENUINE' as const,
         };
       }
 
@@ -5364,7 +5501,16 @@ Return PURE JSON only — all required fields from the schema in my system promp
           confidence: 0,
           reasoning: `GOVERNANCE_BLOCK: Alpha returned ${action} without a valid entry price. Prompt compliance failure — Alpha must always provide entry for BUY/SELL.`,
           omega_summary: '',
-          risk_pct: 0
+          risk_pct: 0,
+          decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
+          alpha_original_decision: {
+            action: action as 'BUY' | 'SELL',
+            entry: currentPrice,
+            stopLoss: parsed.stopLoss ?? currentPrice,
+            takeProfit: parsed.takeProfit ?? currentPrice,
+            confidence: tradeConfidence,
+            reasoning: parsed.reasoning,
+          },
         };
       } else {
         entry = parsed.entry;
@@ -5398,7 +5544,16 @@ Return PURE JSON only — all required fields from the schema in my system promp
           confidence: 0,
           reasoning: `BLOCKED: Alpha returned ${action} without a valid stopLoss. Prompt compliance failure — Alpha must always provide stopLoss for BUY/SELL.`,
           omega_summary: '',
-          risk_pct: 0
+          risk_pct: 0,
+          decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
+          alpha_original_decision: {
+            action: action as 'BUY' | 'SELL',
+            entry: entry ?? currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: takeProfit ?? currentPrice,
+            confidence: tradeConfidence,
+            reasoning: parsed.reasoning,
+          },
         };
       }
       if (typeof takeProfit !== 'number' || isNaN(takeProfit) || takeProfit <= 0) {
@@ -5413,7 +5568,16 @@ Return PURE JSON only — all required fields from the schema in my system promp
           confidence: 0,
           reasoning: `BLOCKED: Alpha returned ${action} without a valid takeProfit. Prompt compliance failure — Alpha must always provide takeProfit for BUY/SELL.`,
           omega_summary: '',
-          risk_pct: 0
+          risk_pct: 0,
+          decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
+          alpha_original_decision: {
+            action: action as 'BUY' | 'SELL',
+            entry: entry ?? currentPrice,
+            stopLoss: stopLoss ?? currentPrice,
+            takeProfit: currentPrice,
+            confidence: tradeConfidence,
+            reasoning: parsed.reasoning,
+          },
         };
       }
 
@@ -5501,7 +5665,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
           reasoning: `BLOCKED: ${geometryValidation.errorMessage}`,
           omega_summary: '',
           risk_pct: riskPct,
-          narrativeValidation: narrativeValidation || undefined
+          narrativeValidation: narrativeValidation || undefined,
+          decision_origin: 'ALPHA_BLOCKED_GEOMETRY' as const,
+          alpha_original_decision: {
+            action: action as 'BUY' | 'SELL',
+            entry,
+            stopLoss,
+            takeProfit,
+            confidence: tradeConfidence,
+            entry_mode: entryMode,
+            reasoning: parsed.reasoning,
+          },
         };
       }
 
@@ -5528,7 +5702,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
             reasoning: `BLOCKED: Stop distance ${stopDistancePips.toFixed(1)} pips below ${minSurvivalPips.toFixed(1)} pip survival minimum for ${symbol} at current price`,
             omega_summary: '',
             risk_pct: riskPct,
-            narrativeValidation: narrativeValidation || undefined
+            narrativeValidation: narrativeValidation || undefined,
+            decision_origin: 'ALPHA_BLOCKED_SURVIVAL' as const,
+            alpha_original_decision: {
+              action: action as 'BUY' | 'SELL',
+              entry,
+              stopLoss,
+              takeProfit,
+              confidence: tradeConfidence,
+              entry_mode: entryMode,
+              reasoning: parsed.reasoning,
+            },
           };
         }
       }
@@ -5609,7 +5793,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
             block_reason: 'TP1_MISSING',
             omega_summary: '',
             risk_pct: 0,
-            narrativeValidation: narrativeValidation || undefined
+            narrativeValidation: narrativeValidation || undefined,
+            decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
+            alpha_original_decision: {
+              action: action as 'BUY' | 'SELL',
+              entry: entry ?? currentPrice,
+              stopLoss: stopLoss ?? currentPrice,
+              takeProfit: takeProfit ?? currentPrice,
+              confidence: tradeConfidence,
+              entry_mode: entryMode,
+              reasoning: parsed.reasoning,
+            },
           };
         }
         tp2Price = takeProfit;
@@ -5638,7 +5832,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
             block_reason: 'TP1_EQUALS_TP2',
             omega_summary: '',
             risk_pct: 0,
-            narrativeValidation: narrativeValidation || undefined
+            narrativeValidation: narrativeValidation || undefined,
+            decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
+            alpha_original_decision: {
+              action: action as 'BUY' | 'SELL',
+              entry: entry ?? currentPrice,
+              stopLoss: stopLoss ?? currentPrice,
+              takeProfit: takeProfit ?? currentPrice,
+              confidence: tradeConfidence,
+              entry_mode: entryMode,
+              reasoning: parsed.reasoning,
+            },
           };
         }
       }
@@ -5749,8 +5953,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
         confidence: 0,
         reasoning: `LLM response parse failed: ${errorMsg.substring(0, 100)}`,
         omega_summary: '',
-        risk_pct: 1.0, // Default for error case
-        narrativeValidation: undefined
+        risk_pct: 1.0,
+        narrativeValidation: undefined,
+        decision_origin: 'SYSTEM_PARSE_FAILURE' as const,
       };
     }
   }

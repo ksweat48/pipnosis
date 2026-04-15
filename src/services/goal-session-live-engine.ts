@@ -93,6 +93,11 @@ export interface NoTradeRejectionContext {
     execution_status?: 'EXECUTED' | 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN';
     directional_lean?: 'BUY_LEAN' | 'SELL_LEAN' | 'NEUTRAL';
     lean_confidence?: number;
+    // CCIP-2026-0415: Decision origin classification — makes NO_TRADE self-documenting in the UI.
+    decision_origin?: string;
+    alpha_original_action?: 'BUY' | 'SELL';
+    alpha_original_confidence?: number;
+    alpha_original_reasoning?: string;
   }[];
   summary: string;
 }
@@ -3800,7 +3805,7 @@ This learning will carry forward to improve future sessions!
   ): NoTradeRejectionContext {
     const currentStyle = this.config?.tradeStyle?.toUpperCase() || 'SCALP';
     let hasWeakConsensus = false;
-    const symbolReasons: { symbol: string; action: string; reasoning: string; confidence: number }[] = [];
+    const symbolReasons: NoTradeRejectionContext['symbolReasons'] = [];
 
     for (const [symbol, decision] of omegaDecisions) {
       const reasoning = this.reasoningToString(decision?.reasoning).toLowerCase();
@@ -3820,6 +3825,11 @@ This learning will carry forward to improve future sessions!
           execution_status: decision.execution_status,
           directional_lean: decision.directional_lean,
           lean_confidence: decision.lean_confidence,
+          // CCIP-2026-0415: Decision origin classification — passes through to NoTradesFoundDialog UI.
+          decision_origin: decision.decision_origin ?? undefined,
+          alpha_original_action: decision.alpha_original_decision?.action ?? undefined,
+          alpha_original_confidence: decision.alpha_original_decision?.confidence ?? undefined,
+          alpha_original_reasoning: decision.alpha_original_decision?.reasoning ?? undefined,
         });
       }
     }

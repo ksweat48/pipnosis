@@ -141,6 +141,12 @@ class AlphaLearningTracker {
         // the decision object for NO_TRADE actions (added to parseDecision return path).
         // For BUY/SELL decisions this will be undefined/null and is safely ignored.
         no_trade_statement: (decision as any).no_trade_statement ?? null,
+        // CCIP-2026-0415: Decision origin classification — makes every NO_TRADE self-documenting.
+        decision_origin: (decision as any).decision_origin ?? null,
+        execution_status: (decision as any).execution_status ?? null,
+        block_reason: (decision as any).block_reason ?? null,
+        response_fingerprint: (decision as any).response_fingerprint ?? null,
+        alpha_original_action: (decision as any).alpha_original_decision?.action ?? null,
       };
 
       if (decision.directionalStrengthResult) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp, TrendingDown, Brain, TrendingUp, Minus } from 'lucide-react';
+import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp, TrendingDown, Brain, TrendingUp, Minus, ShieldAlert } from 'lucide-react';
 import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
 
 interface NoTradesFoundDialogProps {
@@ -69,20 +69,65 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     onClose();
   };
 
+  const isSystemBlock = (decisionOrigin?: string): boolean => {
+    if (!decisionOrigin) return false;
+    return (
+      decisionOrigin.startsWith('SYSTEM_') ||
+      decisionOrigin.startsWith('ENGINE_') ||
+      decisionOrigin.startsWith('ALPHA_BLOCKED_')
+    );
+  };
+
+  const getSystemBlockLabel = (decisionOrigin: string, alphaOriginalAction?: string) => {
+    const originLabels: Record<string, string> = {
+      SYSTEM_DEGENERATE: 'LLM returned empty output',
+      SYSTEM_TRUNCATED: 'Response was cut off (token limit)',
+      SYSTEM_PARSE_FAILURE: 'Response could not be parsed',
+      SYSTEM_NETWORK_FAILURE: 'Network / infrastructure error',
+      SYSTEM_DATA_MISSING: 'Candle data unavailable',
+      SYSTEM_FRESHNESS_BLOCK: 'Price data was stale',
+      ALPHA_BLOCKED_GEOMETRY: 'Alpha found a trade — geometry blocked it',
+      ALPHA_BLOCKED_COMPLIANCE: 'Alpha found a trade — missing required field',
+      ALPHA_BLOCKED_SURVIVAL: 'Alpha found a trade — risk physics blocked it',
+      ENGINE_RISK_BLOCKED: 'Risk manager blocked execution',
+      ENGINE_FEASIBILITY_BLOCKED: 'Goal feasibility blocked execution',
+      ENGINE_CAPACITY_BLOCKED: 'Concurrent trade limit reached',
+    };
+    const label = originLabels[decisionOrigin] ?? decisionOrigin;
+    const wasAlphaCall =
+      alphaOriginalAction &&
+      (decisionOrigin.startsWith('ALPHA_BLOCKED_') || decisionOrigin.startsWith('ENGINE_'));
+    return {
+      state: 'NO_TRADE_SYSTEM_BLOCK' as const,
+      text: label,
+      expandedText: wasAlphaCall
+        ? `Alpha actually wanted to ${alphaOriginalAction} — but the system blocked execution. Reason: ${label}. This is NOT Alpha's trading judgment.`
+        : `This is a system failure, not Alpha's trading judgment. Reason: ${label}.`,
+      dotClass: 'bg-red-400',
+      badgeClass: 'bg-red-900/40 text-red-300',
+      chipClass: 'text-red-400 bg-red-900/30 border-red-700/40',
+      Icon: ShieldAlert,
+      iconClass: 'text-red-400',
+    };
+  };
+
   /**
-   * CCIP-2026-0410A / CCIP-2026-0327C: Confidence label for Alpha's no-trade scan decisions.
+   * CCIP-2026-0415 / CCIP-2026-0410A / CCIP-2026-0327C: Confidence label for Alpha's no-trade scan decisions.
    *
    * LANGUAGE RULE (SSOT — this comment is the authority):
    * - Alpha's confidence is always reported honestly, no qualifier based on threshold.
    * - BLOCKED_BY_FLOOR is permanently retired. Alpha executes any BUY/SELL he calls.
    *
-   * State A — NO_TRADE_LEAN: Alpha said NO_TRADE with a directional lean.
+   * State A — NO_TRADE_SYSTEM_BLOCK: A system failure or compliance block prevented execution.
+   *   Shown in red — this is NOT Alpha's judgment.
+   *
+   * State B — NO_TRADE_LEAN: Alpha said NO_TRADE with a directional lean.
    *   Alpha reports his lean confidence.
    *
-   * State B — NO_TRADE_GENUINE: Alpha saw no profitable structural edge.
+   * State C — NO_TRADE_GENUINE: Alpha saw no profitable structural edge.
    *   Alpha states plainly why he found no trade.
    *
-   * SSOT: execution_status is the authoritative field.
+   * SSOT: decision_origin is the authoritative field (execution_status is secondary).
    */
   const getDecisionLabel = (
     confidence: number,
@@ -90,8 +135,14 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     executionStatus?: string,
     directionalLean?: string,
     leanConfidence?: number,
+    decisionOrigin?: string,
+    alphaOriginalAction?: string,
   ) => {
-    if (confidence === 0) return null;
+    if (isSystemBlock(decisionOrigin)) {
+      return getSystemBlockLabel(decisionOrigin!, alphaOriginalAction);
+    }
+
+    if (confidence === 0 && !decisionOrigin) return null;
 
     // NO_TRADE_LEAN: Alpha had a directional lean but found insufficient structure to execute.
     if (executionStatus === 'NO_TRADE_LEAN' || (action === 'NO_TRADE' && directionalLean && directionalLean !== 'NEUTRAL')) {
@@ -235,9 +286,9 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                   Alpha's Assessment — Per Symbol
                 </p>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
-                  {symbolReasons.map(({ symbol, action, reasoning, confidence, execution_status, directional_lean, lean_confidence }) => {
+                  {symbolReasons.map(({ symbol, action, reasoning, confidence, execution_status, directional_lean, lean_confidence, decision_origin, alpha_original_action }) => {
                     const isExpanded = expandedSymbol === symbol;
-                    const label = getDecisionLabel(confidence, action, execution_status, directional_lean, lean_confidence);
+                    const label = getDecisionLabel(confidence, action, execution_status, directional_lean, lean_confidence, decision_origin, alpha_original_action);
                     const dotClass = label?.dotClass ?? 'bg-gray-500';
                     const badgeClass = label?.badgeClass ?? 'bg-gray-700/60 text-gray-300';
                     return (
