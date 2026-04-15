@@ -231,10 +231,11 @@ export async function getCurrencyPipInfoAsync(symbol: string): Promise<CurrencyP
 
 /**
  * Round lot size to broker standard precision (0.01 lots)
- * Prevents ugly repeating decimals like 0.666666...
+ * Always rounds DOWN (floor) to never exceed the intended risk.
+ * Using Math.round could round up and make the position slightly larger than the risk budget.
  */
 export function roundLotSize(lotSize: number): number {
-  return Math.round(lotSize * 100) / 100;
+  return Math.floor(lotSize * 100) / 100;
 }
 
 /**

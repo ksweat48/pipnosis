@@ -31,6 +31,7 @@ import { supabase } from '../lib/supabase';
 import { logger, LogCategory } from '../lib/logger';
 import {
   getCurrencyPipInfo,
+  getCurrencyPipInfoAsync,
   checkPriceSymbolMismatch,
   roundLotSize,
 } from '../utils/currencyHelpers';
@@ -161,7 +162,9 @@ class GoalAwareLotSizingCoordinator {
     }
 
     // STEP 1: Compute pip distances
-    const pipInfo = getCurrencyPipInfo(symbol);
+    // Use async pip info for JPY pairs to get live USDJPY rate-based pip value.
+    // Static fallback ($10) is only accurate near USDJPY ~100; at 150+ it produces oversized lots.
+    const pipInfo = await getCurrencyPipInfoAsync(symbol);
     // Apply broker lot calibration multiplier (SSOT: brokerLotConfigService)
     // If the user has not calibrated, multiplier is 1.0 (no effect on sizing).
     const calibrationMultiplier = brokerLotConfigService.getCalibrationMultiplier(userId, symbol);
@@ -171,12 +174,21 @@ class GoalAwareLotSizingCoordinator {
     const tpDistancePips = Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue;
     const impliedRR = slDistancePips > 0 ? tpDistancePips / slDistancePips : 0;
 
+    // SPREAD BUFFER: For SELL orders the broker fills the SL on ASK (entry + spread).
+    // For BUY orders the broker fills the SL on BID. Either way the spread widens the actual
+    // loss relative to the SL price. Size the position against the worst-case fill price.
+    // Use conservative typical spread estimates per symbol type.
+    const spreadBufferPips = pipInfo.symbolType === 'forex'
+      ? (symbol.includes('JPY') ? 0.5 : 0.5)  // 0.5 pip buffer on all major forex pairs
+      : 0;                                       // no spread buffer on crypto (handled separately)
+    const effectiveSlDistancePips = slDistancePips + spreadBufferPips;
+
     // STEP 2: RISK-FIRST lot sizing (institutional standard)
     // riskPercentageAllowed = maximum % of balance the user is willing to LOSE at SL
     // This is the authoritative sizing formula — never bypass it to chase a profit target
     const riskDollars = (riskPercentageAllowed / 100) * accountBalance;
-    const safeLotFromRisk = slDistancePips > 0
-      ? riskDollars / (slDistancePips * dollarPerPipPerLot)
+    const safeLotFromRisk = effectiveSlDistancePips > 0
+      ? riskDollars / (effectiveSlDistancePips * dollarPerPipPerLot)
       : 0.01; // Fallback to minimum — geometry gate will reject zero-SL trades
 
     // STEP 3: Clamp to broker limits
@@ -185,6 +197,29 @@ class GoalAwareLotSizingCoordinator {
     const maxLot = symbolConfig?.maxLotSize ?? 500.0;
 
     let chosenLotSize = roundLotSize(Math.max(minLot, Math.min(maxLot, safeLotFromRisk)));
+
+    // STEP 3b: Hard risk validation cap — safety net regardless of pip value accuracy.
+    // After rounding/clamping, verify the final lot size does not expose more than riskDollars.
+    // If it does (e.g. min lot floor forced it up), log a warning and reduce if possible.
+    const postClampRisk = chosenLotSize * effectiveSlDistancePips * dollarPerPipPerLot;
+    if (postClampRisk > riskDollars * 1.05) {
+      // Exceeds intended risk by more than 5% — reduce to the largest safe lot that fits
+      const safeCapLot = roundLotSize(riskDollars / (effectiveSlDistancePips * dollarPerPipPerLot));
+      if (safeCapLot >= minLot) {
+        logger.warn(
+          LogCategory.RISK_MANAGEMENT,
+          '[Goal-Aware Lot Sizing] Post-clamp risk cap applied — reducing lot size to respect declared risk',
+          {
+            symbol,
+            originalChosenLot: chosenLotSize,
+            reducedToLot: safeCapLot,
+            postClampRisk: postClampRisk.toFixed(2),
+            riskDollars: riskDollars.toFixed(2),
+          }
+        );
+        chosenLotSize = safeCapLot;
+      }
+    }
 
     // STEP 4: Compute informational requiredLotForGoal (audit/learning only — NOT used for sizing)
     const remainingGoal = goalAmount - currentProgress;
@@ -195,7 +230,7 @@ class GoalAwareLotSizingCoordinator {
     const riskMode = percentageToRiskMode(riskPercentageAllowed);
 
     // STEP 5: Build reasoning string
-    const riskDollarsActual = chosenLotSize * slDistancePips * dollarPerPipPerLot;
+    const riskDollarsActual = chosenLotSize * effectiveSlDistancePips * dollarPerPipPerLot;
     const riskPctActual = (riskDollarsActual / accountBalance) * 100;
     const expectedProfitAtTP = chosenLotSize * tpDistancePips * dollarPerPipPerLot;
 
@@ -226,6 +261,8 @@ class GoalAwareLotSizingCoordinator {
         requiredLotForGoal_informational: requiredLotForGoal.toFixed(3),
         remainingGoal: remainingGoal.toFixed(2),
         brokerCalibrationMultiplier: calibrationMultiplier,
+        pipSource: (pipInfo as { source?: string }).source ?? 'static',
+        dollarPerPipPerLot: dollarPerPipPerLot.toFixed(4),
       }
     );
 

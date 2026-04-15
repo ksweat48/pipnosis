@@ -29,12 +29,14 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
  * TIER 3 FIX: Dynamic JPY pip calculations
  *
  * Calculates dollar value per pip for JPY pairs using live USDJPY rate.
- * Formula: $1 USD = X JPY, so 1 pip (0.01 JPY) = $1 / (USDJPY * 100)
+ * Formula for 1 standard lot (100,000 units):
+ * Pip Value = (0.01 * 100,000) / USDJPY rate = 1,000 / USDJPY rate
  *
- * For standard 0.1 lot (10,000 units):
- * Pip Value = (0.01 * 10,000) / USDJPY rate
+ * At USDJPY 159: $1,000 / 159 = $6.29/pip/lot
+ * At USDJPY 150: $1,000 / 150 = $6.67/pip/lot
+ * Static fallback ($10) only valid near USDJPY ~100 — dangerously wrong at 150+
  *
- * @param symbol Currency pair (e.g., EURJPY, GBPJPY)
+ * @param symbol Currency pair (e.g., USDJPY, EURJPY, GBPJPY)
  * @returns Pip value result with source tracking
  */
 export async function calculateDynamicJPYPipValue(
@@ -124,26 +126,25 @@ export async function calculateDynamicJPYPipValue(
 /**
  * Calculate pip value from USDJPY rate
  *
- * For 0.1 lot (10,000 units) of JPY pair:
- * - 1 pip = 0.01 JPY
- * - Pip value in units = 0.01 * 10,000 = 100 JPY
- * - Convert to USD = 100 / USDJPY rate
+ * For a standard 1 full lot (100,000 units) of any JPY pair:
+ * - 1 pip = 0.01 JPY movement
+ * - Pip value in JPY = 0.01 * 100,000 = 1,000 JPY
+ * - Convert to USD = 1,000 / USDJPY rate
+ *
+ * Example: If USDJPY = 159.00
+ * - Pip value = 1,000 / 159 = $6.29 per 1 full lot
  *
  * Example: If USDJPY = 150.00
- * - Pip value = 100 / 150 = $0.667 per 0.01 lot
- * - For 0.1 lot = $0.667 * 10 = $6.67
+ * - Pip value = 1,000 / 150 = $6.67 per 1 full lot
  *
- * Normalized to per 0.1 lot: multiply by 10
+ * This matches what brokers use: dollarPerPipPerLot for a 1-lot (100,000 unit) standard position.
  */
 function calculatePipValueFromRate(usdjpyRate: number): number {
-  // For 0.1 lot (10,000 units)
-  const pipValuePerMiniLot = (0.01 * 10000) / usdjpyRate;
+  // 1 pip on a 1-lot (100,000 unit) JPY pair position
+  const pipValuePerFullLot = (0.01 * 100000) / usdjpyRate;
 
-  // Normalize to standard "per 0.1 lot" format
-  const normalizedValue = pipValuePerMiniLot * 10;
-
-  // Round to 2 decimal places for consistency
-  return Math.round(normalizedValue * 100) / 100;
+  // Round to 4 decimal places for precision in lot sizing
+  return Math.round(pipValuePerFullLot * 10000) / 10000;
 }
 
 /**
