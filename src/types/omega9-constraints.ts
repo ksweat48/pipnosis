@@ -258,7 +258,6 @@ export interface CatastrophicError {
     | 'SL_WRONG_SIDE'       // Stop on wrong side of entry
     | 'TP_WRONG_SIDE'       // TP on wrong side of entry
     | 'ZERO_DISTANCE'       // SL or TP at entry price
-    | 'SUB_SURVIVAL_SL'     // SL < 5 pips (below survival minimum)
     | 'MISSING_PARAMS'      // Missing SL or TP
     | 'NON_FINITE'          // NaN or Infinity values
     | 'RISK_EXCEEDS_CAP';   // Risk > absolute account limit
