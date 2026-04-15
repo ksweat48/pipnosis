@@ -845,13 +845,19 @@ class GoalSessionLiveEngine {
         adversarial: snapshot.adversarial
       }));
 
+      // CCIP-ALPHA-HUNTER-LAW: riskTolerance is ALWAYS 0.8 (hunter posture).
+      // Alpha is a permanent hunter on every style, every session, every market phase.
+      // The user's dollar risk amount controls POSITION SIZING only — it NEVER affects
+      // Alpha's hunting aggressiveness. Coupling riskMode to riskTolerance was architecturally
+      // fatal: a user risking $100 on a $10k account deserves the same aggressive Alpha as
+      // a user risking $300. Dollar risk = capital protection. riskTolerance = Alpha's mandate.
       const traderScore: TraderScore = {
         currentLevel: 1,
         totalTrades: 0,
         winRate: 0,
         profitFactor: 1.0,
         avgHoldTime: 0,
-        riskTolerance: config.riskMode === 'high' ? 0.8 : config.riskMode === 'medium' ? 0.5 : 0.3,
+        riskTolerance: 0.8,
         preferredTimeframe: config.timeframe,
         learningProgress: 0
       };

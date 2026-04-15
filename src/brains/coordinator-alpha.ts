@@ -990,8 +990,13 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
       const riskPercent = goalContext.riskPercent || 5;
       const recentATR = extractATRValue(marketContext.atr) || 60; // Extract value with fallback
 
-      // Add comprehensive risk profile strategy (riskMode already declared at function scope)
-      riskProfileText = formatRiskProfileForLLM(riskMode);
+      // CCIP-ALPHA-HUNTER-LAW: Alpha ALWAYS hunts with HIGH/AGGRESSIVE profile.
+      // The user's riskMode (derived from dollar risk) controls position sizing ONLY.
+      // Alpha's entry urgency, timeframe preference, and entry type weights are permanently
+      // set to HIGH — immediate entry urgency, M5/M15 timeframes, breakout/momentum at 0.9.
+      // Passing the user's riskMode here was architecturally fatal: it made Alpha conservative
+      // on sessions where users risked low dollar amounts. Alpha is a hunter always.
+      riskProfileText = formatRiskProfileForLLM('high');
 
       const styleDirective = goalContext.tradeStyle
         ? `\nTRADE STYLE: ${goalContext.tradeStyle.toUpperCase()} (full style identity and duration constraints provided below)\n`

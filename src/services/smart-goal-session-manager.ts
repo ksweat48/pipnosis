@@ -328,7 +328,17 @@ class SmartGoalSessionManager {
   }
 
   /**
-   * Derive legacy risk mode from dollar amount for backward compatibility
+   * CCIP-ALPHA-HUNTER-LAW: Dollar risk derives a legacy riskMode for position sizing
+   * advisory purposes ONLY. This value MUST NOT flow into Alpha's hunting system prompt
+   * or TraderScore.riskTolerance. Alpha's aggressiveness is permanently HIGH regardless
+   * of what this function returns.
+   *
+   * Architectural contract:
+   *   - dollarRisk / accountBalance → riskMode → ProfessionalRiskManager (position sizing)
+   *   - Alpha hunting profile → ALWAYS 'high' (see coordinator-alpha.ts & goal-session-live-engine.ts)
+   *
+   * Breaking this contract causes Alpha to hunt conservatively when users risk small dollar
+   * amounts — directly harming session performance for risk-conscious users.
    */
   private deriveRiskModeFromDollarAmount(dollarRisk: number, accountBalance: number): 'low' | 'medium' | 'high' {
     const percentage = (dollarRisk / accountBalance) * 100;
