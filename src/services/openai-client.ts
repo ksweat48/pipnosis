@@ -398,10 +398,12 @@ class OpenAIClient {
         // while other concurrent symbols wait behind it.
         await llmRequestQueue.acquire();
 
+        const resolvedMaxTokens = options.max_tokens ?? 2000;
         console.log(`[OpenAI Client] Queue slot acquired (attempt ${attempt + 1}/${this.maxRetries + 1})`, {
           endpoint: options.endpoint || 'unknown',
           requestType: options.requestType || 'unknown',
-          model: options.model || 'gpt-4o-mini'
+          model: options.model || 'gpt-4o-mini',
+          max_tokens_sent_to_proxy: resolvedMaxTokens
         });
 
         let response: Response | null = null;
@@ -420,11 +422,12 @@ class OpenAIClient {
               messages,
               model: options.model || 'gpt-4o-mini',
               temperature: options.temperature ?? 0.7,
-              // CCIP-2026-03-13d: Default 2000→500. Alpha decision JSON is <300 tokens; the
-              // remaining 1700 token headroom only increased OpenAI generation time without
-              // producing longer useful output. 500 tokens covers all Alpha styles with margin.
-              // Callers needing more tokens MUST pass options.max_tokens explicitly.
-              max_tokens: options.max_tokens ?? 500,
+              // CCIP-2026-04-15: Default raised back to 2000. The 500-token cap was the root
+              // cause of degenerate 252-token Alpha scans. A full Alpha answer sheet with
+              // reasoning, trader statement, and all structured fields requires 800-1500 tokens.
+              // Callers that need a shorter response (e.g. omega brains) pass options.max_tokens
+              // explicitly and that explicit value is honoured.
+              max_tokens: options.max_tokens ?? 2000,
               requestType: options.requestType,
               endpoint: options.endpoint
             }),

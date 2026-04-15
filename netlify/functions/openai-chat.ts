@@ -355,10 +355,17 @@ async function handleRequest(event: any, startTime: number) {
       // Default to 0.7 only when the caller does not specify a temperature.
       temperature: typeof body.temperature === 'number' ? body.temperature : 0.7,
       max_completion_tokens: tokenBudget,
-      stream: false
+      stream: false,
+      // CCIP-2026-04-15: Explicitly disable OpenAI server-side prompt caching.
+      // gpt-4o caches the prompt KV prefix automatically. When a cache hit occurs the
+      // model generates its completion on top of a reused prefix which can produce
+      // abbreviated outputs (~252 tokens) that bypass the token budget entirely.
+      // Setting store=false opts this request out of the cache entirely, guaranteeing
+      // every Alpha scan gets a fresh, full-length generation.
+      store: false
     };
 
-    console.log(`[OpenAI Proxy] Calling OpenAI API: ${requestPayload.model}, ${body.messages.length} messages, max_completion_tokens=${tokenBudget}`);
+    console.log(`[OpenAI Proxy] Calling OpenAI API: ${requestPayload.model}, ${body.messages.length} messages, max_completion_tokens=${tokenBudget}, store=false (cache disabled)`);
 
     // Create AbortController for timeout
     const controller = new AbortController();
