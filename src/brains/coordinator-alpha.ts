@@ -3648,36 +3648,47 @@ Return PURE JSON only — all required fields from the schema in my system promp
       });
     }
 
-    // CCIP-CACHE-BUST-2026-04-14: Permanent fix for OpenAI prompt cache degenerate scans.
+    // CCIP-CACHE-BUST-2026-04-15: Root cause fix for OpenAI prompt cache degenerate scans.
     //
-    // ROOT CAUSE: OpenAI automatically caches prompts whose first ~1024 tokens are identical
-    // across requests. Since the system prompt is static per trade style and all symbols scan
-    // within seconds of each other, OpenAI serves stale cached completions (~200 tokens) instead
-    // of performing genuine reasoning (~1300-1500 tokens). This manifests as abbreviated NO_TRADE
-    // decisions that silently kill live trade opportunities.
+    // ROOT CAUSE (CORRECTED UNDERSTANDING):
+    // OpenAI caches the entire messages array as a concatenated prefix, starting from
+    // the SYSTEM message. The system prompt is thousands of tokens of static text identical
+    // across all 7 symbols in a scan cycle — this is precisely what was being cached at
+    // 49-55%. The prior fix (fingerprint in user message) was architecturally wrong:
+    // the user message appears AFTER the system message in the concatenated prompt, well
+    // beyond the cached prefix boundary. OpenAI had already matched the cache key on the
+    // system prompt before reaching the user message fingerprint — so the fingerprint had
+    // no effect on the cache hit rate.
     //
-    // FIX: Prepend a unique scan fingerprint to every user message. The fingerprint includes
-    // UTC timestamp (ms precision), symbol, and a cryptographic nonce — guaranteeing OpenAI
-    // sees a fresh request with no cache match on every single scan. This is the industry-standard
-    // approach used by production trading systems and costs zero meaningful tokens (~10 tokens).
+    // FIX: Inject the fingerprint as the FIRST line of the SYSTEM message. OpenAI's cache
+    // key is computed from the first ~1024 tokens of the concatenated messages array,
+    // beginning with the system message. Prepending a unique fingerprint to the system
+    // message guarantees a cache miss on every single scan because the cache key changes
+    // with every request. This is the only position in the message array that defeats the
+    // automatic prefix-caching mechanism at its root.
     //
-    // INVARIANT: The fingerprint MUST appear as the FIRST line of the user message so it
-    // falls within the first 1024 tokens that OpenAI uses for cache key matching.
+    // COST: ~10 tokens per scan — negligible.
+    // EXPECTED OUTCOME: Cache hit rate drops from 49-55% to 0-5%.
+    //                   Completion tokens return to 600-1500 genuine analysis range.
     const scanNonce = Math.random().toString(36).slice(2, 8).toUpperCase();
-    const scanFingerprint = `[SCAN:${marketContext.symbol}|${Date.now()}|${scanNonce}]`;
+    const scanTs = Date.now();
+    const scanFingerprint = `[SCAN:${marketContext.symbol}|${scanTs}|${scanNonce}]`;
 
-    const buildAlphaMessages = (retryLabel?: string) => [
-      {
-        role: 'system' as const,
-        content: getAlphaSystemPromptForStyle(styleName)
-      },
-      {
-        role: 'user' as const,
-        content: retryLabel
-          ? `${scanFingerprint}|${retryLabel}\n\n${prompt}`
-          : `${scanFingerprint}\n\n${prompt}`
-      }
-    ];
+    const buildAlphaMessages = (retryLabel?: string) => {
+      const systemFingerprint = retryLabel
+        ? `${scanFingerprint}|${retryLabel}`
+        : scanFingerprint;
+      return [
+        {
+          role: 'system' as const,
+          content: `${systemFingerprint}\n\n${getAlphaSystemPromptForStyle(styleName)}`
+        },
+        {
+          role: 'user' as const,
+          content: prompt
+        }
+      ];
+    };
 
     const alphaCallOptions = {
       // CCIP-2026-0317A: Upgraded from gpt-4o-mini to gpt-4o.

@@ -349,7 +349,11 @@ async function handleRequest(event: any, startTime: number) {
     const requestPayload: Record<string, unknown> = {
       model: body.model || 'gpt-4o-mini',
       messages: body.messages,
-      temperature: body.temperature ?? 0.7,
+      // CCIP-2026-04-15: Respect the temperature sent by the caller.
+      // Alpha coordinator sends temperature=0.3 for deterministic reasoning.
+      // Overriding to 0.7 was causing divergence between intended and actual model behavior.
+      // Default to 0.7 only when the caller does not specify a temperature.
+      temperature: typeof body.temperature === 'number' ? body.temperature : 0.7,
       max_completion_tokens: tokenBudget,
       stream: false
     };
