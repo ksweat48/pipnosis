@@ -137,12 +137,18 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     leanConfidence?: number,
     decisionOrigin?: string,
     alphaOriginalAction?: string,
+    confidenceTier?: string,
   ) => {
     if (isSystemBlock(decisionOrigin)) {
       return getSystemBlockLabel(decisionOrigin!, alphaOriginalAction);
     }
 
-    if (confidence === 0 && !decisionOrigin) return null;
+    if (confidence === 0 && !decisionOrigin && !confidenceTier) return null;
+
+    // Format: "cautious — 40%" or just "40%" if tier not available
+    const confidenceLabel = confidenceTier
+      ? `${confidenceTier} — ${confidence}%`
+      : `${confidence}%`;
 
     // NO_TRADE_LEAN: Alpha had a directional lean but found insufficient structure to execute.
     if (executionStatus === 'NO_TRADE_LEAN' || (action === 'NO_TRADE' && directionalLean && directionalLean !== 'NEUTRAL')) {
@@ -151,8 +157,8 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
       const leanIcon = lean === 'BUY_LEAN' ? TrendingUp : lean === 'SELL_LEAN' ? TrendingDown : Minus;
       return {
         state: 'NO_TRADE_LEAN' as const,
-        text: `I am only ${confidence}% confident. ${leanStr} lean. I choose no trade.`,
-        expandedText: `I am only ${confidence}% confident in this market. I have a ${leanStr} lean${leanConfidence ? ` at ${leanConfidence}% conviction` : ''} but not enough structure to act on it. I choose to wait.`,
+        text: `${confidenceLabel}. ${leanStr} lean. No trade.`,
+        expandedText: `Alpha's conviction: ${confidenceLabel}. ${leanStr.charAt(0).toUpperCase() + leanStr.slice(1)} lean${leanConfidence ? ` at ${leanConfidence}% directional conviction` : ''} — insufficient structure to act. Waiting for next cycle.`,
         dotClass: 'bg-yellow-400',
         badgeClass: 'bg-yellow-900/40 text-yellow-300',
         chipClass: 'text-yellow-400 bg-yellow-900/30 border-yellow-700/40',
@@ -163,10 +169,10 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
     // NO_TRADE_GENUINE: Alpha searched and found no profitable structural edge.
     if (action === 'NO_TRADE') {
-      const chipText = confidence > 0
-        ? `I am ${confidence}% confident. No profitable structural edge found. I choose no trade.`
-        : `No profitable structural edge found. I choose no trade.`;
-      const expandedText = `I searched all available markets. No qualifying structure, directional edge, or viable path to target exists right now. ${confidence > 0 ? `My conviction level: ${confidence}%.` : ''} I choose to wait for the next cycle.`;
+      const chipText = confidence > 0 || confidenceTier
+        ? `${confidenceLabel}. No structural edge found. No trade.`
+        : `No structural edge found. No trade.`;
+      const expandedText = `Alpha searched all instruments. No qualifying structure, directional edge, or viable path to target found this cycle.${confidence > 0 || confidenceTier ? ` Conviction: ${confidenceLabel}.` : ''} Waiting for next cycle.`;
       return {
         state: 'NO_TRADE_GENUINE' as const,
         text: chipText,
@@ -286,9 +292,9 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                   Alpha's Assessment — Per Symbol
                 </p>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
-                  {symbolReasons.map(({ symbol, action, reasoning, confidence, execution_status, directional_lean, lean_confidence, decision_origin, alpha_original_action }) => {
+                  {symbolReasons.map(({ symbol, action, reasoning, confidence, execution_status, directional_lean, lean_confidence, decision_origin, alpha_original_action, confidence_tier }) => {
                     const isExpanded = expandedSymbol === symbol;
-                    const label = getDecisionLabel(confidence, action, execution_status, directional_lean, lean_confidence, decision_origin, alpha_original_action);
+                    const label = getDecisionLabel(confidence, action, execution_status, directional_lean, lean_confidence, decision_origin, alpha_original_action, confidence_tier);
                     const dotClass = label?.dotClass ?? 'bg-gray-500';
                     const badgeClass = label?.badgeClass ?? 'bg-gray-700/60 text-gray-300';
                     return (

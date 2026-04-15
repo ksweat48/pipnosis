@@ -98,6 +98,9 @@ export interface NoTradeRejectionContext {
     alpha_original_action?: 'BUY' | 'SELL';
     alpha_original_confidence?: number;
     alpha_original_reasoning?: string;
+    // CCIP-2026-0415B: Alpha's raw confidence tier text (e.g. 'cautious', 'moderate') — displayed
+    // alongside the numeric value so users see both the label and the converted number.
+    confidence_tier?: string;
   }[];
   summary: string;
 }
@@ -3830,6 +3833,8 @@ This learning will carry forward to improve future sessions!
           alpha_original_action: decision.alpha_original_decision?.action ?? undefined,
           alpha_original_confidence: decision.alpha_original_decision?.confidence ?? undefined,
           alpha_original_reasoning: decision.alpha_original_decision?.reasoning ?? undefined,
+          // CCIP-2026-0415B: Pass Alpha's raw tier text so the UI can show both label and number.
+          confidence_tier: decision.confidence_tier ?? undefined,
         });
       }
     }
