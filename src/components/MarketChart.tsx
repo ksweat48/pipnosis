@@ -824,16 +824,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
 
       if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
+        // Seed high/low from the poller's last known candle for this period, if available.
+        // This prevents wicks being lost when the chart loads mid-candle or the first tick
+        // arrives after the candle has already been partially building in the database.
+        const existingCandle = chartCandlePoller.getLatestCandle(symbol, timeframe);
+        const isSamePeriod = existingCandle && Number(existingCandle.time) === candleTimeSeconds;
+
         currentCandleRef.current = {
           time: candleTimeSeconds,
-          open: price,
-          high: price,
-          low: price,
+          open: isSamePeriod ? Number(existingCandle!.open) : price,
+          high: isSamePeriod ? Math.max(Number(existingCandle!.high), price) : price,
+          low: isSamePeriod ? Math.min(Number(existingCandle!.low), price) : price,
           close: price,
           startTime: candleTime
         };
       } else {
-        const oldClose = currentCandleRef.current.close;
         currentCandleRef.current.high = Math.max(currentCandleRef.current.high, price);
         currentCandleRef.current.low = Math.min(currentCandleRef.current.low, price);
         currentCandleRef.current.close = price;
@@ -1120,9 +1125,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           const mergedAvg = (safeCandle.open + mergedClose) / 2;
           const mergedRangePct = mergedAvg > 0 ? (mergedRange / mergedAvg) * 100 : 0;
 
-          if (mergedRangePct > 15) {
+          if (mergedRangePct > 5) {
             console.warn(
-              `[Chart] CCIP-2026-03-13d: Merged candle range ${mergedRangePct.toFixed(2)}% > 15% — ` +
+              `[Chart] CCIP-2026-03-13d: Merged candle range ${mergedRangePct.toFixed(2)}% > 5% — ` +
               `discarding live tick high/low, keeping database candle to prevent corrupted wick`
             );
             finalCandle = safeCandle;

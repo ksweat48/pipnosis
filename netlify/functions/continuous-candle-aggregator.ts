@@ -406,6 +406,103 @@ async function fetchMetaApiCandles(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WICK CORRECTION: MetaAPI broker OHLC widens wicks on sparse-tick candles
+// Triggered for completed M5 candles saved with fewer than MIN_TICKS_FOR_FULL_WICK
+// ticks. Uses the ON CONFLICT GREATEST/LEAST upsert to only ever widen, never narrow.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MIN_TICKS_FOR_FULL_WICK = 20;
+const WICK_CORRECTION_LOOKBACK_MINUTES = 30;
+
+async function correctSparseCandleWicks(symbol: string): Promise<number> {
+  const metaapiToken = process.env.METAAPI_TOKEN;
+  const accountId = process.env.METAAPI_ACCOUNT_ID;
+  if (!metaapiToken || !accountId) return 0;
+
+  const apiTimeframe = METAAPI_TIMEFRAME_MAP['M5'];
+  if (!apiTimeframe) return 0;
+
+  const lookbackTime = new Date(Date.now() - WICK_CORRECTION_LOOKBACK_MINUTES * 60 * 1000);
+
+  const { data: sparseCandles, error } = await supabase
+    .from('forex_candles')
+    .select('open_time, open, high, low, close, tick_count')
+    .eq('symbol', symbol)
+    .eq('timeframe', 'M5')
+    .gte('open_time', lookbackTime.toISOString())
+    .lt('tick_count', MIN_TICKS_FOR_FULL_WICK)
+    .order('open_time', { ascending: true });
+
+  if (error || !sparseCandles || sparseCandles.length === 0) return 0;
+
+  const oldestSparse = new Date(sparseCandles[0].open_time);
+  const brokerCandles = await fetchMetaApiCandles(symbol, 'M5', oldestSparse);
+
+  if (brokerCandles.length === 0) return 0;
+
+  const brokerMap = new Map<number, CandleData>();
+  for (const bc of brokerCandles) {
+    brokerMap.set(new Date(bc.open_time).getTime(), bc);
+  }
+
+  const corrections: Array<{
+    symbol: string;
+    timeframe: string;
+    open_time: string;
+    close_time: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    tick_count: number;
+    data_source: string;
+    quality_score: number;
+  }> = [];
+
+  for (const sparse of sparseCandles) {
+    const sparseTime = new Date(sparse.open_time).getTime();
+    const broker = brokerMap.get(sparseTime);
+    if (!broker) continue;
+
+    const correctedHigh = Math.max(Number(sparse.high), Number(broker.high));
+    const correctedLow = Math.min(Number(sparse.low), Number(broker.low));
+
+    if (correctedHigh === Number(sparse.high) && correctedLow === Number(sparse.low)) continue;
+
+    const closeTime = new Date(sparseTime + 5 * 60 * 1000);
+    corrections.push({
+      symbol,
+      timeframe: 'M5',
+      open_time: new Date(sparse.open_time).toISOString(),
+      close_time: closeTime.toISOString(),
+      open: Number(sparse.open),
+      high: correctedHigh,
+      low: correctedLow,
+      close: Number(sparse.close),
+      volume: Number(broker.volume) || Number((sparse as any).tick_count) || 0,
+      tick_count: MIN_TICKS_FOR_FULL_WICK,
+      data_source: 'metaapi_wick_correction',
+      quality_score: 95
+    });
+  }
+
+  if (corrections.length === 0) return 0;
+
+  const { error: upsertError } = await supabase
+    .from('forex_candles')
+    .upsert(corrections, { onConflict: 'symbol,timeframe,open_time', ignoreDuplicates: false });
+
+  if (upsertError) {
+    console.error(`[CandleAggregator] Wick correction upsert error for ${symbol}:`, upsertError.message);
+    return 0;
+  }
+
+  console.log(`[CandleAggregator]   ${symbol}: Corrected wicks on ${corrections.length} sparse M5 candles via MetaAPI`);
+  return corrections.length;
+}
+
 async function runMetaApiDeadManSwitch(
   symbol: string,
   lastM1CandleTime: Date | null
@@ -672,6 +769,15 @@ async function aggregateCandlesForSymbol(
     }
   } else {
     console.log(`[CandleAggregator]   ${symbol}: No new candles to create`);
+  }
+
+  // Correct wicks on recently saved sparse-tick M5 candles using broker OHLC
+  if (timeframesToProcess.includes('M5')) {
+    try {
+      await correctSparseCandleWicks(symbol);
+    } catch (wickErr) {
+      console.warn(`[CandleAggregator]   ${symbol}: Wick correction skipped:`, wickErr instanceof Error ? wickErr.message : wickErr);
+    }
   }
 
   const symbolTotalDuration = Date.now() - symbolStartTime;
