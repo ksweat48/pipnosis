@@ -24,7 +24,6 @@ import { regimeOracle, type RegimeSnapshot } from './regime-oracle';
 import { adversarialDetector, type AdversarialSignal } from './adversarial-detector';
 import { createATRValue, type ATRValue, type ATRTimeframe } from '../types/atr';
 import type { AggregatedSentiment } from './sentiment-aggregator';
-import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { marketDataService } from './market-data-service';
 import { TIME_MS } from '../config/time-constants';
 import { logger } from '../lib/logger';
@@ -261,19 +260,6 @@ class MarketSnapshotCache {
 
     const regime = regimeOracle.evaluate(marketState, timestamp, candles, symbol);
 
-    // CCIP-2026-03-07: Pass the RAW (un-enforced) ATR to the adversarial detector.
-    // The enforced ATR minimum exists to protect trade sizing from genuine
-    // low-volatility edge cases. Feeding the enforced value into the adversarial
-    // detector inflates wick-to-ATR ratios during calm markets, producing false
-    // stop-run positives. Alpha must see real volatility context, not an
-    // artificial floor. The enforced ATR continues to flow through indicators.atr
-    // for all sizing/stop calculations downstream.
-    logger.debug('[SnapshotCache] ATR split — adversarial uses raw', {
-      symbol,
-      rawATR: indicators.atrRaw.toFixed(6),
-      enforcedATR: indicators.atr.value.toFixed(6),
-      enforced: indicators.atrRaw !== indicators.atr.value
-    });
 
     const adversarial = adversarialDetector.evaluate(
       {
@@ -335,9 +321,7 @@ class MarketSnapshotCache {
       symbol,
       timeframe,
       price: currentPrice.toFixed(5),
-      atrRaw: indicators.atrRaw.toFixed(5),
-      atrEnforced: indicators.atr.value.toFixed(5),
-      atrEnforcementActive: indicators.atrRaw !== indicators.atr.value,
+      atr: indicators.atr.value.toFixed(5),
       trend: indicators.trend,
       atrPercent: indicators.atrPercent.toFixed(3) + '%',
       advisoryCount: advisoryFlags.length,
@@ -405,7 +389,7 @@ class MarketSnapshotCache {
     rsi: number;
     stochRsi: number;
     atr: ATRValue;
-    atrRaw: number; // CCIP-2026-03-07: un-enforced ATR for adversarial detector
+    atrRaw: number;
     vwap: number;
     macd: number;
     macdSignal: number;
@@ -422,11 +406,7 @@ class MarketSnapshotCache {
     const rsi = this.calculateRSI(closes, 14);
     const stochRsi = this.calculateStochRSI(closes, 14);
     const atrRaw = this.calculateATR(candles);
-    const atrEnforced = this.enforceATRMinimum(atrRaw, symbol, closes[closes.length - 1]);
-    // CCIP-2026-03-07: atr (ATRValue) uses the enforced floor for trade sizing/stops.
-    // atrRaw is preserved separately so the adversarial detector receives the true
-    // market ATR — not an inflated minimum — for accurate wick-to-ATR comparisons.
-    const atr = createATRValue(atrEnforced, timeframe as ATRTimeframe, 14);
+    const atr = createATRValue(atrRaw, timeframe as ATRTimeframe, 14);
     const vwap = this.calculateVWAP(candles.slice(-20));
     const { macd, signal } = this.calculateMACD(closes);
 
@@ -577,59 +557,6 @@ class MarketSnapshotCache {
       maxRange: Math.max(...validTRs).toFixed(6)
     });
 
-    return atr;
-  }
-
-  /**
-   * Enforce instrument-specific ATR minimums
-   * CCIP COMPLIANCE: Structured logging for governance audit trail
-   * SSOT COMPLIANCE: Uses TRADING_CONSTANTS as single source for ATR minimums
-   */
-  private enforceATRMinimum(atr: number, symbol: string, currentPrice: number): number {
-    logger.debug('[SnapshotCache] ATR minimum enforcement check', {
-      symbol,
-      rawATR: atr.toFixed(6),
-      currentPrice: currentPrice.toFixed(5),
-      hasSpecificMinimum: !!TRADING_CONSTANTS.ATR_MINIMUMS[symbol as keyof typeof TRADING_CONSTANTS.ATR_MINIMUMS]
-    });
-
-    const specificMin = TRADING_CONSTANTS.ATR_MINIMUMS[symbol as keyof typeof TRADING_CONSTANTS.ATR_MINIMUMS];
-
-    if (specificMin && typeof specificMin === 'number') {
-      if (atr < specificMin) {
-        logger.warn('[SnapshotCache] ATR below symbol-specific minimum - enforcing', {
-          symbol,
-          originalATR: atr.toFixed(6),
-          enforcedATR: specificMin.toFixed(6),
-          reason: 'Symbol-specific minimum'
-        });
-        return specificMin;
-      }
-      logger.debug('[SnapshotCache] ATR above symbol-specific minimum', {
-        symbol,
-        atr: atr.toFixed(6),
-        minimum: specificMin.toFixed(6)
-      });
-      return atr;
-    }
-
-    const percentMin = currentPrice * TRADING_CONSTANTS.ATR_MINIMUMS.DEFAULT_PERCENT;
-    if (atr < percentMin) {
-      logger.warn('[SnapshotCache] ATR below percentage-based minimum - enforcing', {
-        symbol,
-        originalATR: atr.toFixed(6),
-        enforcedATR: percentMin.toFixed(6),
-        calculationBasis: `${(TRADING_CONSTANTS.ATR_MINIMUMS.DEFAULT_PERCENT * 100).toFixed(2)}% of ${currentPrice.toFixed(5)}`,
-        reason: 'Percentage-based fallback'
-      });
-      return percentMin;
-    }
-
-    logger.debug('[SnapshotCache] ATR above all minimum thresholds', {
-      symbol,
-      atr: atr.toFixed(6),
-      percentageMin: percentMin.toFixed(6)
-    });
     return atr;
   }
 
