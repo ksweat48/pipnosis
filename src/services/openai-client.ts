@@ -35,7 +35,9 @@ interface ChatMessage {
 interface ChatCompletionOptions {
   model?: string;
   temperature?: number;
+  /** @deprecated Use max_completion_tokens. This field is translated to max_completion_tokens before sending to OpenAI. */
   max_tokens?: number;
+  max_completion_tokens?: number;
   requestType?: string;
   endpoint?: string;
   symbol?: string;
@@ -315,6 +317,7 @@ class OpenAIClient {
       model: options.model || 'gpt-4o-mini'
     });
 
+    const resolvedBudget = options.max_completion_tokens ?? options.max_tokens ?? 2000;
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -325,7 +328,8 @@ class OpenAIClient {
         model: options.model || 'gpt-4o-mini',
         messages: messages,
         temperature: options.temperature ?? 0.7,
-        max_tokens: options.max_tokens ?? 2000
+        max_completion_tokens: resolvedBudget,
+        store: false
       })
     });
 
@@ -346,6 +350,47 @@ class OpenAIClient {
     return data;
   }
 
+  /**
+   * CCIP-CACHE-BUST-TRANSPORT-2026-04-15: Platform-wide cache bust at the transport layer.
+   *
+   * WHY THIS EXISTS HERE (not in the caller):
+   * OpenAI's automatic KV-prefix caching is permanently on with no opt-out. It caches the
+   * first ~1024 tokens of the concatenated messages array. When multiple symbols share an
+   * identical system prompt (as Alpha does for all 7 symbols in a scan), OpenAI routes them
+   * to the same inference machine (based on the first ~256-token hash) and every symbol after
+   * the first gets a cache hit — producing abbreviated ~230-token completions with finish_reason=stop.
+   *
+   * The fix (prepend a unique nonce to the first system message) must live here — at the
+   * transport layer — not in individual callers. If it lives in coordinator-alpha.ts, future
+   * code changes can remove it, a new caller can forget it, or a refactor can bypass it.
+   * By enforcing it here, every single OpenAI call made through this client is guaranteed to
+   * be cache-immune, regardless of which brain, coordinator, or service built the messages.
+   *
+   * MECHANISM: We prepend a unique `[REQ:timestamp|nonce]` tag to the content of the first
+   * system message. Since this alters the first <128 tokens of the prompt, it changes
+   * OpenAI's cache key for this request, guaranteeing a cache miss.
+   *
+   * COST: ~6 tokens per call — negligible.
+   * NOTE: store=false in openai-chat.ts does NOT affect caching — it only controls whether
+   * OpenAI saves the response to their dashboard. Cache behavior is unrelated to store.
+   */
+  private injectCacheBustFingerprint(messages: ChatMessage[], options: ChatCompletionOptions): ChatMessage[] {
+    const nonce = Math.random().toString(36).slice(2, 8).toUpperCase();
+    const fingerprint = `[REQ:${Date.now()}|${nonce}]`;
+    const firstSystemIdx = messages.findIndex(m => m.role === 'system');
+    if (firstSystemIdx === -1) {
+      return messages;
+    }
+    const patched = messages.map((m, i) => {
+      if (i !== firstSystemIdx) return m;
+      return { ...m, content: `${fingerprint}\n${m.content}` };
+    });
+    if (options.requestType === 'alpha_coordination') {
+      console.log(`[OpenAI Client] Cache-bust fingerprint injected for ${options.symbol ?? 'unknown'}: ${fingerprint}`);
+    }
+    return patched;
+  }
+
   async chat(
     messages: ChatMessage[],
     options: ChatCompletionOptions = {}
@@ -364,7 +409,7 @@ class OpenAIClient {
       // CONTEXT-AWARE ROUTING: Detect server vs browser
       if (this.isServerContext()) {
         console.log('[OpenAI Client] Server context detected - using direct API call');
-        return await this.chatServerSide(messages, options);
+        return await this.chatServerSide(this.injectCacheBustFingerprint(messages, options), options);
       }
 
       // BROWSER MODE: Require user authentication
@@ -398,7 +443,7 @@ class OpenAIClient {
         // while other concurrent symbols wait behind it.
         await llmRequestQueue.acquire();
 
-        const resolvedMaxTokens = options.max_tokens ?? 2000;
+        const resolvedMaxTokens = options.max_completion_tokens ?? options.max_tokens ?? 2000;
         console.log(`[OpenAI Client] Queue slot acquired (attempt ${attempt + 1}/${this.maxRetries + 1})`, {
           endpoint: options.endpoint || 'unknown',
           requestType: options.requestType || 'unknown',
@@ -419,15 +464,16 @@ class OpenAIClient {
               'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify({
-              messages,
+              messages: this.injectCacheBustFingerprint(messages, options),
               model: options.model || 'gpt-4o-mini',
               temperature: options.temperature ?? 0.7,
               // CCIP-2026-04-15: Default raised back to 2000. The 500-token cap was the root
               // cause of degenerate 252-token Alpha scans. A full Alpha answer sheet with
               // reasoning, trader statement, and all structured fields requires 800-1500 tokens.
-              // Callers that need a shorter response (e.g. omega brains) pass options.max_tokens
-              // explicitly and that explicit value is honoured.
-              max_tokens: options.max_tokens ?? 2000,
+              // Callers that need a shorter response (e.g. omega brains) pass max_completion_tokens
+              // or max_tokens explicitly and that explicit value is honoured.
+              // The Netlify proxy translates this field to max_completion_tokens for OpenAI.
+              max_tokens: resolvedMaxTokens,
               requestType: options.requestType,
               endpoint: options.endpoint
             }),

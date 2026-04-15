@@ -356,12 +356,13 @@ async function handleRequest(event: any, startTime: number) {
       temperature: typeof body.temperature === 'number' ? body.temperature : 0.7,
       max_completion_tokens: tokenBudget,
       stream: false,
-      // CCIP-2026-04-15: Explicitly disable OpenAI server-side prompt caching.
-      // gpt-4o caches the prompt KV prefix automatically. When a cache hit occurs the
-      // model generates its completion on top of a reused prefix which can produce
-      // abbreviated outputs (~252 tokens) that bypass the token budget entirely.
-      // Setting store=false opts this request out of the cache entirely, guaranteeing
-      // every Alpha scan gets a fresh, full-length generation.
+      // CCIP-2026-04-15: store=false controls OpenAI dashboard data retention ONLY.
+      // IMPORTANT: store=false does NOT disable OpenAI's automatic KV-prefix prompt caching.
+      // OpenAI's prompt cache is a permanently-on infrastructure feature with no opt-out.
+      // Cache misses are achieved by injecting a unique per-request fingerprint into the
+      // first system message — this is handled in openai-client.ts injectCacheBustFingerprint()
+      // before the messages ever reach this function. Do not rely on store=false as a
+      // caching defense — it provides none.
       store: false
     };
 

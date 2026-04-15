@@ -3790,7 +3790,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       //   Raise max_tokens if that fires — production data justifies current ceiling.
       model: 'gpt-4o',
       temperature: 0.3,
-      max_tokens: 2000,
+      max_completion_tokens: 2000,
       requestType: 'alpha_coordination',
       endpoint: 'alpha-coordinator',
       symbol: marketContext.symbol
@@ -3842,6 +3842,20 @@ Return PURE JSON only — all required fields from the schema in my system promp
           `cache=${cacheHitPct}% (${cachedTokens}/${totalPromptTokens} tokens cached) ` +
           `completion_tokens=${completionTokens}`
         );
+        // CCIP-CACHE-BUST-ALARM-2026-04-15: If cache hit > 5% on an alpha_coordination call,
+        // the transport-layer fingerprint is not working. This is the leading indicator of
+        // degenerate abbreviated completions. Fire a high-severity alarm immediately so it
+        // is impossible to miss in logs. The fingerprint is injected in openai-client.ts
+        // injectCacheBustFingerprint() — investigate there if this alarm fires.
+        if (typeof cacheHitPct === 'number' && cacheHitPct > 5) {
+          console.error(
+            `[Alpha CACHE ALARM] DEGENERATE SCAN RISK: symbol=${marketContext.symbol} ` +
+            `cache_hit=${cacheHitPct}% (${cachedTokens}/${totalPromptTokens} tokens). ` +
+            `The transport-layer cache-bust fingerprint (openai-client.ts injectCacheBustFingerprint) ` +
+            `is not defeating OpenAI's KV-prefix cache. Completion tokens=${completionTokens}. ` +
+            `Abbreviated degenerate outputs are likely. Investigate immediately.`
+          );
+        }
         if (rawNumericConfidenceMatch && !rawTierMatch) {
           console.warn(
             `[Alpha Raw Response] CCIP-2026-0413 SCHEMA_VIOLATION: Alpha output a numeric trade_confidence=${rawNumericConfidenceMatch[1]} ` +
