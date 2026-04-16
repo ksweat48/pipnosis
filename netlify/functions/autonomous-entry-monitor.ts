@@ -190,16 +190,39 @@ export const handler: Handler = async (event, context) => {
 
         // Check for timeout expiration
         if (intent.timeout_at && new Date(intent.timeout_at) < new Date()) {
-          console.log(`[Entry Monitor] ⏰ Intent ${intent.intent_id.substring(0, 8)} expired`);
-          await handleTimeout(intent);
-          abandonedCount++;
-          successCount++;
-          results.push({
-            intentId: intent.intent_id,
-            symbol: intent.symbol,
-            success: true,
-            action: 'timeout'
-          });
+          // CRITICAL FIX: If price is already in the zone when timeout fires, EXECUTE
+          // the trade instead of abandoning. The user asked for a pullback entry and
+          // the price has reached the target — honouring that takes priority over the
+          // scheduling timeout. Use a zero-tolerance zone check here (Phase 1 tolerance)
+          // so we only execute if price is genuinely inside the zone.
+          const inZoneAtTimeout = intent.current_price
+            ? checkPriceInZone(intent, intent.current_price, 0)
+            : false;
+
+          if (inZoneAtTimeout && intent.current_price) {
+            console.log(`[Entry Monitor] ⏰⚡ Intent ${intent.intent_id.substring(0, 8)} expired BUT price is IN ZONE — executing trade instead of abandoning`);
+            console.log(`  Price: ${intent.current_price} | Zone: ${intent.entry_zone_min}-${intent.entry_zone_max}`);
+            const executed = await executeIntent(intent, intent.current_price, 75);
+            if (executed) {
+              executedCount++;
+              successCount++;
+              results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: true, action: 'executed_at_timeout_in_zone' });
+            } else {
+              errorCount++;
+              results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: false, action: 'execution_failed_at_timeout' });
+            }
+          } else {
+            console.log(`[Entry Monitor] ⏰ Intent ${intent.intent_id.substring(0, 8)} expired and price is outside zone — abandoning`);
+            await handleTimeout(intent);
+            abandonedCount++;
+            successCount++;
+            results.push({
+              intentId: intent.intent_id,
+              symbol: intent.symbol,
+              success: true,
+              action: 'timeout'
+            });
+          }
           continue;
         }
 
