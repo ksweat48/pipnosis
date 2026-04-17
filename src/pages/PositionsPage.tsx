@@ -82,6 +82,7 @@ interface RecentTrade {
   tp2_pnl?: number | null;
   tp1_price?: number | null;
   tp1_breakeven_price?: number | null;
+  requested_style?: string | null;
 }
 
 export function PositionsPage() {
@@ -244,7 +245,8 @@ export function PositionsPage() {
         tp1_pnl: trade.tp1_pnl != null ? parseFloat(trade.tp1_pnl) : null,
         tp2_pnl: trade.tp2_pnl != null ? parseFloat(trade.tp2_pnl) : null,
         tp1_price: trade.tp1_price != null ? parseFloat(trade.tp1_price) : null,
-        tp1_breakeven_price: trade.tp1_breakeven_price != null ? parseFloat(trade.tp1_breakeven_price) : null
+        tp1_breakeven_price: trade.tp1_breakeven_price != null ? parseFloat(trade.tp1_breakeven_price) : null,
+        requested_style: trade.requested_style ?? null
       };
     });
 
@@ -1041,6 +1043,11 @@ export function PositionsPage() {
                               }`}>
                                 {(trade.position_type || 'buy').toUpperCase()}
                               </span>
+                              {trade.requested_style && (
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-slate-700/60 text-slate-200 border border-slate-600/50 uppercase tracking-wide">
+                                  {trade.requested_style.replace(/_/g, ' ')}
+                                </span>
+                              )}
                               <span className="text-xs text-gray-500">{trade.lot_size} lots</span>
                             </div>
                             <div className="text-xs text-gray-400 mt-1">

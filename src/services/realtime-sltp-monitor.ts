@@ -347,51 +347,64 @@ class RealtimeSLTPMonitor {
       // CCIP-2026-BE001: Re-fetch tp1_breakeven_price from the DB immediately after markTP1Hit
       // succeeds to check if the trigger already handled it. In-memory position.tp1_breakeven_price
       // is always null at this point (the in-memory copy predates the trigger's UPDATE).
-      const { data: freshTrade } = await import('@/lib/supabase').then(m =>
-        m.supabase
-          .from('goal_session_trades')
-          .select('tp1_breakeven_price, stop_loss')
-          .eq('id', position.id)
-          .maybeSingle()
-      );
+      // CCIP-2026-BE002: SCALP never moves SL to break-even.
+      // Trigger closes a SCALP position at TP1 (close_reason=take_profit_1).
+      // Skip the entire BE backup path when the user requested SCALP.
+      const styleUpper = (position.requested_style || '').toUpperCase();
+      const isScalp = styleUpper === 'SCALP';
 
-      if (freshTrade?.tp1_breakeven_price != null) {
-        // Trigger already handled it — sync in-memory state and skip TS BE move
-        position.stop_loss = freshTrade.stop_loss;
-        position.tp1_breakeven_price = freshTrade.tp1_breakeven_price;
-        console.log(`[RealtimeSLTPMonitor] BE SL already set by trigger: ${freshTrade.tp1_breakeven_price.toFixed(5)} — skipping TS backup path`);
+      if (isScalp) {
+        console.log(`[RealtimeSLTPMonitor] SCALP style — TP1 close owned by DB trigger, skipping BE backup`);
       } else {
-        // Trigger has NOT fired yet — execute the backup BE SL move
-        let atr = await this.fetchATR(position.symbol);
-
-        let isFallbackATR = false;
-        if (atr === null) {
-          atr = this.getFallbackATR(position.symbol);
-          isFallbackATR = true;
-          console.warn(
-            `[RealtimeSLTPMonitor] ATR unavailable for ${position.symbol} — ` +
-            `using fallback ATR=${atr.toFixed(5)} (TS backup path, trigger did not fire).`
-          );
-        }
-
-        const slResult = await positionMonitoringAuthority.autoMoveSLAfterTP1(
-          position.id,
-          position.user_id,
-          position.direction,
-          position.entry_price,
-          atr,
-          isFallbackATR
+        const { data: freshTrade } = await import('@/lib/supabase').then(m =>
+          m.supabase
+            .from('goal_session_trades')
+            .select('tp1_breakeven_price, stop_loss, sl_moved_to_breakeven_at')
+            .eq('id', position.id)
+            .maybeSingle()
         );
 
-        if (slResult.success && slResult.newSL !== undefined) {
-          position.stop_loss = slResult.newSL;
-          position.tp1_breakeven_price = slResult.newSL;
-          console.log(`[RealtimeSLTPMonitor] TS backup: SL moved to ${slResult.newSL.toFixed(5)} after TP1 (ATR=${atr.toFixed(5)})`);
+        if (freshTrade?.tp1_breakeven_price != null || freshTrade?.sl_moved_to_breakeven_at != null) {
+          // Trigger already handled it — sync in-memory state and skip TS BE move
+          position.stop_loss = freshTrade.stop_loss;
+          position.tp1_breakeven_price = freshTrade.tp1_breakeven_price;
+          console.log(`[RealtimeSLTPMonitor] BE SL already set by trigger — skipping TS backup path`);
         } else {
-          console.error(
-            `[RealtimeSLTPMonitor] CRITICAL: TS backup BE SL move failed for trade ${position.id}:`,
-            slResult.error
+          // Trigger has NOT fired yet — execute the backup BE SL move
+          let atr = await this.fetchATR(position.symbol);
+
+          let isFallbackATR = false;
+          if (atr === null) {
+            atr = this.getFallbackATR(position.symbol);
+            isFallbackATR = true;
+            console.warn(
+              `[RealtimeSLTPMonitor] ATR unavailable for ${position.symbol} — ` +
+              `using fallback ATR=${atr.toFixed(5)} (TS backup path, trigger did not fire).`
+            );
+          }
+
+          const slResult = await positionMonitoringAuthority.autoMoveSLAfterTP1(
+            position.id,
+            position.user_id,
+            position.direction,
+            position.entry_price,
+            atr,
+            isFallbackATR,
+            position.requested_style
           );
+
+          if (slResult.skipped === 'scalp') {
+            console.log(`[RealtimeSLTPMonitor] BE skipped by authority (SCALP guard)`);
+          } else if (slResult.success && slResult.newSL !== undefined) {
+            position.stop_loss = slResult.newSL;
+            position.tp1_breakeven_price = slResult.newSL;
+            console.log(`[RealtimeSLTPMonitor] TS backup: SL moved to ${slResult.newSL.toFixed(5)} after TP1 (ATR=${atr.toFixed(5)})`);
+          } else {
+            console.error(
+              `[RealtimeSLTPMonitor] CRITICAL: TS backup BE SL move failed for trade ${position.id}:`,
+              slResult.error
+            );
+          }
         }
       }
 

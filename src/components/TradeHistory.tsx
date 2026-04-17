@@ -26,6 +26,7 @@ interface Trade {
   max_drawdown?: number;
   max_profit?: number;
   total_pips?: number;
+  requested_style?: string | null;
 }
 
 interface TradeStatistics {
@@ -98,7 +99,8 @@ export function TradeHistory() {
         goal_session_id: trade.goal_session_id,
         max_drawdown: trade.max_drawdown !== null && trade.max_drawdown !== undefined ? parseFloat(trade.max_drawdown) : undefined,
         max_profit: trade.max_profit !== null && trade.max_profit !== undefined ? parseFloat(trade.max_profit) : undefined,
-        total_pips: trade.total_pips !== null && trade.total_pips !== undefined ? parseFloat(trade.total_pips) : undefined
+        total_pips: trade.total_pips !== null && trade.total_pips !== undefined ? parseFloat(trade.total_pips) : undefined,
+        requested_style: trade.requested_style ?? null
       }));
 
       setTrades(normalizedTrades);
@@ -441,6 +443,11 @@ export function TradeHistory() {
                         }`}>
                           {trade.position_type.toUpperCase()}
                         </span>
+                        {trade.requested_style && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-slate-700/60 text-slate-200 border border-slate-600/50">
+                            {trade.requested_style.replace(/_/g, ' ')}
+                          </span>
+                        )}
                         <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getSourceLabel(trade.trade_source).color}`}>
                           {getSourceLabel(trade.trade_source).label}
                         </span>

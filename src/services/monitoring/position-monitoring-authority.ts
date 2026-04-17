@@ -90,6 +90,8 @@ export interface MonitoredPosition {
   status: string;
   current_price?: number;
   opened_at: string;
+  requested_style?: string | null;
+  sl_moved_to_breakeven_at?: string | null;
 }
 
 /**
@@ -162,7 +164,7 @@ class PositionMonitoringAuthority {
 
       const { data: positions, error } = await supabase
         .from('goal_session_trades')
-        .select('id, symbol, direction, entry_price, stop_loss, take_profit, tp1_price, tp2_price, tp1_hit, tp2_hit, tp1_breakeven_price, partial_close_pct, position_size, lot_size, user_id, goal_session_id, status, current_price, opened_at')
+        .select('id, symbol, direction, entry_price, stop_loss, take_profit, tp1_price, tp2_price, tp1_hit, tp2_hit, tp1_breakeven_price, partial_close_pct, position_size, lot_size, user_id, goal_session_id, status, current_price, opened_at, requested_style, sl_moved_to_breakeven_at')
         .eq('status', 'open')
         .eq('user_id', monitoringUserId);
 
@@ -496,9 +498,18 @@ class PositionMonitoringAuthority {
     direction: 'buy' | 'sell',
     entryPrice: number,
     atr: number,
-    isFallbackATR = false
-  ): Promise<{ success: boolean; newSL?: number; error?: string }> {
+    isFallbackATR = false,
+    requestedStyle?: string | null
+  ): Promise<{ success: boolean; newSL?: number; skipped?: 'scalp'; error?: string }> {
     try {
+      // CCIP-2026-BE002: SCALP style never moves SL to break-even.
+      // SCALP closes at TP1 (handled by trigger). This guard protects the
+      // backup/fallback path from writing a BE SL for a scalp trade.
+      const styleNormalized = (requestedStyle || '').toUpperCase();
+      if (styleNormalized === 'SCALP') {
+        return { success: true, skipped: 'scalp' };
+      }
+
       const newSL = calculateTP1BreakevenSL(direction, entryPrice, atr);
       const now = new Date().toISOString();
       const actionTaken = isFallbackATR ? 'sl_moved_to_breakeven_fallback' : 'sl_moved_to_breakeven';
