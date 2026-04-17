@@ -952,10 +952,14 @@ class AlphaTradeExecutor {
       const deviationReasoningPips = Math.abs(entryDeviation) / reasoningPipSize;
       const deviationRatio = Math.abs(entryDeviation) / plannedStopDistance;
 
+      // CCIP-2026-0417-GEOMETRY-GUARD: For a BUY, the stop loss sits BELOW the entry price.
+      // A fill ABOVE the SL is expected — it has breathing room. Geometry is broken only when
+      // the fill falls THROUGH the SL (fill <= SL for BUY) OR when the deviation consumes the
+      // entire stop width (deviationRatio >= 1.0). The inverse applies to SELL trades.
       const geometryBroken = (
         decision.action === 'BUY'
-          ? adjustedEntry >= decision.stopLoss
-          : adjustedEntry <= decision.stopLoss
+          ? adjustedEntry <= decision.stopLoss   // fill crossed BELOW SL → no breathing room
+          : adjustedEntry >= decision.stopLoss   // fill crossed ABOVE SL → no breathing room
       ) || deviationRatio >= 1.0;
 
       const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
