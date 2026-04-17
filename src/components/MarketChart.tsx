@@ -1756,10 +1756,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           setCryptoDataSource(price.source);
         }
 
-        // Show data quality warning when price is not from a live source
-        if (price.dataQuality && price.dataQuality !== 'LIVE' && price.fallbackLevel && price.fallbackLevel > 1) {
+        // Show data quality warning only for significantly degraded data sources (Level 3+)
+        // RECENT_CACHE (Level 2, <=10s old) is not a meaningful degradation — the DELAYED badge handles it
+        if (price.dataQuality && price.fallbackLevel && price.fallbackLevel >= 3) {
           const ageWarnings: Record<string, string> = {
-            RECENT_CACHE: 'Price data may be up to 10 seconds delayed',
             STALE_CACHE: 'Price data is delayed — live feed temporarily unavailable',
             EMERGENCY_FALLBACK: 'Live price feed unavailable — displaying last known price',
             LAST_RESORT: 'Live price feed unavailable — displaying last known price'
