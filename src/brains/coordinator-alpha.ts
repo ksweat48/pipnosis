@@ -2353,8 +2353,8 @@ ${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardle
           const phaseLabelM5 = m5MovePhase === 'FRESH'
             ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from M5 swing origin). Full confidence range. Both continuation and pullback scalp entries are valid.`
             : m5MovePhase === 'DEVELOPING'
-              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from M5 swing origin). Structural space to your single SCALP TP may be narrowing. Pullback scalp entry preferred. Continuation requires explicit justification that the single TP remains achievable.`
-              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M5 swing origin). The M5 move is extended relative to M5 ATR — look for a reversal scalp or M5 structural retest entry rather than a continuation. Exhausted moves often produce the cleanest reversal scalps. Document the structural basis you find and set your conviction score based on the quality of the reversal or retest setup.`;
+              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from M5 swing origin). ATR travel data provided. Alpha assesses remaining structural space and R:R independently.`
+              : `EXTENDED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M5 swing origin). ATR travel data provided. Alpha assesses structure and thesis direction independently.`;
 
           const fakeoutBlockM5 = fakeoutTypeM5
             ? `
@@ -2379,9 +2379,9 @@ M1 Move Phase: ${m5MovePhase}
 Assessment: ${phaseLabelM5}
 
 ${m5MovePhase === 'DEVELOPING'
-  ? `DEVELOPING STAGE — RUNWAY AUDIT: Document the remaining structural space from current price to your single SCALP TP (named M5 structural level). State: "Remaining runway to TP: ~X pips. R:R from current price: X:1." If R:R to your named TP is below 1.0:1, document whether you can tighten to the next achievable M5 structure — and reflect your honest R:R assessment in your conviction score. Alpha decides the action.`
+  ? `DEVELOPING STAGE — ATR travel is within 0.75–1.5x M5 ATR. Identify the nearest structural target and assess achievable R:R from current price. Document the structural level you name and reflect that assessment in your conviction score. Alpha decides the action.`
   : m5MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The M1 leg has traveled > 1.5x M5 ATR. Look for a reversal scalp or M1 structural retest setup rather than a continuation entry. Document the nearest M5 structural re-entry zone and achievable R:R from current price. Reflect your honest assessment of structural quality and R:R in your conviction score. Alpha decides the action.`
+    ? `EXTENDED STAGE — ATR travel exceeds 1.5x M5 ATR. Identify the strongest structural thesis available — continuation, reversal, or retest — from the current price action. Document the structural basis and reflect your honest assessment in your conviction score. Alpha decides the action.`
     : `FRESH STAGE — Full confidence window. Structural space to your SCALP TP is available. Both continuation and pullback M1 entries are valid.`
 }
 ${fakeoutBlockM5}MANDATORY JSON FIELDS — Include in your response regardless of action:
