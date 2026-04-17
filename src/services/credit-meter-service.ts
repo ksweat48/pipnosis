@@ -146,29 +146,53 @@ class CreditMeterService {
   }
 
   subscribeToBalance(userId: string, callback: (balance: CreditBalance) => void) {
-    const channel = supabase
-      .channel(`credit-balance-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_token_balance',
-          filter: `user_id=eq.${userId}`
-        },
-        async () => {
-          const balance = await this.getBalance(userId);
-          if (balance) callback(balance);
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          realtimeConnectionManager.logChannelError('CreditMeter');
-        }
-      });
+    let currentChannel: ReturnType<typeof supabase.channel> | null = null;
+    let destroyed = false;
+
+    const createChannel = () => {
+      if (destroyed) return;
+
+      const channel = supabase
+        .channel(`credit-balance-${userId}-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_token_balance',
+            filter: `user_id=eq.${userId}`
+          },
+          async () => {
+            const balance = await this.getBalance(userId);
+            if (balance) callback(balance);
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR') {
+            realtimeConnectionManager.logChannelError('CreditMeter');
+          }
+        });
+
+      currentChannel = channel;
+    };
+
+    createChannel();
+
+    const unsubscribeFromStatus = realtimeConnectionManager.onStatusChange((status) => {
+      if (status === 'connected' && currentChannel) {
+        supabase.removeChannel(currentChannel);
+        currentChannel = null;
+        createChannel();
+      }
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      destroyed = true;
+      unsubscribeFromStatus();
+      if (currentChannel) {
+        supabase.removeChannel(currentChannel);
+        currentChannel = null;
+      }
     };
   }
 }
