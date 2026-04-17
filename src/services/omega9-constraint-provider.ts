@@ -119,30 +119,24 @@ class Omega9ConstraintProvider {
       }
     }
 
-    // ✅ CRITICAL FIX: Convert ATR-based TP from PRICE UNITS to PIPS
-    // BUG: atr is in PRICE_UNITS (e.g., 0.00039 for GBPUSD), not pips
-    // WRONG: maxTakeProfitPips = 0.00468 (rounds to 0 pips)
-    // CORRECT: maxTakeProfitPips = 46.8 pips
+    // CCIP-2026-04-17 ARCHITECTURAL CHANGE: Remove ATR-based TP ceiling.
+    // The static atrBasedMaxTP_PIPS (ATR × arbitrary multiplier) was the root cause
+    // of constraint-driven NO_TRADE decisions during low-volatility sessions.
+    // It produced phantom ceilings disconnected from real market structure.
+    //
+    // REPLACEMENT: Envelope bounds (derived from price-relative percentages)
+    // are the SOLE ceiling authority. These are computed from real price levels
+    // and style-specific research, not arbitrary ATR multipliers.
+    //
+    // Alpha receives the ATR value directly in the prompt as a reference number
+    // (already provided in stopLossDirective) and decides TP from structure.
     const pipInfo = getCurrencyPipInfo(symbol);
-    const atrBasedMaxTP_PRICE_UNITS = resolvedPlan?.tpMaxAtrMultiple
-      ? atr * resolvedPlan.tpMaxAtrMultiple
-      : atr * 12; // 12x ATR as default (IN PRICE UNITS)
 
-    // Convert to pips using SSOT helper
-    const atrBasedMaxTP_PIPS = atrBasedMaxTP_PRICE_UNITS / pipInfo.pipValue;
-
-    // Add diagnostic guard for SSOT math corruption
-    if (atrBasedMaxTP_PIPS < 1.0) {
-      console.error('[SSOT_MATH_CORRUPTION] TP range suspiciously low', {
-        type: 'ZERO_TP',
-        severity: 'ERROR',
-        symbol,
-        atr,
-        atrBasedMaxTP_PRICE_UNITS,
-        pipValue: pipInfo.pipValue,
-        atrBasedMaxTP_PIPS,
-        callsite: 'omega9-constraint-provider.ts:97',
-        message: 'TP calculation produced near-zero pips - likely units mismatch'
+    // ATR in pips — passed to Alpha as a raw reference, not a ceiling
+    const atrInPipsRef = atr / pipInfo.pipValue;
+    if (atrInPipsRef < 0.1) {
+      console.warn('[Omega-9] Suspiciously small ATR in pips — possible units mismatch', {
+        symbol, atr, pipValue: pipInfo.pipValue, atrInPipsRef
       });
     }
 
@@ -186,9 +180,9 @@ class Omega9ConstraintProvider {
     // - Learning/tracking purposes
     // - NO_TRADE decisions when style band is exceeded (style is IMMUTABLE)
     //
-    // CCIP-2026-03-06: TP maximum is the LESSER of ATR-based max and R:R ceiling.
-    // This enforces the per-style R:R band: Scalp 1:1, Micro 1-2:1, Intraday 1-3:1.
-    let maxTakeProfitPips: number = Math.min(atrBasedMaxTP_PIPS, rrCeilingMaxTakeProfitPips);
+    // CCIP-2026-04-17: TP maximum is driven SOLELY by R:R ceiling and envelope bounds.
+    // The ATR-based cap has been removed — envelope percentage bounds are the authority.
+    let maxTakeProfitPips: number = rrCeilingMaxTakeProfitPips;
     let sessionConstraintMode: 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
 
@@ -289,77 +283,28 @@ class Omega9ConstraintProvider {
     const finalMinStopLoss = envelopeAlignedProfileMin;
     const finalMaxStopLoss = envelopeAlignedProfileMax;
 
-    // CCIP-2026-04-02: Fix TP ceiling suppression root cause.
+    // CCIP-2026-04-17 ARCHITECTURAL FIX: Envelope-aligned TP ceiling.
     //
-    // Problem: maxTakeProfitPips was calculated pre-envelope-alignment as:
-    //   rrCeilingMaxTakeProfitPips = referenceSLPips × maxRiskReward
-    // where referenceSLPips = stopLossCalc.stopLossPips (raw recommended stop, e.g. 20 pips for
-    // SCALP US30). This produces a TP ceiling of 20 × 2.0 = 40 pips.
+    // The correct ceiling is the MAXIMUM of:
+    //   1. R:R-based ceiling (envelopeSL × maxRiskReward) — ensures style R:R band is respected
+    //   2. Envelope TP maximum (price-relative % bound) — the authoritative structural ceiling
     //
-    // Meanwhile, the noise floor for US30 = 1.15 × ATR = ~106 pips, and the envelope TP max
-    // for US30 SCALP at $47k = 0.35% × price = ~164 pips.
+    // This replaces the previous layered repair cascade that used an arbitrary ATR multiplier
+    // as the primary ceiling, then patched it with geometry guards when it broke.
     //
-    // Alpha sees: "noise floor 106 pips (you might get stopped out below this)" vs
-    //             "TP max 40 pips" → infers R:R ≤ 0.37:1 → returns NO_TRADE. Correct logic,
-    //             wrong input data (TP ceiling was incorrectly suppressed).
-    //
-    // Fix: After envelope alignment, recalculate referenceSLPips using the envelope SL floor
-    // so that rrCeilingMaxTakeProfitPips correctly scales with the actual style wall, not the
-    // raw profile recommendation. Then raise maxTakeProfitPips to the envelope TP ceiling as
-    // a floor — the envelope is the authoritative style boundary, not the SL×RR formula.
+    // The envelope is the SSOT for TP range. Alpha places TP within this range
+    // based on structure — not from a pre-computed pip number.
     const envelopeAlignedReferenceSL = Math.max(referenceSLPips, envelopeAlignedProfileMin);
     const envelopeAlignedRRCeilingTP = envelopeAlignedReferenceSL * maxRiskReward;
     const envelopeTpMax = envelopeBounds.tpPips.max;
 
-    if (envelopeAlignedRRCeilingTP > maxTakeProfitPips || envelopeTpMax > maxTakeProfitPips) {
-      const correctedTP = Math.max(maxTakeProfitPips, envelopeAlignedRRCeilingTP, envelopeTpMax);
-      // Only raise to ATR-based max if the ATR max is larger (don't exceed market capacity)
-      let atrCappedTP = Math.min(correctedTP, atrBasedMaxTP_PIPS);
+    // Ceiling = max of R:R ceiling and envelope TP maximum (generous, not restrictive)
+    maxTakeProfitPips = Math.max(maxTakeProfitPips, envelopeAlignedRRCeilingTP, envelopeTpMax);
 
-      // CCIP-2026-04-17: LOW-VOLATILITY ATR CAP SAFETY GUARD
-      // Problem: During Asian session, raw ATR shrinks to tiny values (e.g. 0.7 pips for EURUSD).
-      // The ATR cap (atrBasedMaxTP_PIPS) can then fall BELOW the envelope SL floor, creating
-      // a trade geometry where TP ceiling < SL floor — making any valid RR ratio mathematically
-      // impossible. The repair cascade exhausts all 4 options and Alpha receives 0.46:1 RR context,
-      // correctly returning NO_TRADE for every symbol → DEGENERATE_SCAN_DETECTED TIER 1.
-      //
-      // Root cause: estimateVolatilityPerHour() correctly applies a volatility floor (e.g. 5 pips/hr
-      // for forex, 20 for indices) when ATR is tiny — but atrBasedMaxTP_PIPS is computed from raw ATR
-      // without that floor, causing the two subsystems to disagree on effective volatility.
-      //
-      // Fix: When the ATR cap falls below the envelope SL floor × minimum RR, raise the TP ceiling
-      // to at least SL_floor × minRR so that a geometrically valid trade is always possible.
-      // Alpha retains full authority — it can still return NO_TRADE based on market structure.
-      // This fix only prevents the engine from delivering an impossible geometry to Alpha.
-      const minViableTPCeiling = finalMinStopLoss * minRiskReward;
-      if (atrCappedTP < minViableTPCeiling) {
-        console.warn(
-          `[Omega-9 TP Ceiling Fix] ${symbol}: ATR cap (${atrCappedTP.toFixed(1)}p) is below SL floor (${finalMinStopLoss.toFixed(1)}p) × minRR (${minRiskReward}:1) = ${minViableTPCeiling.toFixed(1)}p. ` +
-          `Low-volatility ATR creating impossible geometry. Raising TP ceiling to ${minViableTPCeiling.toFixed(1)}p to allow Alpha to evaluate market structure.`
-        );
-        atrCappedTP = minViableTPCeiling;
-      }
-
-      console.log(
-        `[Omega-9 TP Ceiling Fix] ${symbol}: TP ceiling raised from ${maxTakeProfitPips.toFixed(1)} pips → ${atrCappedTP.toFixed(1)} pips ` +
-        `(envelope SL floor ${envelopeAlignedProfileMin.toFixed(1)}p × ${maxRiskReward}x = ${envelopeAlignedRRCeilingTP.toFixed(1)}p | ` +
-        `envelope TP max ${envelopeTpMax.toFixed(1)}p | ATR cap ${atrBasedMaxTP_PIPS.toFixed(1)}p)`
-      );
-      maxTakeProfitPips = atrCappedTP;
-    }
-
-    // CCIP-2026-04-17: Safety guard for case where TP ceiling fix was NOT triggered
-    // (i.e. TP was already "high enough" by the envelope check but still below SL floor × minRR).
-    // This covers edge cases where the initial maxTakeProfitPips from line 191 is already below
-    // the minimum viable geometry but the if-condition above was not entered.
-    const minViableTPCeilingFallback = finalMinStopLoss * minRiskReward;
-    if (maxTakeProfitPips < minViableTPCeilingFallback && finalMinStopLoss > 0) {
-      console.warn(
-        `[Omega-9 TP Geometry Guard] ${symbol}: TP ceiling ${maxTakeProfitPips.toFixed(1)}p < SL floor ${finalMinStopLoss.toFixed(1)}p × minRR ${minRiskReward} = ${minViableTPCeilingFallback.toFixed(1)}p. ` +
-        `Raising TP ceiling to prevent impossible geometry from reaching Alpha.`
-      );
-      maxTakeProfitPips = minViableTPCeilingFallback;
-    }
+    console.log(
+      `[Omega-9 TP Ceiling] ${symbol}: Final TP ceiling ${maxTakeProfitPips.toFixed(1)} pips ` +
+      `(R:R ceiling ${envelopeAlignedRRCeilingTP.toFixed(1)}p | envelope max ${envelopeTpMax.toFixed(1)}p | ATR ref ${atrInPipsRef.toFixed(1)}p)`
+    );
 
     // Recalculate minTakeProfitPips AFTER maxTakeProfitPips has been corrected by envelope alignment.
     // Previously this ran before the TP ceiling fix, causing minTakeProfitPips to be clamped
@@ -861,6 +806,17 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
     const symbolConfig = getSymbolConfig(symbol);
     const dp = symbolConfig?.decimalPlaces || 5;
 
+    // Envelope walls — price-relative bounds derived from style and asset class.
+    // These are the ONLY pre-computed reference ranges. Alpha uses structure, not these numbers.
+    const longSlMin = walls.long.slPips.min.toFixed(1);
+    const longSlMax = walls.long.slPips.max.toFixed(1);
+    const longTpMin = walls.long.tpPips.min.toFixed(1);
+    const longTpMax = walls.long.tpPips.max.toFixed(1);
+    const shortSlMin = walls.short.slPips.min.toFixed(1);
+    const shortSlMax = walls.short.slPips.max.toFixed(1);
+    const shortTpMin = walls.short.tpPips.min.toFixed(1);
+    const shortTpMax = walls.short.tpPips.max.toFixed(1);
+
     const sections = [
       'TRADE IDENTITY:',
       `  Symbol: ${symbolConfig?.displayName || symbol} | Entry: ${entryPrice.toFixed(dp)} | Style: ${style} (${walls.timeframe}) | Risk: ${walls.riskMode.toUpperCase()}`,
@@ -868,6 +824,12 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
       '',
       'SESSION:',
       `  Time Remaining: ${walls.sessionTimeRemaining} min`,
+      '',
+      'STYLE ENVELOPE (structural reference — not a formula):',
+      `  IF LONG  → SL zone: ${longSlMin}-${longSlMax} pips behind entry | TP zone: ${longTpMin}-${longTpMax} pips from entry`,
+      `  IF SHORT → SL zone: ${shortSlMin}-${shortSlMax} pips behind entry | TP zone: ${shortTpMin}-${shortTpMax} pips from entry`,
+      `  These ranges describe what trades in this style typically look like. Your SL and TP are placed where STRUCTURE demands.`,
+      `  Placements outside these ranges are logged but not rejected. Omega-9 blocks only mathematical impossibilities.`,
     ];
 
     if (walls.correlationExposure) {
@@ -958,33 +920,18 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
 
     baseVolatility *= sessionMultiplier;
 
-    // ASSET-CLASS-AWARE VOLATILITY FLOORS (ADVISORY)
-    // Safety floors only — Alpha retains full authority over trade decisions.
-    let minimumVolatility: number;
+    // CCIP-2026-04-17: Volatility floors REMOVED.
+    //
+    // The previous asset-class floors (100/20/10/5 pips/hr) were arbitrary values
+    // with no market research basis. They inflated feasibleTravelPips above the real
+    // ATR signal, producing infeasibility warnings during low-vol sessions that appeared
+    // in Alpha's prompt as adversarial context — indirectly pushing Alpha toward NO_TRADE.
+    //
+    // feasibleTravelPips is now advisory-only context derived purely from real ATR.
+    // Alpha reads ATR directly from the prompt (already in stopLossDirective) and
+    // applies its own judgment. No floor overrides.
     const assetCategory = assetClassifier.getAssetCategory(symbol);
-
-    switch (assetCategory) {
-      case 'crypto':
-        minimumVolatility = 100.0;
-        break;
-      case 'index':
-        minimumVolatility = 20.0;
-        break;
-      case 'metal':
-        minimumVolatility = 10.0;
-        break;
-      case 'forex':
-      case 'energy':
-      default:
-        minimumVolatility = 5.0;
-    }
-
-    if (baseVolatility < minimumVolatility) {
-      console.warn(`[Omega-9 Volatility] ⚠️ ADVISORY: ${symbol} (${assetCategory}): Calculated volatility ${baseVolatility.toFixed(2)} pips/hour below ${assetCategory} minimum ${minimumVolatility} - using floor (advisory only, Alpha has final authority)`);
-      baseVolatility = minimumVolatility;
-    }
-
-    console.log(`[Omega-9 Volatility] ${symbol} (${assetCategory}): Base ${(atrInPips * 1.5).toFixed(1)} → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour (${assetCategory} floor: ${minimumVolatility})`);
+    console.log(`[Omega-9 Volatility] ${symbol} (${assetCategory}): ATR-based ${(atrInPips * 1.5).toFixed(1)} pips/hour (session ${sessionMultiplier}x → ${baseVolatility.toFixed(1)} pips/hour)`);
 
     return baseVolatility;
   }

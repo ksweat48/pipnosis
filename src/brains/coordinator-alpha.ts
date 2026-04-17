@@ -3701,8 +3701,9 @@ When analyzing multiple pairs, execute the best opportunity. Scanner re-evaluate
 BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
 TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
-You choose ALL profit targets. The system never calculates TP for you. TP placement is driven by market structure — not by formula. The minimum is always 1.0:1 (negative expectancy is never acceptable). Above that, you place TP where structure supports.
-- SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1. Post-spread net R:R must still be >= 1.0:1 — account for spread cost explicitly.
+You choose ALL profit targets. No pre-computed ceiling exists. TP placement is driven entirely by market structure. The style envelope shown above is a structural reference — not a formula, not a constraint.
+Process: (1) Find the directional edge. (2) Name the structural target. (3) Place TP there. (4) Calculate the R:R that results. If R:R ≥ 1:1 and the edge is real, execute. The minimum is 1.0:1 net of spread. Above that, TP goes where structure offers the most probable exit.
+- SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1 net of spread — account for spread cost explicitly.
   Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone.
   SELL: TP at the TOP of the support zone (upper boundary where candles first cluster), NOT the bottom.
   BUY: TP at the BOTTOM of the resistance zone (lower boundary where candles first cluster), NOT the top.
@@ -3710,16 +3711,14 @@ You choose ALL profit targets. The system never calculates TP for you. TP placem
 - MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R must be >= TP1 R:R.
-  tp1 must be closer to entry than tp2. Both must be within arena walls.
-  Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
-  TP1 is required for MICRO_INTRADAY. Place it at the nearest identifiable M15 structural level. If no M15 level is clearly visible, use the next closest named structure (session high/low, VWAP, range boundary). There is always a nearest structural level — name it and place TP1 there even if it is conservative. If the resulting R:R is below 1.0:1, state this in reasoning and reduce your conviction score accordingly — but do NOT default to NO_TRADE solely because TP1 placement is uncertain. A well-reasoned TP1 at an imperfect level is better than no trade. Only output NO_TRADE if the directional edge itself is absent.
+  tp1 must be closer to entry than tp2.
+  TP1 is required. Place it at the nearest identifiable M15 structural level. If no M15 level is clearly visible, use the next closest named structure (session high/low, VWAP, range boundary). There is always a nearest structural level — name it and place TP1 there even if it is conservative. If the resulting R:R is below 1.0:1, state this in reasoning and reduce your conviction score accordingly — but do NOT default to NO_TRADE solely because TP1 placement is uncertain. Only output NO_TRADE if the directional edge itself is absent.
   Document the nearest M15 structural level and the R:R achievable from it.
 - INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R must be >= TP1 R:R.
-  tp1 must be closer to entry than tp2. Both must be within arena walls.
-  Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
-  TP1 is required for INTRADAY. Place it at the nearest identifiable H1 structural level. If no H1 level is clearly visible, use the next closest named structure (session high/low, daily pivot, weekly level). There is always a nearest structural level — name it and place TP1 there even if it is conservative. If the resulting R:R is below 1.0:1, state this in reasoning and reduce your conviction score accordingly — but do NOT default to NO_TRADE solely because TP1 placement is uncertain. A well-reasoned TP1 at an imperfect level is better than no trade. Only output NO_TRADE if the directional edge itself is absent.
+  tp1 must be closer to entry than tp2.
+  TP1 is required. Place it at the nearest identifiable H1 structural level. If no H1 level is clearly visible, use the next closest named structure (session high/low, daily pivot, weekly level). There is always a nearest structural level — name it and place TP1 there even if it is conservative. If the resulting R:R is below 1.0:1, state this in reasoning and reduce your conviction score accordingly — but do NOT default to NO_TRADE solely because TP1 placement is uncertain. Only output NO_TRADE if the directional edge itself is absent.
   Document the nearest H1 structural level and the R:R achievable from it.
 
 ${entryModePromptSection}
