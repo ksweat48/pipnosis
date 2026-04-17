@@ -27,6 +27,7 @@ import { supabase } from '../lib/supabase';
 import { globalDialogManager } from './global-dialog-manager';
 import { audioAlertService } from './audio-alert-service';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { realtimeConnectionManager } from './realtime-connection-manager';
 
 interface NotificationRecord {
   id: string;
@@ -79,7 +80,7 @@ class RealtimeTradeNotificationListener {
           if (status === 'SUBSCRIBED') {
             console.log('[RealtimeTradeListener] ✅ Subscribed to notification events (SSOT)');
           } else if (status === 'CHANNEL_ERROR') {
-            console.error('[RealtimeTradeListener] ❌ Channel error');
+            realtimeConnectionManager.logChannelError('RealtimeTradeListener');
           }
         });
 

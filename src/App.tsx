@@ -22,6 +22,7 @@ import { ClubAccessButton } from './components/ClubAccessButton';
 import { WeekendProtectionBanner } from './components/WeekendProtectionBanner';
 import { OpenAIQuotaBanner } from './components/OpenAIQuotaBanner';
 import { realtimeTradeNotificationListener } from './services/realtime-trade-notification-listener';
+import { realtimeConnectionManager } from './services/realtime-connection-manager';
 import { useNotificationPermission } from './hooks/useNotificationPermission';
 
 // Lazy load all pages for code splitting
@@ -368,7 +369,11 @@ const AppRoutes: React.FC = () => {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          realtimeConnectionManager.logChannelError('App/TradeSignals');
+        }
+      });
 
     // Listen for mid-trade notifications
     const midTradeChannel = supabase
@@ -389,7 +394,11 @@ const AppRoutes: React.FC = () => {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          realtimeConnectionManager.logChannelError('App/MidTrade');
+        }
+      });
 
     return () => {
       if (_modalDebounceTimer) clearTimeout(_modalDebounceTimer);

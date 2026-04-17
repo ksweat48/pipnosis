@@ -14,6 +14,8 @@
  */
 
 import { supabase } from '../../lib/supabase';
+import { RealtimeChannel } from '@supabase/supabase-js';
+import { realtimeConnectionManager } from '../realtime-connection-manager';
 import { calculatePnL } from '../../types/position';
 import { goalAchievementCoordinator } from './goal-achievement-coordinator';
 import { goalSessionStateMachine } from './goal-session-state-machine';
@@ -83,6 +85,7 @@ interface TradeData {
 class TradeClosureCoordinator {
   private closureLocks = new Map<string, boolean>();
   private static isInCoordinatorContext = false;
+  private closureEventChannel: RealtimeChannel | null = null;
 
   // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Tracks trade IDs for which a closure dialog
   // has already been shown. closureLocks was previously (incorrectly) used for this purpose
@@ -705,8 +708,12 @@ class TradeClosureCoordinator {
    * Server-side fallback processes events every 10 seconds for offline users.
    */
   subscribeToClosureEvents(userId: string): void {
+    if (this.closureEventChannel) {
+      return;
+    }
+
     try {
-      supabase
+      this.closureEventChannel = supabase
         .channel(`closure_events_${userId}`)
         .on(
           'postgres_changes',
@@ -723,11 +730,22 @@ class TradeClosureCoordinator {
             });
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR') {
+            realtimeConnectionManager.logChannelError('TradeClosureCoordinator');
+          }
+        });
 
     } catch (error) {
       console.error('[TradeClosureCoordinator] Failed to subscribe to closure events:', error);
-      // Don't fail - server-side processing will catch up
+      this.closureEventChannel = null;
+    }
+  }
+
+  cleanupClosureEvents(): void {
+    if (this.closureEventChannel) {
+      supabase.removeChannel(this.closureEventChannel);
+      this.closureEventChannel = null;
     }
   }
 

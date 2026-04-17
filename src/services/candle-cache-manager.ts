@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { realtimeConnectionManager } from './realtime-connection-manager';
 // CCIP-STALENESS-FIX-2026-02-20: lazy imports used to avoid circular dependency
 // candle-cache-manager → shared-intelligence-coordinator → market-snapshot-cache
 // These are imported inline inside invalidateSymbolTimeframe only when needed.
@@ -399,11 +400,10 @@ class CandleCacheManager {
           if (status === 'SUBSCRIBED') {
             console.log('[CandleCache] ✅ Subscribed to cache invalidation events');
           } else if (status === 'CHANNEL_ERROR') {
-            // Log warning but allow graceful degradation - NOT an error
-            console.warn('[CandleCache] ⚠️ Realtime subscription unavailable - cache will use manual refresh only');
+            realtimeConnectionManager.logChannelWarning('CandleCache', 'Realtime subscription unavailable - cache will use manual refresh only');
             this.realtimeSubscription = null;
           } else if (status === 'TIMED_OUT') {
-            console.warn('[CandleCache] ⏱️ Realtime subscription timed out - cache will use manual refresh');
+            realtimeConnectionManager.logChannelWarning('CandleCache', 'Realtime subscription timed out - cache will use manual refresh');
             this.realtimeSubscription = null;
           } else if (status === 'CLOSED') {
             this.realtimeSubscription = null;

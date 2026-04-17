@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { realtimeConnectionManager } from './realtime-connection-manager';
 
 export interface CreditBalance {
   balance: number;
@@ -160,10 +161,14 @@ class CreditMeterService {
           if (balance) callback(balance);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          realtimeConnectionManager.logChannelError('CreditMeter');
+        }
+      });
 
     return () => {
-      channel.unsubscribe();
+      supabase.removeChannel(channel);
     };
   }
 }
