@@ -935,47 +935,108 @@ class AlphaTradeExecutor {
     // and TP at specific target zones — shifting those levels breaks the structural validity
     // of the trade regardless of whether R:R is numerically preserved.
     //
-    // Audit-only: log the fill deviation for observability but do not act on it.
+    // CCIP-2026-0417-GEOMETRY-GUARD: Fill price deviation vs planned entry must not exceed the
+    // planned stop distance. If the fill arrives on the wrong side of (or within one stop-width of)
+    // Alpha's SL, the trade geometry is broken before it starts — the SL has zero or negative
+    // breathing room and will be triggered by normal spread/noise. Block and log such trades.
+    // This guard is direction-aware: for a BUY the fill must be below planned entry (or only
+    // modestly above); for a SELL the fill must be above planned entry (or only modestly below).
+    // Threshold: if |fill - plannedEntry| >= plannedStopDistance the geometry is invalid.
     const plannedEntry = decision.entry;
     const entryDeviation = adjustedEntry - plannedEntry;
+    const plannedStopDistance = Math.abs(plannedEntry - decision.stopLoss);
 
-    if (Number.isFinite(entryDeviation) && Math.abs(entryDeviation) > 1e-8) {
+    if (Number.isFinite(entryDeviation) && Number.isFinite(plannedStopDistance) && plannedStopDistance > 0) {
       const pipInfo = getCurrencyPipInfo(decision.symbol);
       const reasoningPipSize = pipInfo.pipValue;
       const deviationReasoningPips = Math.abs(entryDeviation) / reasoningPipSize;
+      const deviationRatio = Math.abs(entryDeviation) / plannedStopDistance;
+
+      const geometryBroken = (
+        decision.action === 'BUY'
+          ? adjustedEntry >= decision.stopLoss
+          : adjustedEntry <= decision.stopLoss
+      ) || deviationRatio >= 1.0;
+
       const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
 
-      await supabase.from('entry_price_deviation_events').insert({
-        user_id: userId,
-        session_id: sessionId,
-        symbol: decision.symbol,
-        alpha_style: styleUpper,
-        direction: decision.action as 'BUY' | 'SELL',
-        planned_entry: plannedEntry,
-        actual_entry: adjustedEntry,
-        deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
-        max_allowed_pips: null,
-        alpha_max_deviation_pips: decision.max_entry_deviation_pips ?? null,
-        action_taken: 'AUDIT_ONLY',
-        planned_sl: decision.stopLoss,
-        planned_tp: decision.takeProfit,
-        execution_sl: decision.stopLoss,
-        execution_tp: decision.takeProfit,
-      });
-
-      logger.info(
-        LogCategory.TRADE_EXECUTION,
-        '[AlphaTradeExecutor] Fill deviation observed — Alpha levels unchanged (structural integrity preserved)',
-        {
+      if (geometryBroken) {
+        await supabase.from('entry_price_deviation_events').insert({
+          user_id: userId,
+          session_id: sessionId,
           symbol: decision.symbol,
-          plannedEntry,
-          actualEntry: adjustedEntry,
-          deviationReasoningPips: Math.round(deviationReasoningPips * 10) / 10,
-          sl: decision.stopLoss,
-          tp: decision.takeProfit,
-          ccip: 'CCIP-ALPHA-GOV-LEVELS — Alpha levels stand as issued'
-        }
-      );
+          alpha_style: styleUpper,
+          direction: decision.action as 'BUY' | 'SELL',
+          planned_entry: plannedEntry,
+          actual_entry: adjustedEntry,
+          deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
+          max_allowed_pips: Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10,
+          alpha_max_deviation_pips: decision.max_entry_deviation_pips ?? null,
+          action_taken: 'BLOCKED_GEOMETRY_INVALID',
+          planned_sl: decision.stopLoss,
+          planned_tp: decision.takeProfit,
+          execution_sl: decision.stopLoss,
+          execution_tp: decision.takeProfit,
+        });
+
+        logger.error(
+          LogCategory.RISK_MANAGEMENT,
+          '[AlphaTradeExecutor] GEOMETRY GUARD: Fill price has consumed the entire stop distance — trade blocked. ' +
+          'Alpha intended entry at plannedEntry but market is at adjustedEntry which is past or at SL. ' +
+          'CCIP-2026-0417-GEOMETRY-GUARD.',
+          {
+            symbol: decision.symbol,
+            plannedEntry,
+            actualEntry: adjustedEntry,
+            stopLoss: decision.stopLoss,
+            plannedStopDistancePips: Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10,
+            deviationPips: Math.round(deviationReasoningPips * 10) / 10,
+            deviationRatio: Math.round(deviationRatio * 100) / 100,
+            action: decision.action,
+          }
+        );
+
+        return {
+          success: false,
+          error: `GEOMETRY_GUARD: Fill price (${adjustedEntry}) has consumed the planned stop distance. ` +
+                 `Alpha's entry was ${plannedEntry} with SL at ${decision.stopLoss} (${Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10}p stop). ` +
+                 `Fill is ${Math.round(deviationReasoningPips * 10) / 10}p from Alpha's entry — geometry invalid, trade blocked.`
+        };
+      }
+
+      if (Math.abs(entryDeviation) > 1e-8) {
+        await supabase.from('entry_price_deviation_events').insert({
+          user_id: userId,
+          session_id: sessionId,
+          symbol: decision.symbol,
+          alpha_style: styleUpper,
+          direction: decision.action as 'BUY' | 'SELL',
+          planned_entry: plannedEntry,
+          actual_entry: adjustedEntry,
+          deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
+          max_allowed_pips: Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10,
+          alpha_max_deviation_pips: decision.max_entry_deviation_pips ?? null,
+          action_taken: 'AUDIT_ONLY',
+          planned_sl: decision.stopLoss,
+          planned_tp: decision.takeProfit,
+          execution_sl: decision.stopLoss,
+          execution_tp: decision.takeProfit,
+        });
+
+        logger.info(
+          LogCategory.TRADE_EXECUTION,
+          '[AlphaTradeExecutor] Fill deviation within stop distance — Alpha levels unchanged (structural integrity preserved). CCIP-ALPHA-GOV-LEVELS.',
+          {
+            symbol: decision.symbol,
+            plannedEntry,
+            actualEntry: adjustedEntry,
+            deviationReasoningPips: Math.round(deviationReasoningPips * 10) / 10,
+            deviationRatio: Math.round(deviationRatio * 100) / 100,
+            sl: decision.stopLoss,
+            tp: decision.takeProfit,
+          }
+        );
+      }
     }
 
     // Insert trade
@@ -2512,8 +2573,25 @@ class AlphaTradeExecutor {
 
       if (classifierZoneMin != null && classifierZoneMax != null) {
         const zoneHalfWidth = (classifierZoneMax - classifierZoneMin) / 2;
-        advisoryZoneMin = entryPrice - zoneHalfWidth;
-        advisoryZoneMax = entryPrice + zoneHalfWidth;
+        const plannedEntryAnchor = decision.entry ?? entryPrice;
+
+        // CCIP-2026-0417-ZONE-ANCHOR: Only recenter the zone on the actual fill price when
+        // the fill is within the planned stop distance of Alpha's stated entry. If the fill
+        // is farther away (e.g. Alpha said entry=26680 but market filled at 26651 because
+        // execute_now fired 29pts early), recentering destroys the structural meaning of the
+        // SL — the zone must stay anchored to Alpha's intended entry so the advisory record
+        // reflects what Alpha actually planned, not where the market happened to be.
+        const plannedStopDist = Math.abs(plannedEntryAnchor - decision.stopLoss);
+        const fillDeviation = Math.abs(entryPrice - plannedEntryAnchor);
+        const fillIsWithinStopDistance = !Number.isFinite(plannedStopDist) || plannedStopDist === 0 || fillDeviation < plannedStopDist;
+
+        if (fillIsWithinStopDistance) {
+          advisoryZoneMin = entryPrice - zoneHalfWidth;
+          advisoryZoneMax = entryPrice + zoneHalfWidth;
+        } else {
+          advisoryZoneMin = plannedEntryAnchor - zoneHalfWidth;
+          advisoryZoneMax = plannedEntryAnchor + zoneHalfWidth;
+        }
       }
 
       // CCIP 2026-02-17: Alpha's LLM entry advisory is the SOLE authority for Entry Monitor
