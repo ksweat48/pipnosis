@@ -314,13 +314,51 @@ class Omega9ConstraintProvider {
     if (envelopeAlignedRRCeilingTP > maxTakeProfitPips || envelopeTpMax > maxTakeProfitPips) {
       const correctedTP = Math.max(maxTakeProfitPips, envelopeAlignedRRCeilingTP, envelopeTpMax);
       // Only raise to ATR-based max if the ATR max is larger (don't exceed market capacity)
-      const atrCappedTP = Math.min(correctedTP, atrBasedMaxTP_PIPS);
+      let atrCappedTP = Math.min(correctedTP, atrBasedMaxTP_PIPS);
+
+      // CCIP-2026-04-17: LOW-VOLATILITY ATR CAP SAFETY GUARD
+      // Problem: During Asian session, raw ATR shrinks to tiny values (e.g. 0.7 pips for EURUSD).
+      // The ATR cap (atrBasedMaxTP_PIPS) can then fall BELOW the envelope SL floor, creating
+      // a trade geometry where TP ceiling < SL floor — making any valid RR ratio mathematically
+      // impossible. The repair cascade exhausts all 4 options and Alpha receives 0.46:1 RR context,
+      // correctly returning NO_TRADE for every symbol → DEGENERATE_SCAN_DETECTED TIER 1.
+      //
+      // Root cause: estimateVolatilityPerHour() correctly applies a volatility floor (e.g. 5 pips/hr
+      // for forex, 20 for indices) when ATR is tiny — but atrBasedMaxTP_PIPS is computed from raw ATR
+      // without that floor, causing the two subsystems to disagree on effective volatility.
+      //
+      // Fix: When the ATR cap falls below the envelope SL floor × minimum RR, raise the TP ceiling
+      // to at least SL_floor × minRR so that a geometrically valid trade is always possible.
+      // Alpha retains full authority — it can still return NO_TRADE based on market structure.
+      // This fix only prevents the engine from delivering an impossible geometry to Alpha.
+      const minViableTPCeiling = finalMinStopLoss * minRiskReward;
+      if (atrCappedTP < minViableTPCeiling) {
+        console.warn(
+          `[Omega-9 TP Ceiling Fix] ${symbol}: ATR cap (${atrCappedTP.toFixed(1)}p) is below SL floor (${finalMinStopLoss.toFixed(1)}p) × minRR (${minRiskReward}:1) = ${minViableTPCeiling.toFixed(1)}p. ` +
+          `Low-volatility ATR creating impossible geometry. Raising TP ceiling to ${minViableTPCeiling.toFixed(1)}p to allow Alpha to evaluate market structure.`
+        );
+        atrCappedTP = minViableTPCeiling;
+      }
+
       console.log(
         `[Omega-9 TP Ceiling Fix] ${symbol}: TP ceiling raised from ${maxTakeProfitPips.toFixed(1)} pips → ${atrCappedTP.toFixed(1)} pips ` +
         `(envelope SL floor ${envelopeAlignedProfileMin.toFixed(1)}p × ${maxRiskReward}x = ${envelopeAlignedRRCeilingTP.toFixed(1)}p | ` +
         `envelope TP max ${envelopeTpMax.toFixed(1)}p | ATR cap ${atrBasedMaxTP_PIPS.toFixed(1)}p)`
       );
       maxTakeProfitPips = atrCappedTP;
+    }
+
+    // CCIP-2026-04-17: Safety guard for case where TP ceiling fix was NOT triggered
+    // (i.e. TP was already "high enough" by the envelope check but still below SL floor × minRR).
+    // This covers edge cases where the initial maxTakeProfitPips from line 191 is already below
+    // the minimum viable geometry but the if-condition above was not entered.
+    const minViableTPCeilingFallback = finalMinStopLoss * minRiskReward;
+    if (maxTakeProfitPips < minViableTPCeilingFallback && finalMinStopLoss > 0) {
+      console.warn(
+        `[Omega-9 TP Geometry Guard] ${symbol}: TP ceiling ${maxTakeProfitPips.toFixed(1)}p < SL floor ${finalMinStopLoss.toFixed(1)}p × minRR ${minRiskReward} = ${minViableTPCeilingFallback.toFixed(1)}p. ` +
+        `Raising TP ceiling to prevent impossible geometry from reaching Alpha.`
+      );
+      maxTakeProfitPips = minViableTPCeilingFallback;
     }
 
     // Recalculate minTakeProfitPips AFTER maxTakeProfitPips has been corrected by envelope alignment.

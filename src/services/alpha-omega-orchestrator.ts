@@ -960,8 +960,11 @@ class AlphaOmegaOrchestrator {
               `All ${evaluatedDecisions.length} symbols returned NO_TRADE with identical ` +
               `confidence_tier="${sharedTier}". ` +
               `Statistically implausible for independent market analyses. ` +
-              `Likely cause: abbreviated reasoning or stale OpenAI prompt cache. ` +
-              `Check [Alpha Raw Response] logs for completion_tokens (genuine=1300-1500, degenerate=150-340).`
+              `Likely cause: (1) ATR-capped TP ceiling below SL floor during low-volatility session (e.g. Asian session), ` +
+              `creating impossible RR geometry that forces Alpha to NO_TRADE — see [Omega-9 TP Ceiling Fix] logs, or ` +
+              `(2) abbreviated reasoning / stale OpenAI prompt cache. ` +
+              `Check [Alpha Raw Response] logs for completion_tokens (genuine=1300-1500, degenerate=150-340). ` +
+              `Check [Omega-9 TP Geometry Guard] logs for SL floor vs TP ceiling mismatch.`
             );
           } else {
             console.log(
