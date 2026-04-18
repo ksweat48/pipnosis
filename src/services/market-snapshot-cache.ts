@@ -86,12 +86,13 @@ interface CachedSnapshot {
  * No magic numbers — the SSOT for all cache lifetimes is time-constants.ts.
  */
 function getTTLForTimeframe(timeframe: Timeframe): number {
-  const ttls: Record<Timeframe, number> = {
-    'M5': TIME_MS.CACHE.SNAPSHOT_TTL_M5,
+  const ttls: Partial<Record<Timeframe, number>> = {
+    'M1':  TIME_MS.CACHE.SNAPSHOT_TTL_M1,
+    'M5':  TIME_MS.CACHE.SNAPSHOT_TTL_M5,
     'M15': TIME_MS.CACHE.SNAPSHOT_TTL_M15,
-    'H1': TIME_MS.CACHE.SNAPSHOT_TTL_H1,
-    'H4': TIME_MS.CACHE.SNAPSHOT_TTL_H4,
-    'D': TIME_MS.CACHE.SNAPSHOT_TTL_D,
+    'H1':  TIME_MS.CACHE.SNAPSHOT_TTL_H1,
+    'H4':  TIME_MS.CACHE.SNAPSHOT_TTL_H4,
+    'D':   TIME_MS.CACHE.SNAPSHOT_TTL_D,
   };
 
   return ttls[timeframe] ?? TIME_MS.CACHE.SNAPSHOT_TTL_DEFAULT;

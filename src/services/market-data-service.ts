@@ -114,25 +114,33 @@ export class MarketDataService {
   }
 
   /**
-   * Get recent candles from forex_candles (SSOT for candles)
-   * CCIP COMPLIANCE: Comprehensive diagnostic logging
-   * SSOT COMPLIANCE: Single authority for candle data retrieval
+   * Get recent candles via forex_candles_best (SSOT for candles)
+   *
+   * CCIP-2026-04-18: Migrated from raw forex_candles to forex_candles_best view.
+   * Root cause fix: raw table included flat, deprecated, and low-quality candles that
+   * caused M1 SCALP snapshot builds to fail (zero usable rows returned). The best view
+   * deduplicates by (symbol, timeframe, open_time), filters flat/deprecated/negative
+   * candles, and prioritises by data_source quality rank. All other services in the
+   * system already use this view — this was the sole divergence.
+   *
+   * SSOT COMPLIANCE: Single authority for candle data retrieval via quality-filtered view.
+   * CCIP COMPLIANCE: Comprehensive diagnostic logging.
    */
   async getCandles(symbol: string, timeframe: string, limit: number = 10): Promise<CandleData[]> {
     try {
       const normalizedTimeframe = normalizeTimeframeToDb(timeframe);
 
-      logger.debug(`[MarketData] Fetching candles from forex_candles`, {
+      logger.debug(`[MarketData] Fetching candles from forex_candles_best`, {
         symbol,
         requestedTimeframe: timeframe,
         normalizedTimeframe,
         limit,
-        table: 'forex_candles'
+        table: 'forex_candles_best'
       });
 
       const { data, error } = await supabase
-        .from('forex_candles')
-        .select('*')
+        .from('forex_candles_best')
+        .select('open_time, open, high, low, close, volume, data_source, quality_score')
         .eq('symbol', symbol)
         .eq('timeframe', normalizedTimeframe)
         .order('open_time', { ascending: false })
@@ -154,7 +162,7 @@ export class MarketDataService {
           symbol,
           timeframe: normalizedTimeframe,
           requestedLimit: limit,
-          note: 'Database returned empty result. Check if symbol/timeframe combination exists in forex_candles table.'
+          note: 'forex_candles_best returned empty. Market may be closed or data pipeline has not written candles for this symbol/timeframe.'
         });
         return [];
       }
@@ -228,8 +236,8 @@ export class MarketDataService {
   async getLastCandle(symbol: string, timeframe: string): Promise<CandleData | null> {
     try {
       const { data, error } = await supabase
-        .from('forex_candles')
-        .select('*')
+        .from('forex_candles_best')
+        .select('open_time, open, high, low, close, volume, data_source, quality_score')
         .eq('symbol', symbol)
         .eq('timeframe', normalizeTimeframeToDb(timeframe))
         .order('open_time', { ascending: false })
@@ -310,8 +318,8 @@ export class MarketDataService {
   ): Promise<CandleData[]> {
     try {
       const { data, error } = await supabase
-        .from('forex_candles')
-        .select('*')
+        .from('forex_candles_best')
+        .select('open_time, open, high, low, close, volume, data_source, quality_score')
         .eq('symbol', symbol)
         .eq('timeframe', normalizeTimeframeToDb(timeframe))
         .gte('open_time', startTime.toISOString())
@@ -346,8 +354,8 @@ export class MarketDataService {
 
     try {
       const { data, error } = await supabase
-        .from('forex_candles')
-        .select('*')
+        .from('forex_candles_best')
+        .select('open_time, open, high, low, close, volume, symbol, data_source, quality_score')
         .in('symbol', symbols)
         .eq('timeframe', normalizeTimeframeToDb(timeframe))
         .order('open_time', { ascending: false })

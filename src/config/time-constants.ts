@@ -179,12 +179,14 @@ export const TIME_MS = {
     // Centralised here alongside ALPHA_THESIS so all cache lifetimes are governed in one place.
     //
     // Rationale for each TTL:
-    //   M5:  10 s — rapid scalp setups; stale after one candle
+    //   M1:  5 s  — SCALP entry lens; new candle every 60 s, snapshot must stay fresh
+    //   M5:  10 s — rapid scalp trend/TP reference; stale after one candle
     //   M15: 60 s — intraday context; acceptable within candle
     //   H1:  300 s (5 min) — structural context; valid across most of a candle
     //   H4:  600 s (10 min) — session-level context; very slow-moving
     //   D:   900 s (15 min) — daily bias; effectively static intraday
     //   DEFAULT: 60 s — safe fallback for unlisted timeframes
+    SNAPSHOT_TTL_M1: 5_000,
     SNAPSHOT_TTL_M5: 10_000,
     SNAPSHOT_TTL_M15: 60_000,
     SNAPSHOT_TTL_H1: 300_000,
