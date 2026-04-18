@@ -78,6 +78,7 @@ interface RecentTrade {
   max_profit?: number;
   total_pips?: number;
   tp1_hit?: boolean | null;
+  tp2_hit?: boolean | null;
   tp1_pnl?: number | null;
   tp2_pnl?: number | null;
   tp1_price?: number | null;
@@ -242,6 +243,7 @@ export function PositionsPage() {
         max_profit: trade.max_profit !== null && trade.max_profit !== undefined ? parseFloat(trade.max_profit) : undefined,
         total_pips: trade.total_pips !== null && trade.total_pips !== undefined ? parseFloat(trade.total_pips) : undefined,
         tp1_hit: trade.tp1_hit ?? null,
+        tp2_hit: trade.tp2_hit ?? null,
         tp1_pnl: trade.tp1_pnl != null ? parseFloat(trade.tp1_pnl) : null,
         tp2_pnl: trade.tp2_pnl != null ? parseFloat(trade.tp2_pnl) : null,
         tp1_price: trade.tp1_price != null ? parseFloat(trade.tp1_price) : null,
@@ -1052,10 +1054,14 @@ export function PositionsPage() {
                             </div>
                             <div className="text-xs text-gray-400 mt-1">
                               Closed {formatDateTime(trade.closed_at)} • {(() => {
+                                const effectiveTakeProfit =
+                                  trade.close_reason === 'take_profit_1' && trade.tp1_price != null
+                                    ? trade.tp1_price
+                                    : trade.take_profit;
                                 const smartResult = detectTrueCloseReason({
                                   exitPrice: trade.exit_price,
                                   stopLoss: trade.stop_loss,
-                                  takeProfit: trade.take_profit,
+                                  takeProfit: effectiveTakeProfit,
                                   symbol: trade.symbol,
                                   databaseCloseReason: trade.close_reason
                                 });
@@ -1065,26 +1071,33 @@ export function PositionsPage() {
                           </div>
                         </div>
                         <div className="text-right">
-                          {trade.tp1_hit && trade.tp1_pnl != null && trade.tp2_pnl != null ? (
+                          {trade.tp1_hit && trade.tp1_pnl != null ? (
                             <div className="flex flex-col items-end gap-0.5">
-                              <div className="flex items-center gap-2 text-xs text-gray-500">
-                                <span>Leg 1</span>
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-amber-500/70">TP1 Win</span>
                                 <span className={trade.tp1_pnl >= 0 ? 'text-amber-400 font-semibold' : 'text-red-400 font-semibold'}>
                                   {trade.tp1_pnl >= 0 ? '+' : ''}${trade.tp1_pnl.toFixed(2)}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-2 text-xs text-gray-500">
-                                <span>Leg 2</span>
-                                <span className={trade.tp2_pnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
-                                  {trade.tp2_pnl >= 0 ? '+' : ''}${trade.tp2_pnl.toFixed(2)}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1 mt-0.5 pt-0.5 border-t border-gray-700">
-                                <span className="text-xs text-gray-500">Total</span>
-                                <span className={`text-base font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                  {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
-                                </span>
-                              </div>
+                              {trade.tp2_hit && trade.tp2_pnl != null && (
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-emerald-500/70">TP2 Added</span>
+                                  <span className={trade.tp2_pnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                                    {trade.tp2_pnl >= 0 ? '+' : ''}${trade.tp2_pnl.toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                              {trade.tp2_hit && trade.tp2_pnl != null && (
+                                <div className="flex items-center gap-1 mt-0.5 pt-0.5 border-t border-gray-700">
+                                  <span className="text-xs text-gray-500">Total</span>
+                                  <span className={`text-base font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                              {!trade.tp2_hit && (
+                                <div className="text-[10px] text-gray-600 mt-0.5">Closed at TP1</div>
+                              )}
                             </div>
                           ) : (
                             <>

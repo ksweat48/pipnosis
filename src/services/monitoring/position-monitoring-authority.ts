@@ -436,17 +436,44 @@ class PositionMonitoringAuthority {
    */
   async markTP1Hit(positionId: string, userId: string, tp1Price: number): Promise<{ success: boolean; already_processed?: boolean; error?: string }> {
     try {
+      // Fetch the trade to calculate tp1_pnl at the exact hit price
+      const { data: trade } = await supabase
+        .from('goal_session_trades')
+        .select('direction, entry_price, lot_size, position_size, symbol, tp1_hit')
+        .eq('id', positionId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      // Pre-check: already processed (avoids a wasted DB write)
+      if (trade?.tp1_hit === true) {
+        return { success: false, already_processed: true };
+      }
+
+      // Calculate the P&L locked in at the TP1 price
+      let tp1Pnl: number | null = null;
+      if (trade && trade.entry_price != null) {
+        const lotSize = trade.lot_size ?? trade.position_size;
+        if (lotSize != null && lotSize > 0) {
+          tp1Pnl = calculatePnL(trade.direction, trade.entry_price, tp1Price, lotSize, trade.symbol);
+        }
+      }
+
       // CCIP-2026-BE001: Do NOT set tp1_action_taken here.
       // The trigger (check_and_close_positions_on_price_update) is the primary authority
       // and sets tp1_action_taken atomically alongside the BE SL move.
       // This UPDATE only wins the optimistic lock race when the trigger hasn't fired yet;
       // in that case autoMoveSLAfterTP1 (called by the backup path) sets tp1_action_taken.
+      const updatePayload: Record<string, unknown> = {
+        tp1_hit: true,
+        tp1_hit_at: new Date().toISOString(),
+      };
+      if (tp1Pnl !== null) {
+        updatePayload.tp1_pnl = tp1Pnl;
+      }
+
       const { data: updatedRows, error: updateError } = await supabase
         .from('goal_session_trades')
-        .update({
-          tp1_hit: true,
-          tp1_hit_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq('id', positionId)
         .eq('user_id', userId)
         .eq('tp1_hit', false)

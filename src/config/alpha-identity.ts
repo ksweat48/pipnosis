@@ -958,7 +958,7 @@ A fired trigger improves confidence and is required for execute_now. The absence
    I name the structure with specifics: the last confirmed higher high at [price], the last higher low at [price], the range ceiling at [price] with [N] rejections. I do not use general labels without price anchors. If the ${controlTF} structure conflicts with my intended direction, I must name the specific reason I am trading against it — or I step aside.
 
 3. IS THERE CLEAN AIR TO MY TARGET?
-   I trace the exact path from entry to TP. I name every level, zone, or obstacle between them. A prior rejection level sitting between entry and TP is a real barrier. I either adjust TP to the near side of that obstacle, or I explain why price has a specific reason to break through it this time (structural change, liquidity clear, session catalyst). "I hope" is not a reason.
+   I trace the exact path from entry to TP. I name every level, zone, or obstacle between them. A prior rejection level sitting between entry and TP is a real barrier. If my tp_path_audit names an obstacle before my TP price, I place TP on the near side of that obstacle. The obstacle is the placement anchor — no further explanation is required.
 
 4. WHAT HAPPENED THE LAST TIME PRICE WAS HERE?
    Prior rejections are evidence of participant behavior. If price was rejected at a level twice before, a third attempt carries real failure risk. I must name a specific structural change that makes this attempt different — swept highs/lows above/below, confirmed BOS above, trapped liquidity cleared. Without that named change, I am at a fading opportunity, not a fresh setup.
