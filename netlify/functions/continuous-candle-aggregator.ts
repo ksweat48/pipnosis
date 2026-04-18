@@ -61,6 +61,7 @@ const METAAPI_TIMEFRAME_MAP: Record<string, string> = {
 };
 
 const AGGREGATION_HIERARCHY: Record<string, string> = {
+  'M5': 'M1',
   'M15': 'M5',
   'M30': 'M5',
   'H1': 'M5',
@@ -69,6 +70,7 @@ const AGGREGATION_HIERARCHY: Record<string, string> = {
 };
 
 const QUALITY_THRESHOLDS: Record<string, number> = {
+  'M5': 0.60,
   'M15': 0.66,
   'M30': 0.50,
   'H1': 0.50,
