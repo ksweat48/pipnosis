@@ -3729,17 +3729,21 @@ MANDATORY PRE-SUBMISSION R:R VERIFICATION (execute this as the final step before
   SELL: TP at the TOP of the support zone (upper boundary where candles first cluster), NOT the bottom.
   BUY: TP at the BOTTOM of the resistance zone (lower boundary where candles first cluster), NOT the top.
   A filled TP at the near edge always beats an unfilled TP at the far edge. Name the structural level in tp_structural_reference.
-- MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
-  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
+- MICRO_INTRADAY: Up to TWO take-profits. Minimum R:R 1.0:1.
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure).
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2.
-  TP1 is required. Place it at the nearest identifiable M15 structural level. If no M15 level is clearly visible, use the next closest named structure (session high/low, VWAP, range boundary). There is always a nearest structural level — name it and place TP1 there even if it is conservative. If the resulting R:R is below 1.0:1, state this in reasoning and reduce your conviction score accordingly — but do NOT default to NO_TRADE solely because TP1 placement is uncertain. Only output NO_TRADE if the directional edge itself is absent.
+  TP2 RULE: If you can identify a distinct H1 structural level further from entry than your M15 target, include "tp2". If you cannot identify a separate, further structural level — omit "tp2" entirely (set to null or leave absent). Do NOT duplicate "tp1" into "tp2".
+  TP1 RULE: If you include "tp2", then "tp1" is MANDATORY and must differ from "tp2". If you only have one structural level, output only "tp1" and omit "tp2".
+  If the market only offers one reachable structural level, output only "tp1" at that level. This is valid and will execute as a single-target trade.
   Document the nearest M15 structural level and the R:R achievable from it.
-- INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
-  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
+- INTRADAY: Up to TWO take-profits. Minimum R:R 1.0:1.
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure).
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2.
-  TP1 is required. Place it at the nearest identifiable H1 structural level. If no H1 level is clearly visible, use the next closest named structure (session high/low, daily pivot, weekly level). There is always a nearest structural level — name it and place TP1 there even if it is conservative. If the resulting R:R is below 1.0:1, state this in reasoning and reduce your conviction score accordingly — but do NOT default to NO_TRADE solely because TP1 placement is uncertain. Only output NO_TRADE if the directional edge itself is absent.
+  TP2 RULE: If you can identify a distinct H4 structural level further from entry than your H1 target, include "tp2". If you cannot identify a separate, further structural level — omit "tp2" entirely (set to null or leave absent). Do NOT duplicate "tp1" into "tp2".
+  TP1 RULE: If you include "tp2", then "tp1" is MANDATORY and must differ from "tp2". If you only have one structural level, output only "tp1" and omit "tp2".
+  If the market only offers one reachable structural level, output only "tp1" at that level. This is valid and will execute as a single-target trade.
   Document the nearest H1 structural level and the R:R achievable from it.
 
 ${entryModePromptSection}
@@ -5967,41 +5971,18 @@ Return PURE JSON only — all required fields from the schema in my system promp
         tp2Price = takeProfit;
         tp2Reasoning = `Alpha full target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
 
-        // CCIP-2026-0322A: Hard block — TP1 and TP2 must not be equal for dual-TP styles.
-        // Equal targets indicate Alpha placed both at the same structural zone, which produces
-        // a structurally meaningless partial-close and defeats the purpose of dual-TP geometry.
-        // SSOT: coordinator-alpha.ts is the sole rejection authority.
+        // CCIP-2026-0418A: When TP1 and TP2 are identical, the market only offered one
+        // structural level — collapse to single-TP rather than blocking.
+        // Rule: if market can only give TP1, TP2 is not required.
+        //       if market gives TP2, TP1 is mandatory (and must differ from TP2).
+        // Collapsing to single-TP allows the trade to execute on the one level Alpha found.
         if (tp1Price != null && tp2Price != null && Math.abs(tp1Price - tp2Price) < 0.0001) {
-          console.error(
-            `[Alpha TP1=TP2 HARD BLOCK] ${tradeStyle} produced identical TP1 and TP2 values (${tp1Price}). ` +
-            `Dual-TP geometry requires TP1 < TP2 (TP1 at M15 structure, TP2 at H1 structure). ` +
-            `This is a malformed response. Returning NO_TRADE. Symbol: ${symbol}. CCIP-2026-0322A.`
+          console.warn(
+            `[Alpha TP1=TP2 COLLAPSE] ${tradeStyle} produced identical TP1 and TP2 values (${tp1Price}). ` +
+            `Market only offered one structural level — collapsing to single-TP. TP2 dropped. Symbol: ${symbol}.`
           );
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: currentPrice,
-            stopLoss: currentPrice,
-            takeProfit: currentPrice,
-            confidence: Math.max(10, Math.min(100, tradeConfidence)),
-            reasoning: `TP1_EQUALS_TP2_HARD_BLOCK: ${tradeStyle} produced TP1 = TP2 = ${tp1Price}. ` +
-              `TP1 must be at the nearest M15 structural zone; TP2 at H1. They cannot be the same level. ` +
-              `Alpha will re-evaluate next scan.`,
-            block_reason: 'TP1_EQUALS_TP2',
-            omega_summary: '',
-            risk_pct: 0,
-            narrativeValidation: narrativeValidation || undefined,
-            decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
-            alpha_original_decision: {
-              action: correctedAction as 'BUY' | 'SELL',
-              entry: entry ?? currentPrice,
-              stopLoss: stopLoss ?? currentPrice,
-              takeProfit: takeProfit ?? currentPrice,
-              confidence: tradeConfidence,
-              entry_mode: entryMode,
-              reasoning: parsed.reasoning,
-            },
-          };
+          tp2Price = null;
+          tp2Reasoning = null;
         }
       }
 
