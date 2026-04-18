@@ -107,7 +107,11 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     const tpMaxAtrMultiple = input.policy.maxTpAtrMultiple;
 
     // Step 5: Calculate RR feasibility
-    const tpCeilingPercent = input.atrPercent * tpMaxAtrMultiple;
+    // Use envelope-based TP ceiling when provided (overrides ATR multiple for assets where
+    // ATR compresses during low-vol sessions but envelope bounds remain structurally valid).
+    const tpCeilingPercent = input.policy.tpCeilingPercent !== undefined
+      ? input.policy.tpCeilingPercent
+      : input.atrPercent * tpMaxAtrMultiple;
     const rrAchievable = slMinPercent > 0 ? tpCeilingPercent / slMinPercent : 0;
     const rrFeasible = rrAchievable >= input.policy.minRR;
 
@@ -424,7 +428,10 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
 
     // ALL REPAIRS FAILED - Return advisory with best available
     // NOTE: Style promotion (REPAIR 5) permanently removed. User's style is IMMUTABLE.
-    const maxRR = ((input.atrPercent * tpMaxMultiple) / currentSlMin).toFixed(2);
+    const effectiveTpCeiling = input.policy.tpCeilingPercent !== undefined
+      ? input.policy.tpCeilingPercent
+      : input.atrPercent * tpMaxMultiple;
+    const maxRR = (effectiveTpCeiling / currentSlMin).toFixed(2);
     logger.warn(
       LogCategory.AI_TRADING,
       `[Repair Cascade] ⚠️  ALL REPAIRS EXHAUSTED: Best achievable R:R is ${maxRR}:1 (target: ${input.policy.minRR}:1)`
@@ -433,7 +440,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     return {
       style: currentStyle,
       riskMode: currentRiskMode,
-      advisory: `⚠️ ADVISORY: Repair cascade exhausted. Cannot achieve professional target ${input.policy.minRR}:1 R:R. TP ceiling ${(input.atrPercent * tpMaxMultiple).toFixed(2)}% / SL floor ${currentSlMin.toFixed(2)}% yields maximum R:R ${maxRR}:1. Alpha may proceed with lower R:R if setup quality justifies it.`,
+      advisory: `⚠️ ADVISORY: Repair cascade exhausted. Cannot achieve professional target ${input.policy.minRR}:1 R:R. TP ceiling ${effectiveTpCeiling.toFixed(2)}% / SL floor ${currentSlMin.toFixed(2)}% yields maximum R:R ${maxRR}:1. Alpha may proceed with lower R:R if setup quality justifies it.`,
       repairUsed: 'NONE'
     };
   }

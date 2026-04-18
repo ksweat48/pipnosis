@@ -1510,6 +1510,18 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
       console.log(`[Alpha Coordinator] 🔍 Feasibility Check: ${requestedStyle} style with ${riskMode.toUpperCase()} risk on ${assetClass}`);
       console.log(`[Alpha Coordinator] 📊 Market ATR: ${atrValue.toFixed(5)} (${atrPercent.toFixed(3)}%)`);
 
+      // Derive envelope-based TP ceiling for the feasibility RR check.
+      // ATR-multiple TP ceiling (ATR% × 12) produces a falsely low ceiling during low-vol
+      // sessions (e.g. Asian crypto: BTC M5 ATR = 0.02% → TP ceiling = 0.28%, far below
+      // the 0.50% SL floor → false RR_BELOW_TARGET advisory every scan).
+      // The execution envelope already encodes the correct TP max per asset class per style.
+      // Using it directly eliminates the ATR-compression artifact while preserving all other
+      // feasibility checks unchanged.
+      const feasibilityEnvelope = getExecutionEnvelope(requestedStyle);
+      const feasibilityEnvelopeAssetClass = assetClass as EnvelopeAssetClass;
+      const envelopeAssetBounds = feasibilityEnvelope.assetClassPercentBounds[feasibilityEnvelopeAssetClass];
+      const envelopeTpCeilingPercent = envelopeAssetBounds?.tpPercent?.max;
+
       feasibilityResult = tradeFeasibilityResolver.resolve({
         symbol: marketContext.symbol,
         assetClass,
@@ -1526,6 +1538,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         policy: {
           minRR: getMinRRForStyle(requestedStyle),
           maxTpAtrMultiple: 12,
+          tpCeilingPercent: envelopeTpCeilingPercent,
           minSlPercentByAssetRisk: {
             'CRYPTO:HIGH': 0.50,
             'CRYPTO:MEDIUM': 1.00,

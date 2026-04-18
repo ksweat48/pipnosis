@@ -66,6 +66,7 @@ export interface FeasibilityInput {
   policy: {
     minRR: number;               // e.g. 1.5
     maxTpAtrMultiple: number;    // e.g. 12
+    tpCeilingPercent?: number;   // Optional: envelope-based TP ceiling (% of price). When provided, overrides ATR-multiple calculation. Use for assets where ATR collapses during low-vol sessions but envelope bounds remain valid.
     minSlPercentByAssetRisk: Record<string, number>; // keyed by `${assetClass}:${riskMode}`
     maxSlPercentByAsset?: Record<AssetClass, number>; // optional cap
     allowAutoDowngradeRisk: boolean;
