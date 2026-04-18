@@ -103,6 +103,33 @@ class Omega9HallucinationBrain {
     const tpDistancePips = calculatePipDistance(marketContext.symbol, entry, tp);
     const spreadPips = getEstimatedSpreadPips(marketContext.symbol);
 
+    // R:R CHECKS RUN FIRST — before spread check — so Alpha receives the correct
+    // feedback when it submits TP pips < SL pips. The spread check firing first
+    // masked the real R:R failure and gave Alpha the wrong rejection reason.
+    const minRR = input.safetyRules.minRR;
+    if (rr < minRR) {
+      console.error(`[Omega-9] HARD BLOCK: R:R below 1:1 floor — TP ${tpDistancePips.toFixed(1)} pips < SL ${slDistancePips.toFixed(1)} pips (R:R ${rr.toFixed(3)}:1 < ${minRR}:1 minimum)`);
+      return {
+        pass: false,
+        flags: ['HARD_BLOCK_RR_BELOW_MINIMUM'],
+        confidence_adjustment: 0,
+        corrections: NO_CORRECTIONS,
+        reasoning: `HARD BLOCK: R:R ${rr.toFixed(3)}:1 is below the ${minRR}:1 minimum. TP is ${tpDistancePips.toFixed(1)} pips from entry but SL is ${slDistancePips.toFixed(1)} pips — TP must be >= SL pips for a 1:1 trade. Risking more than you can make produces guaranteed negative expectancy.`
+      };
+    }
+
+    const CATASTROPHIC_RR = TRADING_CONSTANTS.RISK_REWARD_RATIOS.CATASTROPHIC_THRESHOLD;
+    if (rr <= CATASTROPHIC_RR) {
+      console.error(`[Omega-9] HARD BLOCK: R:R catastrophic (${rr.toFixed(2)} <= ${CATASTROPHIC_RR})`);
+      return {
+        pass: false,
+        flags: ['HARD_BLOCK_RR_CATASTROPHIC'],
+        confidence_adjustment: 0,
+        corrections: NO_CORRECTIONS,
+        reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 <= ${CATASTROPHIC_RR}:1 minimum)`
+      };
+    }
+
     if (slDistancePips < spreadPips * 1.5) {
       console.error(`[Omega-9] HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} < ${(spreadPips * 1.5).toFixed(1)})`);
       return {
@@ -111,18 +138,6 @@ class Omega9HallucinationBrain {
         confidence_adjustment: 0,
         corrections: NO_CORRECTIONS,
         reasoning: `HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} pips < ${(spreadPips * 1.5).toFixed(1)} pips minimum)`
-      };
-    }
-
-    const CATASTROPHIC_RR = TRADING_CONSTANTS.RISK_REWARD_RATIOS.CATASTROPHIC_THRESHOLD;
-    if (rr < CATASTROPHIC_RR) {
-      console.error(`[Omega-9] HARD BLOCK: R:R catastrophic (${rr.toFixed(2)} < ${CATASTROPHIC_RR})`);
-      return {
-        pass: false,
-        flags: ['HARD_BLOCK_RR_CATASTROPHIC'],
-        confidence_adjustment: 0,
-        corrections: NO_CORRECTIONS,
-        reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 < ${CATASTROPHIC_RR}:1 minimum)`
       };
     }
 
@@ -135,19 +150,6 @@ class Omega9HallucinationBrain {
         confidence_adjustment: 0,
         corrections: NO_CORRECTIONS,
         reasoning: `HARD BLOCK: TP distance (${tpDistancePips.toFixed(2)} pips) is at or within the spread (${spreadPips.toFixed(2)} pips). The spread alone consumes the entire target — no net profit is possible.`
-      };
-    }
-
-    // Minimum profitable R:R floor — 1:1 is break-even, below that is guaranteed negative expectancy
-    const minRR = input.safetyRules.minRR;
-    if (rr < minRR) {
-      console.error(`[Omega-9] HARD BLOCK: R:R below minimum floor (${rr.toFixed(3)}:1 < ${minRR}:1) — risking ${slDistancePips.toFixed(1)} pips to make ${tpDistancePips.toFixed(1)} pips`);
-      return {
-        pass: false,
-        flags: ['HARD_BLOCK_RR_BELOW_MINIMUM'],
-        confidence_adjustment: 0,
-        corrections: NO_CORRECTIONS,
-        reasoning: `HARD BLOCK: R:R ${rr.toFixed(3)}:1 is below the ${minRR}:1 minimum. Risking ${slDistancePips.toFixed(1)} pips to make ${tpDistancePips.toFixed(1)} pips produces negative expectancy. A profitable trader needs to make at least as much as they risk.`
       };
     }
 
