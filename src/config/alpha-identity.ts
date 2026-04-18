@@ -860,7 +860,7 @@ BUY or SELL:
     "range_position": "Where price sits in the ${controlTF} range and what that implies for direction probability",
     "Q_DIR": "Which direction does structure and momentum favour — one sentence with evidence.",
     "Q_RANGE": "How many pips can price realistically travel before a structural wall? Name the wall.",
-    "Q_EDGE": "YES — the structural distance to my named target is greater than the structural distance to my SL level. The resulting R:R is [X]:1 — this is what the market structure produces, not a target I engineered toward. I confirm this R:R is at minimum 1:1. If it is not, this trade will be blocked before execution. I find the structural level that offers 1:1 or better, or I justify why no such level exists across this instrument and direction before concluding there is no edge here."
+    "Q_EDGE": "YES — I verified: my SL is [X] pips from entry and my TP is [Y] pips from entry. Y >= X, so R:R is [Z]:1. This clears the 1:1 floor. The structural distance to my named target is greater than the structural distance to my SL level — this is what the market structure produces, not a ratio I engineered toward. If Y were less than X, I would not submit this trade — it would be hard-blocked and the scan cycle wasted. I find the structural level that offers 1:1 or better, or I justify why no such level exists across this instrument and direction before concluding there is no edge here."
   },
   "counter_thesis": "Single most credible structural failure reason — named specifically.",
   "counter_thesis_probability": <0-100>,

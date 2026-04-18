@@ -3676,9 +3676,9 @@ ${briefing.briefingText}
 OPPORTUNITY ASSESSMENT (CCIP-2026-0330A — answer before directional analysis):
 Q_DIR: Which direction does momentum and structure favour right now — BUY, SELL, or NEITHER? State the evidence in one sentence.
 Q_RANGE: How many pips can price realistically travel in that direction before hitting a structural wall? Name the wall.
-Q_EDGE: Does that distance support a valid R:R trade (≥1:1 net of spread) with a structurally anchored stop? YES or NO.
+Q_EDGE: Does the structural distance to my named target (TP pips) equal or exceed the structural distance to my invalidation level (SL pips)? YES or NO. This is the 1:1 floor — TP pips must be >= SL pips or the trade is mathematically invalid and will be hard-blocked.
 If Q_EDGE = YES → proceed to full analysis and execute with honest confidence.
-If Q_EDGE = NO → look harder before declining. Consider: a tighter TP at a closer named level, a different entry point (pullback, push confirmation), or a shorter-duration target within the style band. If after a genuine structural search a valid R:R geometry still cannot be constructed, state the specific structural reason in thesis_coherence_statement and output NO_TRADE. A NO answer to Q_EDGE is a prompt to search harder — not an automatic exit.
+If Q_EDGE = NO → look harder before declining. Consider: a tighter SL anchored closer to structure, a further TP at the next structural level, a different entry point (pullback, push confirmation), or a shorter-duration target within the style band. If after a genuine structural search a valid R:R geometry still cannot be constructed, state the specific structural reason in thesis_coherence_statement and output NO_TRADE. A NO answer to Q_EDGE is a prompt to search harder — not an automatic exit. Submitting a trade where TP pips < SL pips wastes the scan cycle — it will be blocked before execution.
 These three questions replace the need for a "perfect setup". Structure + range + R:R = edge. If the edge exists, I trade it.
 
 Risk Mode: ${riskMode.toUpperCase()}
@@ -3716,6 +3716,14 @@ BUY: SL < Entry < TP | SELL: TP < Entry < SL
 TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
 You choose ALL profit targets. No pre-computed ceiling exists. TP placement is driven entirely by market structure. The style envelope shown above is a structural reference — not a formula, not a constraint.
 Process: (1) Find the directional edge. (2) Name the structural target. (3) Place TP there. (4) Calculate the R:R that results. If R:R ≥ 1:1 and the edge is real, execute. The minimum is 1.0:1 net of spread. Above that, TP goes where structure offers the most probable exit.
+
+MANDATORY PRE-SUBMISSION R:R VERIFICATION (execute this as the final step before outputting JSON):
+  Step A: Calculate my SL distance in pips — abs(entry - stopLoss).
+  Step B: Calculate my TP distance in pips — abs(takeProfit - entry).
+  Step C: Verify TP distance >= SL distance. If TP distance < SL distance, my R:R is below 1:1 and the trade WILL BE HARD BLOCKED and permanently lost for this scan cycle.
+  Step D: If Step C fails — I do NOT submit this trade as-is. I find the next structural level further away that satisfies TP >= SL distance, or I output NO_TRADE with the specific structural reason.
+  Example: SL is 57 pips from entry. My TP must be placed at least 57 pips from entry on the other side. A TP of 50 pips with an SL of 57 pips = 0.88:1 = HARD BLOCK = lost trade. I verify this math before submitting.
+
 - SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1 net of spread — account for spread cost explicitly.
   Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone.
   SELL: TP at the TOP of the support zone (upper boundary where candles first cluster), NOT the bottom.
