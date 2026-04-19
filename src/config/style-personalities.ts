@@ -124,7 +124,7 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
     referenceRanges: {
       primaryTimeframe: 'M15',
       atrTimeframe: 'M15',
-      typicalTPPips: { low: 100, mid: 150, high: 200 },
+      typicalTPPips: { low: 50, mid: 80, high: 120 },
       typicalSLPips: { low: 35, mid: 48, high: 60 },
       sessionAdjustment: false,
     },
