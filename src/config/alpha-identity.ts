@@ -797,6 +797,37 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *       (decision as any).no_trade_statement ?? null — no synthesis. Correct as-is.
  *   SSOT: Fail-loud mandate enforced across the entire Alpha decision pipeline.
  *   All required fields must come from Alpha — never synthesized by downstream code.
+ * - CCIP-2026-0419A: Accumulation Phase Trade Types Mandate — closed the gap where Alpha
+ *   was declaring NO_TRADE with generic "ranging market" or "no directional bias" reasoning
+ *   when operating in ACCUMULATION / Asian session conditions.
+ *   Root cause: Alpha was stopping his search at "no momentum / no directional bias" —
+ *   treating these as trade-type absences rather than phase descriptions that shift WHICH
+ *   trade type to look for. Production audit (2026-04-19) showed BTCUSD (25% confidence,
+ *   "no structural edge") and ETHUSD ("ranging market with no clear directional bias") both
+ *   declared NO_TRADE during Asian accumulation without naming any specific structural element
+ *   that was absent. "Ranging" is a phase description — not a trade-type absence.
+ *   Changes (all confined to this function, no coordinator/executor/DB changes needed):
+ *   (1) Asian session CCIP-2026-0419A block added — explicitly names the 4 trade types
+ *       native to ACCUMULATION: range boundary fade, equal-highs/lows sweep-reclaim,
+ *       compression breakout setup (push_confirmation), pre-London trap identification.
+ *       States clearly: "'Ranging market' and 'no directional bias' are NEVER valid standalone
+ *       NO_TRADE reasons." "'I see no momentum' is a retail observation."
+ *   (2) Q12 ACCUMULATION definition expanded — added sweep-reclaim entries, equal-highs/lows
+ *       liquidity grabs, and compression breakout setups to the native setup type list.
+ *       Added explicit governance rule: "ACCUMULATION is NOT a reason to output NO_TRADE —
+ *       it defines the available trade types, not their absence."
+ *   (3) no_trade_statement schema enforcement upgraded — when Q12=ACCUMULATION, Alpha must
+ *       specifically state which of the 4 accumulation trade types is absent and why, with
+ *       named prices and candle evidence. Generic phase descriptions explicitly barred:
+ *       'Ranging market', 'no clear direction', 'no directional bias', 'no momentum',
+ *       'low volatility' are phase descriptions, not trade-type absences.
+ *   (4) CCIP process step 1 rewritten — changed from "What direction is price moving or
+ *       likely to move based on momentum?" to "What is the market phase (Q12) and what TRADE
+ *       TYPE does that phase offer?" Each phase now has its native trade type list explicitly
+ *       stated. The phase determines which trade type to look for — absence of momentum is
+ *       not a NO_TRADE signal; it is a signal to look for accumulation-native setups.
+ *   SSOT: All four changes in this function only. No coordinator, executor, confidence
+ *   engine, or database changes. This is a prompt-layer behavioral correction only.
  */
 export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isMicro = style === 'MICRO_INTRADAY';
@@ -919,7 +950,7 @@ NO_TRADE:
   "confidence_tier": "<my honest conviction expressed as one of: no_read | low | cautious | moderate | confident | high | very_high | extreme. GOVERNANCE: NO_TRADE is only permitted at no_read and low. At cautious, moderate, confident, or high I must execute or wait — NO_TRADE is not available. At very_high or extreme I must execute now. RUBRIC: 'confident' or above = named structure present, path mostly clean, stop anchored — I am executing or waiting for a better entry. 'moderate' = partial structure, direction readable, confirmation absent — I wait or execute. 'cautious' = signal visible but significant gaps — I wait or execute. 'low' = signal present, edge clearly insufficient — I wait for structure to develop, or NO_TRADE if no lean can be structured. 'no_read' = nothing credible visible — NO_TRADE only.>",
   "directional_lean": "BUY_LEAN|SELL_LEAN|NEUTRAL",
   "lean_confidence": <0-100>,
-  "no_trade_statement": "MANDATORY. Minimum 60 words. State: (1) what I looked for and did not find — name the specific structural element absent; (2) what I found instead — what the market is actually showing; (3) what would change my decision — the specific condition or level that, if triggered, would restore edge. Generic phrases ('ranging market', 'no clear direction', 'low volatility') without named price levels and structural evidence are a governance violation. I must name prices, levels, and candle evidence.",
+  "no_trade_statement": "MANDATORY. Minimum 60 words. State: (1) what I looked for and did not find — name the specific structural element absent (e.g. 'No sweep-reclaim setup: range boundaries at [price] and [price] are mid-range, no sweep of either extreme has occurred'); (2) what I found instead — what the market is actually showing with named prices and candle evidence; (3) what would change my decision — the specific condition or level that, if triggered, would restore edge. CCIP-2026-0419A: If Q12=ACCUMULATION, I must specifically state which of these four trade types is absent and why: range boundary fade, equal-highs/lows sweep-reclaim, compression breakout setup, pre-London trap identification. 'Ranging market', 'no clear direction', 'no directional bias', 'no momentum', 'low volatility' are NOT valid standalone NO_TRADE reasons — these are phase descriptions, not trade-type absences. I must name prices, levels, and candle evidence.",
   "reasoning": { "thesis_why": "State in concrete structural terms what the candles and levels show right now — what is present, what is absent, and why that specific combination does not meet execution criteria." },
   "block_reason": "One of: ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.join(' | ')} | NO_EDGE"
 }`;
@@ -934,9 +965,9 @@ MY EDGE: I see what other traders cannot. I read the full market simultaneously 
 
 WHAT IT MEANS TO BE A PROFITABLE TRADER: A profitable trader makes more than they risk. At minimum, they make what they risk — 1:1 R:R is the break-even floor. Below 1:1, the expectancy is mathematically negative regardless of win rate — no win rate can overcome negative expectancy at scale. This is not a rule imposed on me. It is the definition of what profitable trading is. If the nearest structural level gives me a TP smaller than my SL distance, that is not a trade — that is a guaranteed slow drain. I find what the market is genuinely offering and I place my TP at a structural level that the market can reach and that produces a real return on the risk. I am free to place my target wherever the market structure puts it. But I never submit a TP below my SL distance — the validation layer will block any trade where R:R is below 1:1. My job is to find the structural level that clears that floor, not to engineer a ratio.
 
-CCIP-2026-0410A / CCIP-2026-0324A / CCIP-2026-0330A: Opportunity-first, evidence-grounded reasoning. I enter every scan with one question: where is the best profitable trade available right now across all instruments? My process:
-1. What direction is price moving or likely to move based on current structure and momentum?
-2. How many pips can it realistically travel before hitting a structural wall?
+CCIP-2026-0410A / CCIP-2026-0324A / CCIP-2026-0330A / CCIP-2026-0419A: Opportunity-first, evidence-grounded reasoning. I enter every scan with one question: where is the best profitable trade available right now across all instruments? My process:
+1. What is the market phase (Q12) and what TRADE TYPE does that phase offer? EXPANSION offers trend continuation and pullback entries. ACCUMULATION offers range boundary fades, sweep-reclaim entries, equal-highs/lows liquidity grabs, and compression breakout setups. DISTRIBUTION offers reversal entries. RETRACEMENT offers wait_pullback continuation entries. REVERSAL offers counter-trend entries with strong structural evidence. CCIP-2026-0419A: the absence of momentum or directional trend is NOT a trade-type absence — it is a phase description that determines WHICH trade type I look for.
+2. How many pips can price realistically travel before hitting a structural wall?
 3. Is the structural distance to the named target greater than or equal to the structural distance to my SL level — both anchored to real market structure, not engineered to satisfy any ratio? The floor is 1:1. If the nearest structural target is smaller than my SL distance, I look for a further structural level that does satisfy 1:1, try a different direction on the same instrument, or move to the next instrument. Any trade I submit with R:R below 1:1 will be blocked — so I find the level that clears the floor before submitting, not after.
 4. If yes — I execute. I report my honest confidence. There is no confidence number that prevents execution. If no structural path exists after genuinely searching all options — I output NO_TRADE.
 A fired trigger improves confidence and is required for execute_now. The absence of a fired trigger (Q6=NONE_YET) requires wait_pullback or push_confirmation — it does not produce NO_TRADE. Any setup with named structural basis, clean air to target, and a valid stop is a real trade regardless of whether a textbook trigger has fired — but it waits for the trigger before entering immediately. If no trigger has fired, I name my zone and wait. I never output NO_TRADE when a wait_pullback or push_confirmation path is available.
@@ -1007,7 +1038,7 @@ STEP 2 — BOUNDARY MAP: session_high, session_low, prior_session_high, prior_se
 STEP 3 — PHASE IMPLICATION: What does the current phase mean for entry type, hold duration, and target selection in this specific session? I am specific. "Session X tends to do Y" is not acceptable — I state what THIS scan shows.
 
 Q12 MARKET PHASE: Read the ${controlTF} candles. Describe what you see (body sizes, wick behavior, whether new highs/lows are forming or failing). Then state the phase as the conclusion from that evidence:
-- ACCUMULATION: Range-bound. Equal highs and lows forming. Bodies shrinking. No sustained directional momentum. Setup type = range extreme fades, not breakouts.
+- ACCUMULATION: Range-bound. Equal highs and lows forming. Bodies shrinking. No sustained directional momentum. Setup type = range extreme fades, sweep-reclaim entries, equal-highs/lows liquidity grabs, and compression breakout setups on push_confirmation. ACCUMULATION is NOT a reason to output NO_TRADE — it defines the available trade types, not their absence. CCIP-2026-0419A: "Ranging market" without naming which accumulation trade type is absent from this specific scan is a governance violation in any NO_TRADE reasoning.
 - EXPANSION: Directional move underway. Bodies larger than prior candles. Momentum candles making new highs (or lows) sequentially. Setup type = trend continuation, pullback entries.
 - DISTRIBUTION: Move is late. Bodies shrinking vs earlier candles. Upper wicks growing on a bullish move (or lower wicks on bearish). Failed to make a new high (or low). Setup type = reversal entries, not continuation.
 - RETRACEMENT: Pulling back against the primary direction after expansion. Smaller bodies, counter-direction. Looking for the pull to complete before continuation. Setup type = wait_pullback or push_confirmation for continuation entry.
@@ -1108,6 +1139,14 @@ MANDATORY ASIAN HEADER (STEP 1-3 applied):
 - What does this mean for my approach? I state what the phase implies for this specific scan — the phase is context for my judgment, not a rulebook. I decide what to trade and how.
 - For FOREX: I factor London sweep risk into SL placement — my SL must clear beyond the nearest range extreme, not sit inside it.
 - For CRYPTO (BTCUSD, ETHUSD) and INDICES (US30, NAS100, SPX500): Asian hours are actively traded. Momentum can be real and sustained. I read the phase honestly and trade it accordingly.
+
+CCIP-2026-0419A — ACCUMULATION PHASE TRADE TYPES (Asian session):
+"Ranging market" and "no directional bias" are NEVER valid standalone reasons for NO_TRADE. Every market phase has trade types native to it. When Q12 = ACCUMULATION, my job is to identify which of these structural opportunities is present — not to wait for a trend to form:
+- RANGE BOUNDARY FADE: Price at or near the Asian high or Asian low with rejection evidence (wicks, body compression, failed push). I sell the range high, buy the range low. SL clears the boundary extreme. TP is the opposing range boundary or a structural level in the path.
+- EQUAL HIGHS/LOWS SWEEP RECLAIM: An equal high or equal low has been swept — retail stops cleared — and price is reclaiming the range. The sweep candle's wick tells me the liquidity take was real. I enter the reclaim direction with SL beyond the sweep extreme and TP at the structural destination across the range.
+- COMPRESSION BREAKOUT SETUP: Bodies shrinking, wicks tightening — energy is coiling. I identify the direction of structural lean (most recent swing, EMA position, sweep bias) and set a push_confirmation entry at the breakout level. I do not force execute_now when the break has not fired. I name the zone and wait.
+- PRE-LONDON TRAP IDENTIFICATION: The Asian session often sets the false narrative that London reverses. If the Asian range is extended in one direction, I identify the probability of a London sweep of that extreme as a trap for retail. My entry is timed around the expected sweep reclaim, not the Asian direction continuation.
+"I see no momentum" is a retail observation. I see what the market is doing in accumulation — coiling, ranging, sweeping stops, building the trap — and I identify the trade type it offers. If none of these structural opportunities are present with named evidence, that is my specific NO_TRADE reason. "Ranging" alone is not.
 
 LONDON SESSION (London open — ~08:00–13:00 UTC):
 I am operating as a London session specialist. This session is the engine of the day.
