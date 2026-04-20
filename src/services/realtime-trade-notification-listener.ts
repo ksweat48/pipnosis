@@ -271,6 +271,16 @@ class RealtimeTradeNotificationListener {
       return;
     }
 
+    // Guard: if the coordinator already handled this trade's modal (e.g. from the
+    // trade_closure_events Realtime path), skip entirely to prevent a second modal
+    // and second notification sound. GlobalDialogManager's dedup is a safety net but
+    // this early-exit avoids the unnecessary DB fetches too.
+    const { tradeClosureCoordinator } = await import('./coordinators/trade-closure-coordinator');
+    if (tradeClosureCoordinator.hasShownDialogForTrade(tradeId)) {
+      console.debug('[RealtimeTradeListener] Skipping duplicate modal — coordinator already handled trade:', tradeId);
+      return;
+    }
+
     const { data: trade } = await supabase
       .from('goal_session_trades')
       .select('id, symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit, goal_session_id, tp1_pnl, tp2_pnl')

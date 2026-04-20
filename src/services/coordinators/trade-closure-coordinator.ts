@@ -101,6 +101,10 @@ class TradeClosureCoordinator {
     setTimeout(() => this.shownDialogForTrade.delete(tradeId), 60000);
   }
 
+  hasShownDialogForTrade(tradeId: string): boolean {
+    return this.shownDialogForTrade.has(tradeId);
+  }
+
   static assertCoordinatorContext(operation: string): void {
     if (!TradeClosureCoordinator.isInCoordinatorContext) {
       console.error(`[AUTHORITY VIOLATION] ${operation} called outside coordinator context`);
@@ -787,6 +791,10 @@ class TradeClosureCoordinator {
     // Both paths call globalDialogManager.showTradeClosed(); GDM deduplicates on tradeId.
     if (this.shownDialogForTrade.has(event.trade_id)) return;
 
+    // Claim the dedup slot immediately before any awaits so the notification
+    // listener path cannot race through and show a second modal for the same trade.
+    this.markDialogShown(event.trade_id);
+
     try {
       // Run all 3 queries in parallel to minimize modal latency (Phase 2)
       const [
@@ -812,8 +820,6 @@ class TradeClosureCoordinator {
 
       if (tradeData && session) {
         const isGoalAchieved = (session.current_progress || 0) >= (session.target_value || Infinity);
-
-        this.markDialogShown(event.trade_id);
 
         const { globalDialogManager } = await import('../global-dialog-manager');
         globalDialogManager.showTradeClosed({

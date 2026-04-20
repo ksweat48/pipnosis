@@ -1028,15 +1028,17 @@ export function PositionsPage() {
                       key={trade.id}
                       className="p-3 sm:p-4 bg-gray-800 rounded-lg border border-gray-700 hover:border-gray-600 transition-all"
                     >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          {trade.profit_loss >= 0 ? (
-                            <CheckCircle className="w-5 h-5 text-green-400" />
-                          ) : (
-                            <XCircle className="w-5 h-5 text-red-400" />
-                          )}
-                          <div>
-                            <div className="flex items-center gap-2">
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="flex-shrink-0">
+                            {trade.profit_loss >= 0 ? (
+                              <CheckCircle className="w-5 h-5 text-green-400" />
+                            ) : (
+                              <XCircle className="w-5 h-5 text-red-400" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-semibold text-white">{trade.symbol}</span>
                               <span className={`text-xs px-2 py-0.5 rounded ${
                                 trade.position_type === 'buy'
@@ -1070,7 +1072,7 @@ export function PositionsPage() {
                             </div>
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex-shrink-0">
                           {trade.tp1_hit && trade.tp1_pnl != null ? (
                             <div className="flex flex-col items-end gap-0.5">
                               <div className="flex items-center gap-2 text-xs">
@@ -1101,10 +1103,10 @@ export function PositionsPage() {
                             </div>
                           ) : (
                             <>
-                              <div className={`text-lg font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              <div className={`text-lg font-bold whitespace-nowrap ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                 {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
                               </div>
-                              <div className="text-xs text-gray-500">
+                              <div className="text-xs text-gray-500 whitespace-nowrap">
                                 Final P&L
                               </div>
                             </>
