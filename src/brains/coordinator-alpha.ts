@@ -3679,9 +3679,9 @@ ${briefing.briefingText}
 OPPORTUNITY ASSESSMENT (CCIP-2026-0330A — answer before directional analysis):
 Q_DIR: Which direction does momentum and structure favour right now — BUY, SELL, or NEITHER? State the evidence in one sentence.
 Q_RANGE: How many pips can price realistically travel in that direction before hitting a structural wall? Name the wall.
-Q_EDGE: Does the structural distance to my named target (TP pips) equal or exceed the structural distance to my invalidation level (SL pips)? YES or NO. This is the 1:1 floor — TP pips must be >= SL pips or the trade is mathematically invalid and will be hard-blocked.
+Q_EDGE: Does the structural distance to my named target (TP pips) equal or exceed the structural distance to my invalidation level (SL pips)? YES or NO. This is the 1:1 floor — TP pips must be >= SL pips or this is a direction, not a trade.
 If Q_EDGE = YES → proceed to full analysis and execute with honest confidence.
-If Q_EDGE = NO → look harder before declining. Consider: a tighter SL anchored closer to structure, a further TP at the next structural level, a different entry point (pullback, push confirmation), or a shorter-duration target within the style band. If after a genuine structural search a valid R:R geometry still cannot be constructed, state the specific structural reason in thesis_coherence_statement and output NO_TRADE. A NO answer to Q_EDGE is a prompt to search harder — not an automatic exit. Submitting a trade where TP pips < SL pips wastes the scan cycle — it will be blocked before execution.
+If Q_EDGE = NO → I have found a direction but not a trade. I do not proceed to full analysis. I immediately search for a valid geometry: a tighter SL anchored closer to structure, a further TP at the next structural level beyond the first wall, a different entry point that reduces SL distance, or the opposite direction. I resolve Q_EDGE to YES before proceeding — it is a prerequisite for full analysis, not a final check. If after a genuine structural search across all options no valid geometry exists, state the specific structural reason in thesis_coherence_statement and output NO_TRADE.
 These three questions replace the need for a "perfect setup". Structure + range + R:R = edge. If the edge exists, I trade it.
 
 Risk Mode: ${riskMode.toUpperCase()}
@@ -3723,9 +3723,9 @@ Process: (1) Find the directional edge. (2) Name the structural target. (3) Plac
 MANDATORY PRE-SUBMISSION R:R VERIFICATION (execute this as the final step before outputting JSON):
   Step A: Calculate my SL distance in pips — abs(entry - stopLoss).
   Step B: Calculate my TP distance in pips — abs(takeProfit - entry).
-  Step C: Verify TP distance >= SL distance. If TP distance < SL distance, my R:R is below 1:1 and the trade WILL BE HARD BLOCKED and permanently lost for this scan cycle.
-  Step D: If Step C fails — I do NOT submit this trade as-is. I find the next structural level further away that satisfies TP >= SL distance, or I output NO_TRADE with the specific structural reason.
-  Example: SL is 57 pips from entry. My TP must be placed at least 57 pips from entry on the other side. A TP of 50 pips with an SL of 57 pips = 0.88:1 = HARD BLOCK = lost trade. I verify this math before submitting.
+  Step C: Verify TP distance >= SL distance. If TP distance < SL distance, I have constructed a direction, not a trade. This geometry does not qualify as a trade candidate.
+  Step D: If Step C fails — I do not submit. I select the next structural level further from entry that satisfies TP >= SL distance. If no such level exists after a genuine structural search, I output NO_TRADE with the specific structural reason.
+  Example: SL is 57 pips from entry. My TP must be at least 57 pips from entry on the other side. A TP of 50 pips with a 57-pip SL = 0.88:1 = not a trade. I find the next structural level that puts TP at 57+ pips, or I output NO_TRADE.
 
 - SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1 net of spread — account for spread cost explicitly.
   Place TP where the M1 leg exhausts. The exit is not a structural destination — it is the point where M1 momentum dies. Look for: prior M1 swing already printed in the direction of travel, M1 equal highs/lows clustering (absorption), M1 candle bodies compressing as wicks extend (pace fading). Place TP at that exhaustion point, not at a structural wall.
