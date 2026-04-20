@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
-import { audioAlertService } from './audio-alert-service';
 import { goalAchievementCoordinator } from './coordinators/goal-achievement-coordinator';
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 import { postTradeAnalyzer } from './post-trade-analyzer';
@@ -311,15 +310,14 @@ export class TradeClosureEventProcessor {
 
   /**
    * Send notification for closed trade
+   * AUDIO SSOT (2026-04-20): Audio is played exclusively by useGlobalDialog hook
+   * when the trade_closed modal renders. Playing audio here created duplicate sounds
+   * because the dedup keys differed (trade_loss vs dialog-SYMBOL), bypassing the
+   * 10-second deduplication window in audioAlertService.
    */
-  private async sendNotification(event: TradeClosureEvent): Promise<void> {
-    const isProfitable = event.pnl >= 0;
-
-    if (isProfitable) {
-      await audioAlertService.playTradeProfit(event.trade_id);
-    } else {
-      await audioAlertService.playTradeLoss(event.trade_id);
-    }
+  private async sendNotification(_event: TradeClosureEvent): Promise<void> {
+    // Audio is handled by useGlobalDialog (src/hooks/useGlobalDialog.tsx)
+    // No audio played here to prevent duplicate sounds on trade closure.
   }
 
   /**
