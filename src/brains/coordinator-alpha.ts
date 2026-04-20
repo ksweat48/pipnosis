@@ -82,7 +82,7 @@ import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
 import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER } from '../config/confidence-tier';
-import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
+import { formatRiskProfileForLLM, getTypicalStopPipsRange } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
@@ -494,6 +494,20 @@ export interface AlphaDecision {
    * CCIP-2026-0324G: coordinator-alpha.ts is the SSOT for extraction and enforcement.
    */
   trader_statement?: string;
+  /**
+   * CCIP-2026-0420A: Alpha's structural justification for TP placement.
+   * Extracted from the LLM response field of the same name.
+   * Format: "TP at [price] — [named zone/level]. ~[X] pips. R:R [X]:1."
+   * Mandatory on BUY/SELL responses per output schema. Persisted to alpha_decisions for audit.
+   */
+  tp_structural_reference?: string;
+  /**
+   * CCIP-2026-0420A: Alpha's structural justification for SL placement.
+   * Extracted from the LLM response field of the same name.
+   * Format: "[named level] — ~[X] pips from entry. Invalidation: [reasoning]."
+   * Mandatory on BUY/SELL responses per output schema. Persisted to alpha_decisions for audit.
+   */
+  sl_structural_reference?: string;
   /**
    * tp_multiplier_override: Alpha's per-trade ATR TP multiplier.
    *
@@ -4429,6 +4443,25 @@ Return PURE JSON only — all required fields from the schema in my system promp
         console.log('[Alpha Stop Analysis] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       }
 
+      // CCIP-2026-0420A: Hard SL floor enforcement — style-differentiated minimum pip floors.
+      // Prevents Alpha from placing INTRADAY/MICRO_INTRADAY stops at SCALP-width distances.
+      if (decision.action !== 'NO_TRADE' && decision.stopLoss != null && decision.entry != null) {
+        const resolvedStyleForFloor = (decision.resolvedStyle ?? 'SCALP') as 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+        const riskModeForFloor = marketContext.riskMode ?? 'high';
+        const floorRange = getTypicalStopPipsRange(riskModeForFloor, marketContext.symbol, resolvedStyleForFloor);
+        const currentSLPips = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
+        if (currentSLPips < floorRange.min) {
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+          const requiredPips = floorRange.min;
+          const isBuy = decision.direction === 'BUY';
+          const expandedSL = isBuy
+            ? decision.entry - requiredPips * pipInfo.pipSize
+            : decision.entry + requiredPips * pipInfo.pipSize;
+          console.log(`[SL Floor] CCIP-2026-0420A: Alpha SL ${currentSLPips.toFixed(1)} pips < ${resolvedStyleForFloor} floor ${requiredPips} pips for ${marketContext.symbol}. Expanding SL ${decision.stopLoss.toFixed(5)} -> ${expandedSL.toFixed(5)}.`);
+          decision.stopLoss = expandedSL;
+        }
+      }
+
       decision.omega_summary = this.generateOmegaSummary(votes);
       decision.omega_votes = votes;
       decision.atrPercent = computedAtrPercent;
@@ -6078,7 +6111,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // CCIP-2026-0324G: Pass trader_statement through for audit trail and UI display
         trader_statement: rawTraderStatement,
         // CCIP-2026-0413-CONFIDENCE-TEXT: Alpha's original text tier — passed through for DB and UI
-        confidence_tier: confidenceTier || undefined
+        confidence_tier: confidenceTier || undefined,
+        // CCIP-2026-0420A: Structural references for TP and SL — persisted to alpha_decisions.
+        // These were defined in the output schema and produced by Alpha but never extracted
+        // from the parsed response. Both fields are now passed through for DB audit.
+        tp_structural_reference: typeof parsed.tp_structural_reference === 'string' ? parsed.tp_structural_reference : undefined,
+        sl_structural_reference: typeof parsed.sl_structural_reference === 'string' ? parsed.sl_structural_reference : undefined,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

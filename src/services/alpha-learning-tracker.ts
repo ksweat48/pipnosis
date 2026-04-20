@@ -158,6 +158,75 @@ class AlphaLearningTracker {
         log.directional_strength_style = decision.directionalStrengthResult.style;
       }
 
+      // CCIP-2026-0420A: Persist multi-timeframe pattern intelligence to alpha_decisions.
+      // patternIntelligence was computed and attached to the decision object but never
+      // written to the DB insert in this tracker (omega-alpha-logger.ts::logAlphaDecision
+      // mapped these fields but that method is never called — logging goes through here).
+      if (decision.patternIntelligence) {
+        log.htf_pattern = decision.patternIntelligence.htfPattern;
+        log.mtf_pattern = decision.patternIntelligence.mtfPattern;
+        log.ltf_pattern = decision.patternIntelligence.ltfPattern;
+        log.htf_intent = decision.patternIntelligence.htfIntent;
+        log.mtf_intent = decision.patternIntelligence.mtfIntent;
+        log.ltf_intent = decision.patternIntelligence.ltfIntent;
+        log.pattern_alignment_score = decision.patternIntelligence.alignmentScore;
+        log.pattern_overall_intent = decision.patternIntelligence.overallIntent;
+        log.pattern_direction_bias = decision.patternIntelligence.directionBias;
+        if (decision.patternIntelligence.warnings?.length > 0) {
+          log.pattern_warnings = decision.patternIntelligence.warnings;
+        }
+        if (decision.patternIntelligence.liquidityTargets?.length > 0) {
+          log.pattern_liquidity_targets = decision.patternIntelligence.liquidityTargets;
+        }
+        if (decision.patternIntelligence.invalidationPoint) {
+          log.pattern_invalidation_price = decision.patternIntelligence.invalidationPoint.price;
+          log.pattern_invalidation_reasoning = decision.patternIntelligence.invalidationPoint.reasoning;
+        }
+      }
+
+      // CCIP-2026-0420A: Persist micro-regime classification.
+      if (decision.microRegime) {
+        log.micro_regime = decision.microRegime.regime;
+        log.regime_confidence = decision.microRegime.confidence;
+        log.regime_confidence_modifier = decision.microRegime.confidenceModifier;
+        log.regime_direction = decision.microRegime.direction;
+      }
+
+      // CCIP-2026-0420A: Persist narrative coherence validation.
+      if (decision.narrativeValidation) {
+        log.market_narrative = decision.narrativeValidation.narrative;
+        log.narrative_strength_score = decision.narrativeValidation.strengthScore;
+        log.narrative_confidence_penalty = decision.narrativeValidation.confidencePenalty;
+        log.narrative_quality_tier = decision.narrativeValidation.qualityTier;
+      }
+
+      // CCIP-2026-0420A: Persist tp_structural_reference, sl_structural_reference,
+      // trader_statement, confidence_tier, and answer_sheet for full audit trail.
+      if (decision.tp_structural_reference) {
+        log.tp_structural_reference = decision.tp_structural_reference;
+      }
+      if (decision.sl_structural_reference) {
+        log.sl_structural_reference = decision.sl_structural_reference;
+      }
+      if (decision.trader_statement) {
+        log.trader_statement = decision.trader_statement;
+      }
+      if (decision.confidence_tier) {
+        log.confidence_tier = decision.confidence_tier;
+      }
+      if (decision.answer_sheet) {
+        log.answer_sheet = decision.answer_sheet;
+      }
+      if (decision.tp1Price != null) {
+        log.tp1_price = decision.tp1Price;
+      }
+      if (decision.tp2Price != null) {
+        log.tp2_price = decision.tp2Price;
+      }
+      if (decision.resolvedStyle) {
+        log.trade_style = decision.resolvedStyle;
+      }
+
       const { data, error } = await supabase
         .from('alpha_decisions')
         .insert(log)

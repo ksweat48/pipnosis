@@ -118,7 +118,9 @@ class RiskAwareStopCalculator {
     // SCALP uses M5 ATR (tight), MICRO_INTRADAY uses M15 ATR (medium), INTRADAY uses H1 ATR (wide).
     // Each style has multiplier ranges pre-calibrated for its ATR timeframe.
     const atrMultiplierRange = getStopLossMultiplierRange(riskMode, inputs.tradeStyle);
-    const typicalPipsRange = getTypicalStopPipsRange(riskMode);
+    // CCIP-2026-0420A: Pass tradeStyle to enforce style-differentiated minimum pip floors.
+    // Prevents an 8-pip INTRADAY stop on USDJPY — a scalp floor applied to an H1-scale trade.
+    const typicalPipsRange = getTypicalStopPipsRange(riskMode, symbol, inputs.tradeStyle);
 
     const styleLabel = inputs.tradeStyle ? ` [${inputs.tradeStyle}]` : '';
     console.log(`[Stop Calculator] ${symbol} ${riskMode.toUpperCase()} mode${styleLabel}:`);

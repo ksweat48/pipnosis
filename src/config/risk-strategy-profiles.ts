@@ -365,41 +365,85 @@ export function getStopLossMultiplierRange(
 }
 
 /**
- * Get typical stop loss pip range for any symbol (asset-class aware)
+ * Style-differentiated minimum pip floors (CCIP-2026-0420A).
+ *
+ * The risk-mode profiles define pip ranges calibrated primarily for SCALP/MICRO_INTRADAY.
+ * An INTRADAY trade needs materially wider stops to survive H1-scale volatility.
+ * JPY pairs (USDJPY, GBPJPY, EURJPY) require even wider floors due to their larger
+ * pip size and typical intraday swing distances.
+ *
+ * These floors are applied as a hard minimum in getTypicalStopPipsRange() when tradeStyle
+ * is provided. They prevent an 8-pip INTRADAY stop on USDJPY — a scalp-level stop that
+ * normal H1 volatility (10-15 pips typical noise) will clip before the trade can develop.
+ */
+const STYLE_MIN_PIP_FLOORS: Record<'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY', {
+  forex: number;
+  jpyPair: number;
+  metals: number;
+  index: number;
+}> = {
+  SCALP:          { forex: 5,  jpyPair: 6,  metals: 10, index: 8  },
+  MICRO_INTRADAY: { forex: 10, jpyPair: 12, metals: 20, index: 15 },
+  INTRADAY:       { forex: 15, jpyPair: 18, metals: 30, index: 25 },
+};
+
+/**
+ * Get typical stop loss pip range for any symbol (asset-class and style aware).
  * @param riskMode - Risk mode (low, medium, high)
  * @param symbol - Optional symbol to get asset-class-specific ranges
+ * @param tradeStyle - Optional trade style to enforce style-differentiated minimum pip floors
  */
 export function getTypicalStopPipsRange(
   riskMode: 'low' | 'medium' | 'high',
-  symbol?: string
+  symbol?: string,
+  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'
 ): { min: number; max: number } {
   const profile = getRiskStrategyProfile(riskMode);
 
+  let base: { min: number; max: number };
+
   if (!symbol) {
-    return profile.typicalStopPips;
-  }
+    base = profile.typicalStopPips;
+  } else {
+    const assetProfile = getAssetClassRiskProfile(symbol);
 
-  const assetProfile = getAssetClassRiskProfile(symbol);
-
-  if (assetProfile.typicalStopRange.unit === 'atr') {
-    const config = getSymbolConfig(symbol);
-    if (config) {
-      const avgATR = config.typicalSessionMovePoints * 0.5;
-      return {
-        min: Math.round(avgATR * assetProfile.typicalStopRange.min),
-        max: Math.round(avgATR * assetProfile.typicalStopRange.max)
+    if (assetProfile.typicalStopRange.unit === 'atr') {
+      const config = getSymbolConfig(symbol);
+      if (config) {
+        const avgATR = config.typicalSessionMovePoints * 0.5;
+        base = {
+          min: Math.round(avgATR * assetProfile.typicalStopRange.min),
+          max: Math.round(avgATR * assetProfile.typicalStopRange.max)
+        };
+      } else {
+        base = profile.typicalStopPips;
+      }
+    } else if (assetProfile.typicalStopRange.unit === 'points' || assetProfile.typicalStopRange.unit === 'pips') {
+      base = {
+        min: assetProfile.typicalStopRange.min,
+        max: assetProfile.typicalStopRange.max
       };
+    } else {
+      base = profile.typicalStopPips;
     }
   }
 
-  if (assetProfile.typicalStopRange.unit === 'points' || assetProfile.typicalStopRange.unit === 'pips') {
-    return {
-      min: assetProfile.typicalStopRange.min,
-      max: assetProfile.typicalStopRange.max
-    };
+  // CCIP-2026-0420A: Apply style-differentiated minimum pip floor.
+  // An INTRADAY stop must survive H1-scale noise. A SCALP stop floor is far too tight
+  // for an INTRADAY trade — this was the root cause of the 8-pip USDJPY INTRADAY SL clip.
+  if (tradeStyle && STYLE_MIN_PIP_FLOORS[tradeStyle]) {
+    const floors = STYLE_MIN_PIP_FLOORS[tradeStyle];
+    const sym = (symbol ?? '').toUpperCase();
+    const isJPY = sym.includes('JPY');
+    const isMetal = sym.includes('XAU') || sym.includes('XAG') || sym.includes('GOLD');
+    const isIdx = ['US30', 'NAS100', 'SPX500', 'UK100', 'DE30', 'JP225'].some(i => sym.includes(i));
+    const styleFloor = isJPY ? floors.jpyPair : isMetal ? floors.metals : isIdx ? floors.index : floors.forex;
+    if (base.min < styleFloor) {
+      base = { min: styleFloor, max: Math.max(base.max, styleFloor + 10) };
+    }
   }
 
-  return profile.typicalStopPips;
+  return base;
 }
 
 /**
