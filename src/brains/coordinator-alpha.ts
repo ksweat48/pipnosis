@@ -6165,47 +6165,49 @@ Return PURE JSON only — all required fields from the schema in my system promp
    * No pre-synthesized verdicts, levels, or recommended actions.
    */
   private buildAdvisoryContext(adversarial?: AdversarialSignal, regime?: RegimeSnapshot): string {
-    if (!adversarial && !regime) {
+    // CCIP-2026-0421 (SESSION NEUTRALITY — REGIME ORACLE REMOVAL):
+    // The Regime Oracle block has been removed from Alpha's prompt.
+    //
+    // Root cause: The Regime Oracle output pre-scores market conditions with labels like
+    // "Volatility Score: 15/100", "ATR State: compressed", "Session: asian" — these are
+    // pre-synthesized assessments that condition Alpha to conclude "conditions are poor"
+    // before reading a single candle. Combined with session-biased pair personality text,
+    // these labels were the primary driver of universal NO_TRADE during Asian sessions.
+    //
+    // Alpha already receives the raw structural inputs the Regime Oracle consumed:
+    // - Live ATR values (atrLegendPrompt) for stop sizing
+    // - Adversarial Detector readings (below) for manipulation detection
+    // - Micro-regime classifier output (microRegimeContext) for structure/momentum
+    // - Daily narrative (dailyNarrativeContext) for range and displacement
+    // - Candle data for all timeframes
+    //
+    // Alpha reads this raw evidence and forms his own assessment of conditions.
+    // He does not need a pre-scored "Volatility Score: 15/100" to tell him the market
+    // is quiet — he can see that from the ATR values and candle ranges directly.
+    // The Regime Oracle's job is done by the data Alpha already receives.
+    //
+    // The adversarial detector remains — it provides structural manipulation-detection
+    // readings (stop runs, whipsaw counts, BOS) that Alpha cannot derive from candles alone.
+    if (!adversarial) {
       return '';
     }
 
+    // Unused param kept in signature for backward compatibility with call sites.
+    void regime;
+
     const parts: string[] = ['\nSENSOR READINGS:'];
 
-    if (adversarial) {
-      parts.push(`\nAdversarial Detector (raw measurements):`);
-      parts.push(`  Suspicion Score: ${adversarial.suspicion_score}/100`);
-      parts.push(`  Whipsaw Flips (last 10 candles): ${adversarial.whipsaw_flip_count}`);
-      parts.push(`  Avg Candle Range: ${adversarial.avg_candle_range.toFixed(5)}`);
-      if (adversarial.patterns.length > 0) {
-        parts.push(`  Observed Patterns: ${adversarial.patterns.join(', ')}`);
-      }
-      if (adversarial.stop_run_classification && adversarial.stop_run_classification.type !== 'none') {
-        parts.push(`  Stop-Run Type: ${adversarial.stop_run_classification.type} (${adversarial.stop_run_classification.candles_ago} candles ago)`);
-        parts.push(`  BOS Confirmed: ${adversarial.stop_run_classification.has_bos ? 'Yes' : 'No'}`);
-        parts.push(`  Reasoning: ${adversarial.stop_run_classification.reasoning}`);
-      }
+    parts.push(`\nAdversarial Detector (raw measurements):`);
+    parts.push(`  Suspicion Score: ${adversarial.suspicion_score}/100`);
+    parts.push(`  Whipsaw Flips (last 10 candles): ${adversarial.whipsaw_flip_count}`);
+    parts.push(`  Avg Candle Range: ${adversarial.avg_candle_range.toFixed(5)}`);
+    if (adversarial.patterns.length > 0) {
+      parts.push(`  Observed Patterns: ${adversarial.patterns.join(', ')}`);
     }
-
-    if (regime) {
-      parts.push(`\nRegime Oracle (raw observations):`);
-      parts.push(`  Session: ${regime.session} | Open: ${regime.session_open} | ${regime.minutes_into_session}min in`);
-      parts.push(`  Structure: ${regime.structure} | Bias: ${regime.market_bias}`);
-      parts.push(`  Volatility Score: ${regime.volatility_score}/100`);
-      parts.push(`  ATR State: ${regime.atr_compression ? 'compressed' : regime.atr_expansion ? 'expanding' : 'normal'}`);
-      parts.push(`  Wick Risk: ${regime.wick_risk} | Spread Risk: ${regime.spread_risk}`);
-      parts.push(`  Session Overlap: ${regime.is_session_overlap}`);
-      if (regime.trend_regime) {
-        parts.push(`  Trend Strength: ${regime.trend_regime.trend_strength_score}/100`);
-        parts.push(`  Structure Quality: ${regime.trend_regime.structure_quality}`);
-        parts.push(`  EMA Alignment: ${regime.trend_regime.ema_alignment}`);
-      }
-      if (regime.volatility_regime) {
-        parts.push(`  Avg Wick Size: ${regime.volatility_regime.avg_wick_size.toFixed(5)}`);
-        parts.push(`  Volatility Trend: ${regime.volatility_regime.volatility_trend}`);
-      }
-      if (regime.reason) {
-        parts.push(`  Oracle Note: ${regime.reason}`);
-      }
+    if (adversarial.stop_run_classification && adversarial.stop_run_classification.type !== 'none') {
+      parts.push(`  Stop-Run Type: ${adversarial.stop_run_classification.type} (${adversarial.stop_run_classification.candles_ago} candles ago)`);
+      parts.push(`  BOS Confirmed: ${adversarial.stop_run_classification.has_bos ? 'Yes' : 'No'}`);
+      parts.push(`  Reasoning: ${adversarial.stop_run_classification.reasoning}`);
     }
 
     return parts.join('\n');
