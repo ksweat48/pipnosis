@@ -1992,15 +1992,15 @@ VALIDATION REMINDERS:
     // M5 setup present + M1 choppy = still execute, use M1 close as timing.
     // Stop-out risk addressed through TP at M5 leg exhaustion, not TF demotion.
     // SCALP:          entry=M5 (20 candles), trend/TP-ref=M15, context=H1
-    // MICRO_INTRADAY: entry=M5 (15 candles), trend=M15, context=H1
-    // INTRADAY:       entry=M15 (15 candles), trend=H1, context=H4
+    // MICRO_INTRADAY: entry=M5 (30 candles), direction=M15 (10 candles), context=H1
+    // INTRADAY:       entry=M15 (20 candles), trend=H1, context=H4
     // ATR NOTE: SCALP stop sizing uses M5 ATR (atr20).
     // PRIMARY_TF_MAP fetches the entry timeframe candles — the primary signal lens.
     // ═══════════════════════════════════════════════════════════════════
     const PRIMARY_TF_MAP: Record<string, { timeframe: string; label: string; candleCount: number }> = {
       'SCALP': { timeframe: 'M5', label: 'M5', candleCount: 20 },
-      'MICRO_INTRADAY': { timeframe: 'M5', label: 'M5', candleCount: 15 },
-      'INTRADAY': { timeframe: 'M15', label: 'M15', candleCount: 15 },
+      'MICRO_INTRADAY': { timeframe: 'M5', label: 'M5', candleCount: 30 },
+      'INTRADAY': { timeframe: 'M15', label: 'M15', candleCount: 20 },
     };
     const styleName = getDisplayNameFromStyle(tradeStyle);
     const primaryTfConfig = PRIMARY_TF_MAP[styleName] || PRIMARY_TF_MAP['SCALP'];
@@ -2009,6 +2009,11 @@ VALIDATION REMINDERS:
     let intradayMovePhaseContext = '';
     let microIntradayMovePhaseContext = '';
     let scalpMovePhaseContext = '';
+    // M15 direction data for MICRO_INTRADAY — hoisted so the move phase block
+    // (inside the primary candle try block) can reference these values.
+    let m15DirectionPromptMicro = '';
+    let m15SwingHighMicro = 0;
+    let m15SwingLowMicro = 0;
     // CCIP-2026-0421 (ALPHA SL SOVEREIGNTY): slStructuralDistanceNote removed.
     // It injected the pre-computed SL anchor price back into the prompt twice
     // (IF LONG SL / IF SHORT SL) along with "INSIDE/BELOW the wick range" framing.
@@ -2191,6 +2196,7 @@ ${fakeoutBlock}MANDATORY JSON FIELD — Include in your response regardless of a
           const freshCeilingM5 = (atrForStopLoss * 0.75 / pipInfo.pipValue).toFixed(1);
           const developingCeilingM5 = (atrForStopLoss * 1.5 / pipInfo.pipValue).toFixed(1);
 
+          // Find M5 swing origin within the 30-candle primary window
           let swingOriginPriceM5 = recentPrimary[0].close;
           const currentDirM5 = lastCandle.close > lastCandle.open ? 'UP' : 'DN';
           for (let i = recentPrimary.length - 2; i >= 0; i--) {
@@ -2201,9 +2207,27 @@ ${fakeoutBlock}MANDATORY JSON FIELD — Include in your response regardless of a
             }
           }
           const distFromSwingPipsM5 = Math.abs(marketContext.price - swingOriginPriceM5) / pipInfo.pipValue;
-          const atrTraveledM5micro = m5AtrPips > 0 ? distFromSwingPipsM5 / m5AtrPips : 0;
+          const atrTraveledM5window = m5AtrPips > 0 ? distFromSwingPipsM5 / m5AtrPips : 0;
 
-          const m5MovePhase = atrTraveledM5micro < 0.75 ? 'FRESH' : atrTraveledM5micro < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
+          // Anchor ATR-traveled to M15 swing origin when available.
+          // m15SwingHighMicro / m15SwingLowMicro are populated by the M15 direction
+          // fetch block below. If M15 gives a LARGER travel distance (more conservative),
+          // use that as the primary move phase input.
+          const hasMicroM15Anchor = m15SwingHighMicro > 0 && m15SwingLowMicro > 0;
+          const m15AnchorOrigin = hasMicroM15Anchor
+            ? (currentDirM5 === 'DN' ? m15SwingHighMicro : m15SwingLowMicro)
+            : 0;
+          const m15AnchorDistPips = hasMicroM15Anchor
+            ? Math.abs(marketContext.price - m15AnchorOrigin) / pipInfo.pipValue
+            : 0;
+          const m15AnchorATRMultiple = hasMicroM15Anchor && m5AtrPips > 0
+            ? m15AnchorDistPips / m5AtrPips
+            : 0;
+          const atrTraveledFinal = hasMicroM15Anchor && m15AnchorATRMultiple > atrTraveledM5window
+            ? m15AnchorATRMultiple
+            : atrTraveledM5window;
+
+          const m5MovePhase = atrTraveledFinal < 0.75 ? 'FRESH' : atrTraveledFinal < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
 
           let fakeoutTypeM5micro: string | null = null;
           let fakeoutCandlesAgoM5micro = 0;
@@ -2239,7 +2263,7 @@ ${fakeoutBlock}MANDATORY JSON FIELD — Include in your response regardless of a
             ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from swing origin). Full structural space available.`
             : m5MovePhase === 'DEVELOPING'
               ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from swing origin). Structural space to TP1 may be narrowing — the remaining runway to the named TP levels is the key measurement.`
-              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from swing origin). The M5 leg is extended. Document the structural picture honestly and reflect it in the conviction score.`;
+              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from swing origin). The move is extended. Document the structural picture honestly and reflect it in the conviction score.`;
 
           const fakeoutBlockM5micro = fakeoutTypeM5micro
             ? `
@@ -2251,30 +2275,36 @@ ${fakeoutTypeM5micro === 'BEARISH_FAKEOUT'
 `
             : '';
 
+          const m15AnchorBlock = hasMicroM15Anchor
+            ? `M15 SWING ORIGIN ANCHOR: M15 High=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} | M15 Low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)} | Current direction: ${currentDirM5} — origin is M15 ${currentDirM5 === 'DN' ? 'High' : 'Low'} at ${m15AnchorOrigin.toFixed(pipInfo.decimalPlaces)} | Distance: ${m15AnchorDistPips.toFixed(1)} pips (~${m15AnchorATRMultiple.toFixed(2)}x M5 ATR) | ${m15AnchorATRMultiple > atrTraveledM5window ? 'M15 anchor used (larger than M5 window)' : 'M5 window used (larger than M15 anchor)'}`
+            : `M15 SWING ORIGIN ANCHOR: Not yet available — M15 direction fetch runs after this block. ATR-traveled uses M5 window measurement only.`;
+
           microIntradayMovePhaseContext = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MICRO_INTRADAY M5 MOVE STAGE ADVISORY (${marketContext.symbol})
+MICRO_INTRADAY MOVE STAGE ADVISORY (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed from M5 candle data (entry timeframe). Advisory context — your analysis takes precedence.
+Pre-computed from M5 entry candles (30-candle window) + M15 direction anchor. Advisory — my analysis takes precedence.
 ACTIVE M5 ATR: ${m5AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM5}p | Developing ${freshCeilingM5}–${developingCeilingM5}p | Exhausted > ${developingCeilingM5}p
 
-Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M5 swing origin (~${atrTraveledM5micro.toFixed(2)}x M5 ATR)
-M5 Move Phase: ${m5MovePhase}
+${m15AnchorBlock}
+
+ATR Traveled (primary): ~${(atrTraveledFinal * m5AtrPips).toFixed(1)} pips from origin (~${atrTraveledFinal.toFixed(2)}x M5 ATR)
+Move Phase: ${m5MovePhase}
 Assessment: ${phaseLabelM5micro}
 
 ${m5MovePhase === 'DEVELOPING'
   ? `DEVELOPING STAGE — RUNWAY AUDIT: Record the remaining structural space from current price to the named TP1 (M15 structural level) and TP2 (H1 structural level). "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." The R:R assessment belongs in the conviction score.`
   : m5MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The M5 leg has traveled > 1.5x ATR. The structural picture at this extension is what it is — document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
+    ? `EXHAUSTED STAGE — The move has traveled > 1.5x ATR from its structural origin. Document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
     : `FRESH STAGE — Full structural space to TP1 and TP2 is available.`
 }
 ${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardless of action:
   "m5_move_phase": "fresh|developing|exhausted"
-  "m5_atr_traveled": ${atrTraveledM5micro.toFixed(2)}
+  "m5_atr_traveled": ${atrTraveledFinal.toFixed(2)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] MICRO_INTRADAY M5 Move Phase: ${m5MovePhase} (~${atrTraveledM5micro.toFixed(2)}x ATR, ${distFromSwingPipsM5.toFixed(1)} pips)${fakeoutTypeM5micro ? ` | Fakeout: ${fakeoutTypeM5micro}` : ''}`);
+          console.log(`[Alpha Coordinator] MICRO_INTRADAY Move Phase: ${m5MovePhase} (~${atrTraveledFinal.toFixed(2)}x ATR, M15anchor=${hasMicroM15Anchor ? m15AnchorDistPips.toFixed(1)+'p/'+m15AnchorATRMultiple.toFixed(2)+'x' : 'N/A'}, M5window=${distFromSwingPipsM5.toFixed(1)}p/${atrTraveledM5window.toFixed(2)}x)${fakeoutTypeM5micro ? ` | Fakeout: ${fakeoutTypeM5micro}` : ''}`);
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -2717,6 +2747,120 @@ Document your entry_mode choice and reasoning given this data gap. Your convicti
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.warn('[Alpha Coordinator] M5 sub-confirmation fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // M15 DIRECTION CANDLES (MICRO_INTRADAY ONLY — direction TF, non-blocking)
+    //
+    // ARCHITECTURE: MICRO_INTRADAY = M5 (entry) + M15 (direction) + H1 (control)
+    // M15 is the direction TF. It validates M5 trend direction and provides the
+    // M15 swing high/low that anchors the ATR-traveled calculation above.
+    // Variables m15SwingHighMicro / m15SwingLowMicro are read in the move phase
+    // block (inside primary candle try block) which runs before this fetch.
+    // NOTE: Because this block runs AFTER the move phase block, the M15 anchor
+    // in the move phase prompt text is set but the JSON field "m5_atr_traveled"
+    // will reflect the M5-window measurement on the first scan. The M15 direction
+    // prompt below gives Alpha the full M15 picture directly to read.
+    // SSOT: MarketDataService is the single authority for candle data.
+    // ═══════════════════════════════════════════════════════════════════
+    if (styleName === 'MICRO_INTRADAY') {
+      try {
+        const mds = MarketDataService.getInstance();
+        const m15DirCandles = await mds.getCandles(marketContext.symbol, 'M15', 10);
+
+        if (m15DirCandles && m15DirCandles.length >= 5) {
+          const recentM15Dir = m15DirCandles.slice(0, 10).reverse();
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+          const m15DirLines: string[] = recentM15Dir.map((c, i) => {
+            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            const totalRange = (c.high - c.low) / pipInfo.pipValue;
+            const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
+            const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
+          });
+
+          const lastM15Dir = recentM15Dir[recentM15Dir.length - 1];
+          const prevM15Dir = recentM15Dir.length >= 2 ? recentM15Dir[recentM15Dir.length - 2] : lastM15Dir;
+          const m15DirTrend = lastM15Dir.close > prevM15Dir.close ? 'BULLISH' : lastM15Dir.close < prevM15Dir.close ? 'BEARISH' : 'NEUTRAL';
+          const lastM15DirBody = Math.abs(lastM15Dir.close - lastM15Dir.open) / pipInfo.pipValue;
+          const lastM15DirUpperWick = (lastM15Dir.high - Math.max(lastM15Dir.open, lastM15Dir.close)) / pipInfo.pipValue;
+          const lastM15DirLowerWick = (Math.min(lastM15Dir.open, lastM15Dir.close) - lastM15Dir.low) / pipInfo.pipValue;
+          const m15DirRejectionWick = lastM15DirUpperWick > lastM15DirBody * 1.5 || lastM15DirLowerWick > lastM15DirBody * 1.5;
+
+          m15SwingHighMicro = Math.max(...recentM15Dir.map(c => c.high));
+          m15SwingLowMicro = Math.min(...recentM15Dir.map(c => c.low));
+          const m15DirRangePips = (m15SwingHighMicro - m15SwingLowMicro) / pipInfo.pipValue;
+
+          let m15DirConsecutive = 1;
+          for (let i = recentM15Dir.length - 2; i >= 0; i--) {
+            const prevDir = recentM15Dir[i].close > recentM15Dir[i].open ? 'UP' : 'DN';
+            const lastDir = lastM15Dir.close > lastM15Dir.open ? 'UP' : 'DN';
+            if (prevDir === lastDir) m15DirConsecutive++;
+            else break;
+          }
+
+          const m15DirBOSBull = recentM15Dir.length >= 2 && lastM15Dir.close > recentM15Dir[recentM15Dir.length - 2].high;
+          const m15DirBOSBear = recentM15Dir.length >= 2 && lastM15Dir.close < recentM15Dir[recentM15Dir.length - 2].low;
+          const m15DirSweepWickBull = recentM15Dir.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = Math.min(c.open, c.close) - c.low;
+            return body > 0 && wick / body >= 1.5;
+          });
+          const m15DirSweepWickBear = recentM15Dir.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = c.high - Math.max(c.open, c.close);
+            return body > 0 && wick / body >= 1.5;
+          });
+
+          m15DirectionPromptMicro = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M15 DIRECTION CONTEXT — MICRO_INTRADAY (${marketContext.symbol})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M15 is the direction timeframe for MICRO_INTRADAY. The M15 candle sequence shows where the trend stands at the 15-minute level. The M15 High/Low are the structural boundaries the M5 entry must align with.
+
+${m15DirLines.join('\n')}
+
+M15 DIRECTION SUMMARY:
+- M15 Structural Range (last ${recentM15Dir.length} candles): ${m15DirRangePips.toFixed(1)} pips | High: ${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} | Low: ${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}
+- M15 Current trend direction: ${m15DirTrend}
+- Consecutive same-direction M15 candles: ${m15DirConsecutive}
+- Last M15 candle: ${m15DirRejectionWick ? 'REJECTION WICK detected — possible exhaustion or reversal at M15 level' : 'Normal candle — no strong wick signal'}
+- M15 BOS BULL (last M15 close > prior M15 high): ${m15DirBOSBull ? 'YES — bullish M15 break of structure confirmed' : 'NO'}
+- M15 BOS BEAR (last M15 close < prior M15 low): ${m15DirBOSBear ? 'YES — bearish M15 break of structure confirmed' : 'NO'}
+- M15 SWEEP WICK BULL (lower wick ≥1.5x body, last 2 candles): ${m15DirSweepWickBull ? 'YES — bullish absorption on M15' : 'NO'}
+- M15 SWEEP WICK BEAR (upper wick ≥1.5x body, last 2 candles): ${m15DirSweepWickBear ? 'YES — bearish absorption on M15' : 'NO'}
+
+The M15 structural high and low above are the reference points for the move stage advisory. I read the M15 candle sequence directly to assess whether the M5 entry direction is aligned with the M15 trend.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] M15 Direction (MICRO_INTRADAY): ${recentM15Dir.length} candles, trend=${m15DirTrend}, BOS_BULL=${m15DirBOSBull} BOS_BEAR=${m15DirBOSBear}, High=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} Low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}`);
+        } else {
+          m15DirectionPromptMicro = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M15 DIRECTION (${marketContext.symbol}) — DATA UNAVAILABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: M15 direction candles unavailable (${m15DirCandles?.length ?? 0} found, need ≥5). M15 structural high/low cannot be computed. ATR-traveled in the move stage advisory is measured from M5 window only — treat conservatively.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.warn(`[Alpha Coordinator] M15 direction data insufficient for MICRO_INTRADAY (${m15DirCandles?.length ?? 0} candles)`);
+        }
+      } catch (error) {
+        m15DirectionPromptMicro = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M15 DIRECTION (${marketContext.symbol}) — FETCH ERROR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: M15 direction fetch failed. M15 structural high/low unavailable. ATR-traveled is from M5 window only.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        console.warn('[Alpha Coordinator] M15 direction fetch failed for MICRO_INTRADAY (non-blocking):', error instanceof Error ? error.message : 'Unknown');
       }
     }
 
@@ -3671,6 +3815,7 @@ ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
 ${htfCandlePrompt}
 ${m5SubConfirmationPrompt}
+${m15DirectionPromptMicro}
 ${m15ReferencePrompt}
 ${h1CampaignPrompt}
 ${d1ContextPrompt}

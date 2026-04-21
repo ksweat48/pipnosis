@@ -857,24 +857,18 @@ export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isMicro = style === 'MICRO_INTRADAY';
   const isIntraday = style === 'INTRADAY';
   const isScalp = style === 'SCALP';
-  // SSOT (timeframe-hierarchy.ts STYLE_MTF_CONFIGS post CCIP-2026-04-08 cascade shift):
-  // SCALP:          entry=M1,  trend=M5,  context=M15  → primary=M5,  control=M15, confirmation=M1
-  // MICRO_INTRADAY: entry=M5,  trend=M15, context=H1   → primary=M5,  control=H1,  confirmation=M15
-  // INTRADAY:       entry=M15, trend=H1,  context=H4   → primary=M15, control=H4,  confirmation=H1
+  // SSOT (timeframe-hierarchy.ts STYLE_MTF_CONFIGS + coordinator-alpha PRIMARY_TF_MAP):
+  // CCIP-2026-04-21: SCALP reverted from M1 back to M5 as entry lens.
+  // SCALP:          entry=M5  (20 candles), direction=M15 (advisory), context=H1 (advisory)
+  // MICRO_INTRADAY: entry=M5  (30 candles), direction=M15 (10 candles), control=H1 (10 candles)
+  // INTRADAY:       entry=M15 (20 candles), direction=H1  (10 candles), control=H4 (8 candles)
   //
-  // SCALP NOTE: SSOT designates M1 as entry but the entire SCALP pipeline operates with
-  // CCIP-2026-04-11: SCALP primary lens migrated from M5 to M1.
-  // SCALP: M1 = entry lens (PRIMARY_TF_MAP = M1, recentPrimary = M1 candles)
-  //        M5 = trend validation and TP structural reference (confirmationTF)
-  //        M15 = session context (controlTF)
-  // MICRO_INTRADAY / INTRADAY: unchanged.
-  //
-  // primary = entry lens (Q1 direction source, Q9 wicks)
-  // control = context TF (Q12 market phase, range position, bigger picture)
-  // confirmation = trend/validation TF (Q4 momentum timing, trigger validity)
-  const primaryTF = isScalp ? 'M1' : isMicro ? 'M5' : 'M15';
+  // primary = entry lens (Q1 direction source, Q9 wicks, Q4 momentum)
+  // confirmation = direction TF (validates trend alignment for the entry)
+  // control = context TF (Q12 market phase, range position, TP2 structural reference)
+  const primaryTF = isScalp ? 'M5' : isMicro ? 'M5' : 'M15';
   const controlTF = isScalp ? 'M15' : isMicro ? 'H1' : 'H4';
-  const confirmationTF = isScalp ? 'M5' : isMicro ? 'M15' : 'H1';
+  const confirmationTF = isScalp ? 'M15' : isMicro ? 'M15' : 'H1';
 
   const arenaWalls = `HARD STOPS — mathematical impossibilities and data integrity gates only:
 - GEOMETRY: BUY requires SL < Entry < TP. SELL requires TP < Entry < SL. Any inversion = no structure.
