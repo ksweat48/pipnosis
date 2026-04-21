@@ -1747,18 +1747,19 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: SCALP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are operating as a M1 SCALP trader.
-Timeframe stack: M1 (entry lens — my primary signal) | M5 (trend validation and direction confirmation) | M15 (context and session bias).
-I read M1 candles as my primary entry signal. M5 confirms the trend direction — it tells me which way energy is moving. M15 gives session bias. M5 structure does NOT define my exit destination — it defines my directional context.
-TP is where the M1 leg exhausts. I am trading a M1 momentum move. My exit is where the M1 candle sequence visibly runs out of energy — a prior M1 swing already printed, equal highs/lows already established on M1, pace fading on the M1 candle sequence. I do not target a M5 structural level as a destination. I exit where this M1 leg dies.
+You are operating as a M5 SCALP trader.
+Timeframe stack: M5 (entry lens — my primary signal) | M15 (trend validation and direction confirmation) | H1 (context and session bias).
+I read M5 candles as my primary entry signal. M15 confirms the trend direction — it tells me which way structural energy is aligned. H1 gives session bias. M15 and H1 structure do NOT define my exit destination — they define my directional context.
+TP is where the M5 leg exhausts. I am trading a M5 momentum move. My exit is where the M5 candle sequence visibly runs out of energy — a prior M5 swing already printed in the direction of travel, equal highs/lows already established on M5, pace fading on the M5 candle bodies. I do not target a M15 structural level as a destination. I exit where this M5 leg dies.
+M1 is timing refinement only. If M5 structure is clearly present and M1 is choppy or indecisive, I still execute — I use a M1 candle close as my timing entry signal, not as a confirmation gate. M1 choppiness does NOT block a clean M5 setup.
 
 HUNTER'S TP CONTRACT (SCALP):
-I am a hunter. My first question is: where does this M1 leg run out of energy? I look for: a prior M1 swing high/low already printed in the direction of travel, M1 equal highs/lows clustering that signal absorption, M1 candle bodies compressing and wicks extending (pace fading), a M1 FVG already filled. That is my TP zone — the point of momentum exhaustion, not the structural destination.
-M5 tells me the direction is valid. It does not tell me where to exit. The exit is the M1 leg's natural endpoint.
-I decide the TP. I name the specific M1 exhaustion signal I am targeting AND state how many pips from entry it sits AND why the M1 momentum is most likely to die at that exact location. No fixed buffers. No formulas. I read the M1 tape and commit.
-Name the specific M1 structural level you are entering from in m1_structural_confirmation.
-Format: "[structure type] at [exact price] — [what M5 context confirms it]". Example: "M1 BOS at 1.08230 confirmed by M5 bullish trend bias".
-Valid M1 anchors: named M1 swing high/low, M1 FVG, M1 BOS, M1 EMA rejection, M1 equal highs/lows, M1 range boundary, session open level.
+I am a hunter. My first question is: where does this M5 leg run out of energy? I look for: a prior M5 swing high/low already printed in the direction of travel, M5 equal highs/lows clustering that signal absorption, M5 candle bodies compressing and wicks extending (pace fading), a M5 FVG already filled. That is my TP zone — the point of M5 momentum exhaustion, not the structural destination.
+M15 tells me the direction is valid. H1 tells me the macro story. Neither tells me where to exit. The exit is the M5 leg's natural endpoint.
+I decide the TP. I name the specific M5 exhaustion signal I am targeting AND state how many pips from entry it sits AND why the M5 momentum is most likely to die at that exact location. No fixed buffers. No formulas. I read the M5 tape and commit.
+Name the specific M5 structural level you are entering from in m1_structural_confirmation.
+Format: "[structure type] at [exact price] — [what M15 context confirms it]". Example: "M5 BOS at 1.08230 confirmed by M15 bullish trend bias".
+Valid M5 anchors: named M5 swing high/low, M5 FVG, M5 BOS, M5 EMA rejection, M5 equal highs/lows, M5 range boundary, session open level, M5 sweep reclaim.
 Record m1_structural_confirmation, scalp_momentum_phase, and scalp_atr_traveled in the JSON response — these are audit fields required regardless of action.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
@@ -2018,19 +2019,22 @@ VALIDATION REMINDERS:
     // ═══════════════════════════════════════════════════════════════════
     // PRIMARY TIMEFRAME CANDLE CONTEXT (STYLE-AWARE - for entry advisory)
     // SSOT: MarketDataService is the single authority for candle data
-    // CCIP-2026-04-11: SCALP primary lens migrated from M5 to M1.
-    // Root cause: M5 as SCALP entry lens caused trades to hold through M5 legs
-    // instead of M1 legs, resulting in over-extension and stop-outs.
-    // SSOT authority: timeframe-hierarchy.ts STYLE_MTF_CONFIGS already declared
-    // M1 as SCALP entry TF — this map now honours that declaration.
-    // SCALP:          entry=M1 (20 candles), trend/TP-ref=M5, context=M15
+    // CCIP-2026-04-21: SCALP primary lens REVERTED from M1 back to M5.
+    // Reason: M1 primary caused Alpha to require M1 structural confirmation
+    // (M1 BOS, M1 EMA rejection) that never fires during clean M5 setups in
+    // low-volatility sessions. Alpha missed multiple valid setups correctly
+    // identified by the hunt readiness scanner (which operates on M5).
+    // Fix: M5 is the SCALP entry lens. M1 is timing refinement only —
+    // M5 setup present + M1 choppy = still execute, use M1 close as timing.
+    // Stop-out risk addressed through TP at M5 leg exhaustion, not TF demotion.
+    // SCALP:          entry=M5 (20 candles), trend/TP-ref=M15, context=H1
     // MICRO_INTRADAY: entry=M5 (15 candles), trend=M15, context=H1
     // INTRADAY:       entry=M15 (15 candles), trend=H1, context=H4
-    // ATR NOTE: SCALP stop sizing uses M5 ATR (atr20) — M1 ATR is too noisy.
+    // ATR NOTE: SCALP stop sizing uses M5 ATR (atr20).
     // PRIMARY_TF_MAP fetches the entry timeframe candles — the primary signal lens.
     // ═══════════════════════════════════════════════════════════════════
     const PRIMARY_TF_MAP: Record<string, { timeframe: string; label: string; candleCount: number }> = {
-      'SCALP': { timeframe: 'M1', label: 'M1', candleCount: 20 },
+      'SCALP': { timeframe: 'M5', label: 'M5', candleCount: 20 },
       'MICRO_INTRADAY': { timeframe: 'M5', label: 'M5', candleCount: 15 },
       'INTRADAY': { timeframe: 'M15', label: 'M15', candleCount: 15 },
     };
