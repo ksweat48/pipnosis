@@ -824,6 +824,7 @@ class GoalSessionLiveEngine {
       const marketStates: FullMarketState[] = tradeableSnapshots.map(snapshot => ({
         symbol: snapshot.symbol,
         price: snapshot.price,
+        livePrice: snapshot.livePrice,
         ema20: snapshot.ema20,
         ema50: snapshot.ema50,
         ema200: snapshot.ema200,

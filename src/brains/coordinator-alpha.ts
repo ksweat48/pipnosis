@@ -215,7 +215,8 @@ export interface MarketContext {
   symbol: string;
   regime: string;      // bull/bear/side
   volatility: string;  // low/med/high
-  price: number;
+  price: number;       // Last closed candle close — structural analysis reference
+  livePrice?: number;  // Live market mid price at snapshot build time — Alpha uses for entry planning
   /**
    * Average True Range with explicit timeframe tracking
    * Now uses typed ATRValue for SSOT compliance
@@ -951,7 +952,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
     let regimeLocationConflictAdvisory = '';
     {
       const regimeCategory = marketContext.regime || regimeSnapshot?.currentRegime || regimeSnapshot?.category || '';
-      const currentPx = marketContext.price;
+      const currentPx = marketContext.livePrice ?? marketContext.price;
       const swingHigh = briefing?.intelligence?.swingHigh;
       const swingLow = briefing?.intelligence?.swingLow;
       if (swingHigh && swingLow && swingHigh > swingLow) {
@@ -1457,7 +1458,9 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
           console.warn('[Alpha Coordinator] Failed to emit stop calculation thought:', err);
         });
       }
-      const entryPrice = marketContext.price;
+      // CCIP-2026-0421-LIVE-PRICE: Use live price for stop calculation context so
+      // ATR-derived anchor prices reflect where the market actually is.
+      const entryPrice = marketContext.livePrice ?? marketContext.price;
 
       // CCIP 2026-04-08: Style-differentiated ATR timeframe for SL width (cascade shift).
       // SCALP → M5 ATR (atr20). Entry is now M1 but ATR stays M5 (M1 ATR too noisy for stops).
@@ -1556,7 +1559,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         : 'SCALP';
 
       const atrValue = extractATRValue(marketContext.atr);
-      const atrPercent = (atrValue / marketContext.price) * 100;
+      const atrPercent = (atrValue / (marketContext.livePrice ?? marketContext.price)) * 100;
       computedAtrPercent = atrPercent;
       logATRUsage('Feasibility check', marketContext.atr20 ?? marketContext.atr);
 
@@ -1586,7 +1589,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         assetClass,
         requestedStyle,
         requestedRiskMode: riskMode.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH',
-        price: marketContext.price,
+        price: marketContext.livePrice ?? marketContext.price,
         atrAbs: atrValue, // Use already extracted atrValue from above
         atrPercent,
         goalContext: goalContext ? {
@@ -3053,7 +3056,7 @@ SCALP DIRECTION ALIGNMENT USING H1:
           ? new Date(prevDayCandle.time * 1000).toISOString().split('T')[0]
           : 'N/A';
 
-        const currentPrice = marketContext.price;
+        const currentPrice = marketContext.livePrice ?? marketContext.price;
         const distToPDH = Math.abs(currentPrice - prevDayHigh) / pipInfo.pipValue;
         const distToPDL = Math.abs(currentPrice - prevDayLow) / pipInfo.pipValue;
 
@@ -3656,6 +3659,7 @@ ${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskConte
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Current Market Price (${marketContext.symbol}): ${(marketContext.livePrice ?? marketContext.price).toFixed(pipInfoForLegend.decimalPlaces)} ← USE THIS as your entry/SL/TP anchor
   Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} | ${volatilityRegime.recommendation}
   Spread (${marketContext.symbol}): ~${getEstimatedSpreadPips(marketContext.symbol).toFixed(1)} pips
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━

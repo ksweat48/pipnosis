@@ -61,7 +61,8 @@ import { omega9ConstraintProvider } from './omega9-constraint-provider';
 
 export interface FullMarketState {
   symbol: string;
-  price: number;
+  price: number;      // Last closed candle close — structural analysis reference
+  livePrice?: number; // Live market mid price — Alpha uses this for entry/SL/TP planning
   ema20: number;
   ema50: number;
   ema200: number;
@@ -450,6 +451,7 @@ class AlphaOmegaOrchestrator {
       regime: marketState.trend,
       volatility: marketState.volatility,
       price: marketState.price,
+      livePrice: marketState.livePrice,
       atr: marketState.atr,
       // atr20 is sourced from the style's ATR timeframe snapshot (not the entry timeframe).
       // For SCALP: M5 snapshot.atr (deliberate — M1 ATR is too noisy for stop sizing).

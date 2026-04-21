@@ -27,12 +27,15 @@ import type { AggregatedSentiment } from './sentiment-aggregator';
 import { marketDataService } from './market-data-service';
 import { TIME_MS } from '../config/time-constants';
 import { logger } from '../lib/logger';
+import { priceCoordinator } from './coordinators/price-coordinator';
 
 export interface MarketSnapshotData {
   // Core Price Data
   symbol: string;
   timeframe: Timeframe;
-  price: number;
+  price: number;          // Last closed candle close — used for structural analysis (EMA, VWAP, regime)
+  livePrice: number;      // Live market mid price at snapshot build time — Alpha uses this for entry planning
+  livePriceSource: 'realtime' | 'candle_fallback'; // Diagnostic: which source provided livePrice
   timestamp: number;
 
   // Raw Candles
@@ -244,6 +247,26 @@ class MarketSnapshotCache {
     const { swingHigh, swingLow } = this.detectSwingPoints(candles);
 
     const currentPrice = candles[candles.length - 1].close;
+
+    // CCIP-2026-0421-LIVE-PRICE: Fetch live market price so Alpha plans entries
+    // from where the market actually is, not from a potentially minutes-old candle close.
+    // The autonomous price poller already refreshed realtime_prices earlier in the scan cycle,
+    // so this read is cheap and will almost always hit a fresh row.
+    // Fallback: if realtime price is unavailable, use candle close (same as before).
+    let livePrice = currentPrice;
+    let livePriceSource: 'realtime' | 'candle_fallback' = 'candle_fallback';
+    try {
+      const livePriceResult = await priceCoordinator.getPrice(symbol, { allowStale: true, useCacheFirst: true });
+      const priceData = livePriceResult?.price;
+      if (livePriceResult?.success && priceData?.mid && Number.isFinite(priceData.mid) && priceData.mid > 0 && !priceData.isCriticallyStale) {
+        livePrice = priceData.mid;
+        livePriceSource = 'realtime';
+      }
+    } catch {
+      // Non-fatal: fall back to candle close
+    }
+    logger.debug('[SnapshotCache] Live price resolved', { symbol, livePrice, livePriceSource, candleClose: currentPrice });
+
     const snapshotHash = generateSnapshotHash(candles);
 
     const latestCandle = candles[candles.length - 1];
@@ -299,6 +322,8 @@ class MarketSnapshotCache {
       symbol,
       timeframe,
       price: currentPrice,
+      livePrice,
+      livePriceSource,
       timestamp: Date.now(),
       candles,
       ...indicators,
