@@ -82,7 +82,7 @@ import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
 import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER } from '../config/confidence-tier';
-import { formatRiskProfileForLLM, getTypicalStopPipsRange } from '../config/risk-strategy-profiles';
+import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
@@ -4441,25 +4441,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
 
         console.log('[Alpha Stop Analysis] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      }
-
-      // CCIP-2026-0420A: Hard SL floor enforcement — style-differentiated minimum pip floors.
-      // Prevents Alpha from placing INTRADAY/MICRO_INTRADAY stops at SCALP-width distances.
-      if (decision.action !== 'NO_TRADE' && decision.stopLoss != null && decision.entry != null) {
-        const resolvedStyleForFloor = (decision.resolvedStyle ?? 'SCALP') as 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
-        const riskModeForFloor = marketContext.riskMode ?? 'high';
-        const floorRange = getTypicalStopPipsRange(riskModeForFloor, marketContext.symbol, resolvedStyleForFloor);
-        const currentSLPips = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
-        if (currentSLPips < floorRange.min) {
-          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-          const requiredPips = floorRange.min;
-          const isBuy = decision.direction === 'BUY';
-          const expandedSL = isBuy
-            ? decision.entry - requiredPips * pipInfo.pipSize
-            : decision.entry + requiredPips * pipInfo.pipSize;
-          console.log(`[SL Floor] CCIP-2026-0420A: Alpha SL ${currentSLPips.toFixed(1)} pips < ${resolvedStyleForFloor} floor ${requiredPips} pips for ${marketContext.symbol}. Expanding SL ${decision.stopLoss.toFixed(5)} -> ${expandedSL.toFixed(5)}.`);
-          decision.stopLoss = expandedSL;
-        }
       }
 
       decision.omega_summary = this.generateOmegaSummary(votes);
