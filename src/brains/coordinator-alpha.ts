@@ -1654,7 +1654,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
       dualArenaWalls = omega9ConstraintProvider.generateDualArenaWalls({
         symbol: marketContext.symbol,
         entry: marketContext.price,
-        atr: extractATRValue(marketContext.atr),
+        atr: extractATRValue(marketContext[preferredAtrField as keyof typeof marketContext] as number | import('../types/atr').ATRValue | undefined) || extractATRValue(marketContext.atr),
         tradeStyle: canonicalTradeStyle,
         riskMode,
         currentSession: sessionContext.currentSession,
@@ -1684,7 +1684,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         symbol: marketContext.symbol,
         entry: marketContext.price,
         direction: 'BUY',
-        atr: extractATRValue(marketContext.atr),
+        atr: extractATRValue(marketContext[preferredAtrField as keyof typeof marketContext] as number | import('../types/atr').ATRValue | undefined) || extractATRValue(marketContext.atr),
         riskMode,
         tradeStyle,
         currentSession: sessionContext.currentSession,
