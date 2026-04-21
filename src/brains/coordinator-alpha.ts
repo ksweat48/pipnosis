@@ -1818,56 +1818,17 @@ The trade_management object in my response documents my campaign plan for this t
       // information Alpha can see and act on — not a pre-decision correction.
       // Accountability requires Alpha's SL to be exactly what Alpha chose,
       // not what the coordinator silently lifted it to before Alpha saw the data.
-      const buyAnchorPips = buyStopAnchor.stopLossPips;
-      const buyAnchorPrice = buyStopAnchor.stopLossPrice;
-      const sellAnchorPips = sellStopAnchor.stopLossPips;
-      const sellAnchorPrice = sellStopAnchor.stopLossPrice;
-
-      const sweepZoneDirective = (() => {
-        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-        const buyAdj = buyStopAnchor.sweepAwareAdjustment;
-        const sellAdj = sellStopAnchor.sweepAwareAdjustment;
-        const adj = buyAdj?.applied ? buyAdj : (sellAdj?.applied ? sellAdj : null);
-
-        // Aligned sweep adjustment (anchor was computed beyond sweep extreme)
-        let alignedSweepText = '';
-        if (adj && sweepContextForStop) {
-          const sweepTypeLabel = sweepContextForStop.type === 'low' ? 'LOW SWEEP' : 'HIGH SWEEP';
-          const candlesLabel = sweepContextForStop.candles_ago === 0 ? 'just now' : `${sweepContextForStop.candles_ago} candle(s) ago`;
-          const bosLabel = sweepContextForStop.has_bos ? 'BOS CONFIRMED' : 'awaiting BOS';
-          const bufferPips = adj.bufferPips;
-          const sweepPrice = adj.sweepExtremePrice;
-          const clearanceBuy = (sweepPrice - bufferPips * pipInfo.pipValue).toFixed(5);
-          const clearanceSell = (sweepPrice + bufferPips * pipInfo.pipValue).toFixed(5);
-          alignedSweepText = `
-SWEEP ZONE ADVISORY (${tradeStyle}): ${sweepTypeLabel} confirmed ${candlesLabel} [${bosLabel}]. Sweep extreme: ${sweepPrice.toFixed(5)}.
-The SL anchor above was computed to clear the swept zone (buffer: ${bufferPips.toFixed(1)} pips). You retain full SL placement authority.
-  - If LONG: structural best practice places SL below ${clearanceBuy} (sweep extreme minus buffer).
-  - If SHORT: structural best practice places SL above ${clearanceSell} (sweep extreme plus buffer).
-A stop inside the swept zone risks a liquidity-driven stopout. Factor this into your structural assessment.`;
-        }
-
-        // Cross-direction cluster proximity advisory (stop NOT adjusted — data for Alpha's reasoning)
-        // CCIP-2026-0310-OMEGA8-BIDIRECTIONAL: Omega-8 saw a sweep in the opposite direction
-        // and its cluster price is within proximity of the calculated SL anchor. This is advisory
-        // data only — Alpha must reason about whether his SL sits in a liquidity magnet zone.
-        const buyCross = buyStopAnchor.crossDirectionClusterWarning;
-        const sellCross = sellStopAnchor.crossDirectionClusterWarning;
-        const cross = buyCross ?? sellCross;
-        let crossDirectionText = '';
-        if (cross) {
-          const sweepLabel = cross.sweepType === 'high' ? 'HIGH SWEEP' : 'LOW SWEEP';
-          const dirLabel = cross.direction === 'buy' ? 'LONG' : 'SHORT';
-          crossDirectionText = `
-OMEGA-8 CLUSTER PROXIMITY ADVISORY (${dirLabel} SL): A ${sweepLabel} was detected. Its liquidity cluster at ${cross.clusterPrice.toFixed(pipInfo.decimalPlaces)} is only ${cross.clusterPipsFromStop.toFixed(1)} pips from your ${dirLabel} SL anchor.
-This cluster was swept in the OPPOSITE direction — it is residual liquidity sitting near your stop zone. Your SL may be inside a magnet zone. This is advisory data, not a hard rule.
-Consider in Q9: Is this cluster a risk to your SL? Should you widen to clear it, or does structure justify the current placement?`;
-        }
-
-        return alignedSweepText + crossDirectionText;
-      })();
 
       // CCIP-2026-0421 (ALPHA SL SOVEREIGNTY):
+      // sweepZoneDirective removed in full. It referenced the pre-computed SL anchor
+      // ("The SL anchor above was computed to clear the swept zone...") and recommended
+      // specific clearance prices for LONG/SHORT SL placement. Alpha reads the raw
+      // Omega-8 sweep data directly and decides his own SL placement from structure.
+      //
+      // buyAnchorPips/buyAnchorPrice/sellAnchorPips/sellAnchorPrice extraction also
+      // removed — those values are not injected into the prompt anywhere.
+      //
+      // CCIP-2026-0421 (ALPHA SL SOVEREIGNTY) continued:
       // Pre-computed SL anchor prices removed from the prompt entirely.
       //
       // REMOVED:
@@ -2045,10 +2006,10 @@ VALIDATION REMINDERS:
     let intradayMovePhaseContext = '';
     let microIntradayMovePhaseContext = '';
     let scalpMovePhaseContext = '';
-    // CCIP-2026-0310-SL-STRUCTURAL-DISTANCE: Computed inside the primary candle block
-    // once recentPrimary is available. Appended to stopLossDirective after candles load.
-    // Advisory data only — no mandate, no enforcement.
-    let slStructuralDistanceNote = '';
+    // CCIP-2026-0421 (ALPHA SL SOVEREIGNTY): slStructuralDistanceNote removed.
+    // It injected the pre-computed SL anchor price back into the prompt twice
+    // (IF LONG SL / IF SHORT SL) along with "INSIDE/BELOW the wick range" framing.
+    // Alpha reads the primary-TF candles directly and assesses wick proximity himself.
     try {
       const mds = MarketDataService.getInstance();
       const primaryCandles = await mds.getCandles(marketContext.symbol, primaryTfConfig.timeframe, primaryTfConfig.candleCount);
@@ -2108,67 +2069,10 @@ VALIDATION REMINDERS:
         const lastLowerWick = (Math.min(lastCandle.open, lastCandle.close) - lastCandle.low) / pipInfo.pipValue;
         const hasRejectionWick = lastUpperWick > lastBody * 1.5 || lastLowerWick > lastBody * 1.5;
 
-        // ═══════════════════════════════════════════════════════════════════
-        // SL STRUCTURAL DISTANCE NOTE (CCIP-2026-0310-SL-STRUCTURAL-DISTANCE)
-        // Advisory data only — gives Alpha the measured distance between each
-        // SL anchor and the nearest primary-TF wick extreme (swing low for BUY,
-        // swing high for SELL). No enforcement, no mandate. Alpha self-assesses
-        // using Q9 and sl_structural_reference.
-        // ═══════════════════════════════════════════════════════════════════
-        if (buyStopAnchor && sellStopAnchor) {
-          // Find the N nearest distinct wick lows/highs within the last 6 primary candles
-          const scanCandles = recentPrimary.slice(-6);
-
-          // Nearest swing LOW: the lowest low-wick extreme in the scan window
-          // (relevant for BUY SL, which sits below entry)
-          let nearestSwingLow = scanCandles[0].low;
-          let nearestSwingLowIdx = 0;
-          for (let i = 1; i < scanCandles.length; i++) {
-            if (scanCandles[i].low < nearestSwingLow) {
-              nearestSwingLow = scanCandles[i].low;
-              nearestSwingLowIdx = i;
-            }
-          }
-
-          // Nearest swing HIGH: the highest high-wick extreme in the scan window
-          // (relevant for SELL SL, which sits above entry)
-          let nearestSwingHigh = scanCandles[0].high;
-          let nearestSwingHighIdx = 0;
-          for (let i = 1; i < scanCandles.length; i++) {
-            if (scanCandles[i].high > nearestSwingHigh) {
-              nearestSwingHigh = scanCandles[i].high;
-              nearestSwingHighIdx = i;
-            }
-          }
-
-          const buySLPrice = buyStopAnchor.stopLossPrice;
-          const sellSLPrice = sellStopAnchor.stopLossPrice;
-
-          const buySlToSwingLowPips = Math.abs(buySLPrice - nearestSwingLow) / pipInfo.pipValue;
-          const sellSlToSwingHighPips = Math.abs(sellSLPrice - nearestSwingHigh) / pipInfo.pipValue;
-
-          const buySLAboveSwingLow = buySLPrice > nearestSwingLow;
-          const sellSLBelowSwingHigh = sellSLPrice < nearestSwingHigh;
-
-          const buySLStatus = buySLAboveSwingLow
-            ? `INSIDE the wick range (SL ${buySLPrice.toFixed(pipInfo.decimalPlaces)} > swing low ${nearestSwingLow.toFixed(pipInfo.decimalPlaces)} by ${buySlToSwingLowPips.toFixed(1)}p — SL may be swept)`
-            : `BELOW the wick range (SL ${buySLPrice.toFixed(pipInfo.decimalPlaces)} < swing low ${nearestSwingLow.toFixed(pipInfo.decimalPlaces)} by ${buySlToSwingLowPips.toFixed(1)}p — SL clears the wick extreme)`;
-
-          const sellSLStatus = sellSLBelowSwingHigh
-            ? `INSIDE the wick range (SL ${sellSLPrice.toFixed(pipInfo.decimalPlaces)} < swing high ${nearestSwingHigh.toFixed(pipInfo.decimalPlaces)} by ${sellSlToSwingHighPips.toFixed(1)}p — SL may be swept)`
-            : `ABOVE the wick range (SL ${sellSLPrice.toFixed(pipInfo.decimalPlaces)} > swing high ${nearestSwingHigh.toFixed(pipInfo.decimalPlaces)} by ${sellSlToSwingHighPips.toFixed(1)}p — SL clears the wick extreme)`;
-
-          slStructuralDistanceNote = `
-SL STRUCTURAL DISTANCE (${primaryTfConfig.label} — last 6 candles, advisory data):
-- Nearest ${primaryTfConfig.label} swing low: ${nearestSwingLow.toFixed(pipInfo.decimalPlaces)} (candle ${nearestSwingLowIdx + 1} of 6)
-- Nearest ${primaryTfConfig.label} swing high: ${nearestSwingHigh.toFixed(pipInfo.decimalPlaces)} (candle ${nearestSwingHighIdx + 1} of 6)
-- IF LONG SL (${buySLPrice.toFixed(pipInfo.decimalPlaces)}): ${buySLStatus}
-- IF SHORT SL (${sellSLPrice.toFixed(pipInfo.decimalPlaces)}): ${sellSLStatus}
-Reason in Q9 and sl_structural_reference: does your chosen SL clear the nearest ${primaryTfConfig.label} wick extreme, or does it sit inside a zone that has already been probed? This data is for your self-assessment — not a system rule.
-`;
-          // Append to stopLossDirective so it appears next to the SL anchor context
-          stopLossDirective += slStructuralDistanceNote;
-        }
+        // CCIP-2026-0421 (ALPHA SL SOVEREIGNTY): SL structural distance block removed.
+        // Alpha reads recentPrimary candles directly and identifies his own structural
+        // invalidation point without being shown pre-computed SL anchor prices or
+        // "INSIDE/BELOW the wick range" framing.
 
         // ═══════════════════════════════════════════════════════════════════
         // INTRADAY M15 MOVE PHASE & FAKEOUT ADVISORY
@@ -3753,8 +3657,7 @@ ${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskConte
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} | ${volatilityRegime.recommendation}
-  Stop Quality: ${stopQuality.score}/100 | ${stopQuality.recommendation}
-  Spread (${marketContext.symbol}): ~${getEstimatedSpreadPips(marketContext.symbol).toFixed(1)} pips | Min SL distance: ${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips (1.5x spread — SL inside this cannot survive the fill and will be hard-blocked)
+  Spread (${marketContext.symbol}): ~${getEstimatedSpreadPips(marketContext.symbol).toFixed(1)} pips
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
