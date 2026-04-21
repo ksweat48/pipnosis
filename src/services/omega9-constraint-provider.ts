@@ -632,61 +632,11 @@ class Omega9ConstraintProvider {
    * CRITICAL: If constraints are infeasible, includes full feasibility advisory from SSOT validator
    */
   formatConstraintsForPrompt(constraints: Omega9Constraints): string {
-    // Calculate absolute price ranges (SSOT: eliminates LLM arithmetic burden)
-    const absolutePrices = this.calculateAbsolutePriceRanges(constraints);
     const { symbol, entryPrice, direction } = constraints;
 
-    // Get symbol config for context
     const symbolConfig = getSymbolConfig(symbol);
     const displayName = symbolConfig?.displayName || symbol;
     const decimalPlaces = symbolConfig?.decimalPlaces || 5;
-
-    // Determine if constraints are tight (R:R below standard)
-    const tightConstraints = constraints.minRiskReward < TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
-
-    // CRITICAL: Build feasibility advisory from SSOT validator
-    let advisoryNote = '';
-    if (constraints.feasibilityStatus && !constraints.feasibilityStatus.isFeasible) {
-      const fs = constraints.feasibilityStatus;
-      advisoryNote = `
-╔════════════════════════════════════════════════════════════════════╗
-║           CONSTRAINT FEASIBILITY ADVISORY (FROM OMEGA-9)           ║
-╚════════════════════════════════════════════════════════════════════╝
-
-⚠️ MARKET REALITY VS STYLE REQUIREMENTS:
-
-Your original R:R requirement: ${fs.minRiskRewardRequired.toFixed(2)}:1
-Maximum market can deliver: ${fs.maxRiskRewardAchievable.toFixed(2)}:1
-Gap: ${((fs.minRiskRewardRequired - fs.maxRiskRewardAchievable) / fs.minRiskRewardRequired * 100).toFixed(1)}%
-
-Why: ${fs.conflictSource === 'SESSION_TIME' ? 'Session time constraint is limiting available TP distance' : 'Market volatility (ATR) insufficient for required R:R multiple'}
-
-${fs.advisoryMessage}
-
-YOUR DECISION OPTIONS:
-${fs.alphaOptions.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
-
-CRITICAL PRINCIPLE:
-This is NOT a trade error. This is market reality speaking.
-You retain FULL AUTHORITY to decide:
-✓ Accept reduced R:R if setup quality justifies it
-✓ Skip this trade and wait for better conditions (NO_TRADE)
-✓ Widen stop loss to improve R:R at current constraints
-✓ Accept higher position risk with lower R:R
-
-STYLE IMMUTABILITY: You MUST NOT upgrade or change the trade style. If the style cannot accommodate this trade, return NO_TRADE.
-
-Remember: Reduced profit > NO_TRADE > Forced compliance with impossible constraints.
-═══════════════════════════════════════════════════════════════════════
-`;
-    } else if (constraints.minRiskReward < TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM) {
-      advisoryNote = `
-⚠️ ADVISORY: Tight Market Conditions
-Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1 (below minimum ${TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM}:1).
-ADVISORY: Consider accepting lower R:R if setup quality justifies, or tighten SL.
-Remember: Reduced profit > NO_TRADE. You have FINAL AUTHORITY to proceed.
-`;
-    }
 
     return `
 TRADE CONTEXT:
@@ -806,17 +756,6 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
     const symbolConfig = getSymbolConfig(symbol);
     const dp = symbolConfig?.decimalPlaces || 5;
 
-    // Envelope walls — price-relative bounds derived from style and asset class.
-    // These are the ONLY pre-computed reference ranges. Alpha uses structure, not these numbers.
-    const longSlMin = walls.long.slPips.min.toFixed(1);
-    const longSlMax = walls.long.slPips.max.toFixed(1);
-    const longTpMin = walls.long.tpPips.min.toFixed(1);
-    const longTpMax = walls.long.tpPips.max.toFixed(1);
-    const shortSlMin = walls.short.slPips.min.toFixed(1);
-    const shortSlMax = walls.short.slPips.max.toFixed(1);
-    const shortTpMin = walls.short.tpPips.min.toFixed(1);
-    const shortTpMax = walls.short.tpPips.max.toFixed(1);
-
     const sections = [
       'TRADE IDENTITY:',
       `  Symbol: ${symbolConfig?.displayName || symbol} | Entry: ${entryPrice.toFixed(dp)} | Style: ${style} (${walls.timeframe}) | Risk: ${walls.riskMode.toUpperCase()}`,
@@ -824,12 +763,6 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
       '',
       'SESSION:',
       `  Time Remaining: ${walls.sessionTimeRemaining} min`,
-      '',
-      'STYLE ENVELOPE (structural reference — not a formula):',
-      `  IF LONG  → SL zone: ${longSlMin}-${longSlMax} pips behind entry | TP zone: ${longTpMin}-${longTpMax} pips from entry`,
-      `  IF SHORT → SL zone: ${shortSlMin}-${shortSlMax} pips behind entry | TP zone: ${shortTpMin}-${shortTpMax} pips from entry`,
-      `  These ranges describe what trades in this style typically look like. Your SL and TP are placed where STRUCTURE demands.`,
-      `  Placements outside these ranges are logged but not rejected. Omega-9 blocks only mathematical impossibilities.`,
     ];
 
     if (walls.correlationExposure) {
