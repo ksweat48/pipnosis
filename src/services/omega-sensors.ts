@@ -38,8 +38,11 @@ export interface OmegaSensors {
 
   // Momentum & Divergence
   rdiv: string;         // rsi_divergence: "bull" | "bear" | "none"
+  rdiv_candles: number; // how many candles the RSI divergence has been building (0 = none)
   mdif: number;         // macd_diff (MACD - signal)
   mdiv: string;         // macd_divergence: "bull" | "bear" | "none"
+  mom_delta: number;    // momentum deceleration: avg body size change last 3 vs prior 3 candles (negative = shrinking)
+  vol_ratio: number;    // current volume as ratio of 20-candle average (1.0 = average, >1.5 = surge)
 
   // Candle Patterns
   pat: {
@@ -237,6 +240,7 @@ function computeVolume(candles: Candle[]): {
   vol_s: number;
   atr_t: string;
   vol_r: string;
+  vol_ratio: number;
 } {
   const recent = candles.slice(-20);
   const current = candles[candles.length - 1];
@@ -256,7 +260,10 @@ function computeVolume(candles: Candle[]): {
   // Volume regime classification
   const vol_r = classifyVolumeRegime(vol, avgVol);
 
-  return { vol, vol_s, atr_t, vol_r };
+  // Volume ratio: current vs average (1.0 = average)
+  const vol_ratio = avgVol > 0 ? parseFloat((vol / avgVol).toFixed(2)) : 1.0;
+
+  return { vol, vol_s, atr_t, vol_r, vol_ratio };
 }
 
 /**
@@ -306,45 +313,70 @@ function computeMomentum(
   macdSignal: number
 ): {
   rdiv: string;
+  rdiv_candles: number;
   mdif: number;
   mdiv: string;
+  mom_delta: number;
 } {
-  const rdiv = detectRSIDivergence(candles, rsi);
+  const { flag: rdiv, candles: rdiv_candles } = detectRSIDivergence(candles, rsi);
   const mdif = parseFloat((macd - macdSignal).toFixed(4));
   const mdiv = detectMACDDivergence(candles, macd);
+  const mom_delta = computeMomentumDelta(candles);
 
-  return { rdiv, mdif, mdiv };
+  return { rdiv, rdiv_candles, mdif, mdiv, mom_delta };
 }
 
 /**
- * Detect RSI divergence
+ * Compute momentum deceleration.
+ * Compares avg body size of last 3 candles vs prior 3 candles.
+ * Negative value means bodies are shrinking (momentum dying).
+ * Returned as a ratio change: -0.4 means 40% body compression.
  */
-function detectRSIDivergence(candles: Candle[], currentRSI: number): string {
-  if (candles.length < 15) return 'none';
+function computeMomentumDelta(candles: Candle[]): number {
+  if (candles.length < 6) return 0;
+  const bodySize = (c: Candle) => Math.abs(c.close - c.open);
+  const recent = candles.slice(-3).map(bodySize);
+  const prior = candles.slice(-6, -3).map(bodySize);
+  const avgRecent = recent.reduce((a, b) => a + b, 0) / 3;
+  const avgPrior = prior.reduce((a, b) => a + b, 0) / 3;
+  if (avgPrior === 0) return 0;
+  return parseFloat(((avgRecent - avgPrior) / avgPrior).toFixed(3));
+}
+
+/**
+ * Detect RSI divergence and how many candles it has been building.
+ * Returns flag ("bull"|"bear"|"none") plus candle count (0 when none).
+ */
+function detectRSIDivergence(candles: Candle[], currentRSI: number): { flag: string; candles: number } {
+  if (candles.length < 15) return { flag: 'none', candles: 0 };
 
   const recent = candles.slice(-15);
   const currentPrice = candles[candles.length - 1].close;
   const previousPrice = recent[0].close;
+  const priceChange = (currentPrice - previousPrice) / previousPrice;
 
-  // Simplified divergence detection
-  // Bullish: Price makes lower low, RSI makes higher low
-  if (currentPrice < previousPrice && currentRSI > 30 && currentRSI < 50) {
-    // Assume RSI is not making lower low (simplified)
-    const priceChange = (currentPrice - previousPrice) / previousPrice;
-    if (priceChange < -0.02) { // 2% drop
-      return 'bull';
+  // Bullish divergence: price making lower low, RSI not making lower low
+  if (currentPrice < previousPrice && currentRSI > 30 && currentRSI < 50 && priceChange < -0.002) {
+    // Count how many consecutive candles have been declining while RSI holds above 30
+    let count = 0;
+    for (let i = candles.length - 1; i >= Math.max(0, candles.length - 15); i--) {
+      if (candles[i].close < (candles[i - 1]?.close ?? candles[i].close)) count++;
+      else break;
     }
+    return { flag: 'bull', candles: Math.max(count, 1) };
   }
 
-  // Bearish: Price makes higher high, RSI makes lower high
-  if (currentPrice > previousPrice && currentRSI > 50 && currentRSI < 80) {
-    const priceChange = (currentPrice - previousPrice) / previousPrice;
-    if (priceChange > 0.02) { // 2% gain
-      return 'bear';
+  // Bearish divergence: price making higher high, RSI not making higher high
+  if (currentPrice > previousPrice && currentRSI > 50 && currentRSI < 80 && priceChange > 0.002) {
+    let count = 0;
+    for (let i = candles.length - 1; i >= Math.max(0, candles.length - 15); i--) {
+      if (candles[i].close > (candles[i - 1]?.close ?? candles[i].close)) count++;
+      else break;
     }
+    return { flag: 'bear', candles: Math.max(count, 1) };
   }
 
-  return 'none';
+  return { flag: 'none', candles: 0 };
 }
 
 /**
@@ -584,9 +616,12 @@ function getDefaultSensors(): OmegaSensors {
     vol_s: 0,
     atr_t: 'flat',
     vol_r: 'mid',
+    vol_ratio: 1.0,
     rdiv: 'none',
+    rdiv_candles: 0,
     mdif: 0,
     mdiv: 'none',
+    mom_delta: 0,
     pat: {
       eng_b: 0,
       eng_s: 0,

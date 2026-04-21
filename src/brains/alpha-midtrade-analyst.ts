@@ -22,6 +22,7 @@ import { openAIClient } from '../services/openai-client';
 import { llmTokenTracker } from '../services/llm-token-tracker';
 import type { MidTradePlan } from '../services/mid-trade-plan-engine';
 import { getPairCharacterContext } from '../config/pair-personalities';
+import type { OmegaSensors } from '../services/omega-sensors';
 
 export type AlphaRecheckVerdict = 'HOLD' | 'CLOSE_NOW' | 'TAKE_PARTIAL' | 'TRAIL_SL';
 export type ThesisStatus = 'INTACT' | 'WEAKENING' | 'INVALIDATED';
@@ -66,6 +67,33 @@ export interface AlphaRecheckInput {
 
   // Candle hint (optional — used for momentum_dying trigger)
   candleHint?: string;
+
+  // Live market snapshot at recheck time (fresh indicators, not entry-time stale data)
+  liveSnapshot?: {
+    rsi: number;
+    momentum: number;
+    atrPercent: number;
+    trend: string;
+    trendScore: number;
+    cho: string;          // change_of_character: "bull" | "bear" | "none"
+    bos: string;          // break_of_structure: "bull" | "bear" | "none"
+    rdiv: string;         // rsi_divergence: "bull" | "bear" | "none"
+    rdiv_candles: number; // how many candles the divergence has been building
+    mdiv: string;         // macd_divergence: "bull" | "bear" | "none"
+    mom_delta: number;    // body size change: negative = momentum shrinking
+    vol_ratio: number;    // current volume vs 20-candle avg (1.0 = average)
+    vol_s: number;        // volume spike (1/0)
+    vol_r: string;        // volume regime: "low" | "mid" | "high"
+    atr_t: string;        // atr trend: "up" | "down" | "flat"
+    pin_b: number;        // bullish pin bar (1/0)
+    pin_s: number;        // bearish pin bar (1/0)
+    eng_b: number;        // bullish engulfing (1/0)
+    eng_s: number;        // bearish engulfing (1/0)
+    swingHigh: number;
+    swingLow: number;
+    support: number[];
+    resistance: number[];
+  } | null;
 }
 
 export interface AlphaRecheckResult {
@@ -216,6 +244,54 @@ function buildPrompt(input: AlphaRecheckInput): string {
       : input.originalReasoning;
     lines.push('');
     lines.push(`ORIGINAL REASONING SUMMARY: ${truncated}`);
+  }
+
+  if (input.liveSnapshot) {
+    const s = input.liveSnapshot;
+    lines.push('');
+    lines.push('LIVE MARKET STATE NOW (fresh — not entry-time data):');
+    lines.push(`  RSI: ${s.rsi.toFixed(1)} | Momentum: ${s.momentum >= 0 ? '+' : ''}${s.momentum.toFixed(4)}`);
+    lines.push(`  Trend: ${s.trend} (score: ${s.trendScore}) | ATR%: ${(s.atrPercent * 100).toFixed(3)}%`);
+
+    const structureNow: string[] = [];
+    if (s.cho !== 'none') structureNow.push(`CHoCH ${s.cho.toUpperCase()} fired`);
+    if (s.bos !== 'none') structureNow.push(`BOS ${s.bos.toUpperCase()}`);
+    if (structureNow.length > 0) lines.push(`  Structure: ${structureNow.join(' | ')}`);
+    else lines.push(`  Structure: No new BOS or CHoCH`);
+
+    const divergence: string[] = [];
+    if (s.rdiv !== 'none') divergence.push(`RSI divergence ${s.rdiv} (${s.rdiv_candles} candles building)`);
+    if (s.mdiv !== 'none') divergence.push(`MACD divergence ${s.mdiv}`);
+    lines.push(`  Divergence: ${divergence.length > 0 ? divergence.join(' | ') : 'none'}`);
+
+    const momDesc = s.mom_delta < -0.3
+      ? `SHRINKING FAST (${(s.mom_delta * 100).toFixed(0)}% body compression — exhaustion signal)`
+      : s.mom_delta < -0.1
+      ? `shrinking (${(s.mom_delta * 100).toFixed(0)}% compression)`
+      : s.mom_delta > 0.2
+      ? `expanding (${(s.mom_delta * 100).toFixed(0)}% body growth)`
+      : 'stable';
+    lines.push(`  Momentum candle bodies: ${momDesc}`);
+
+    const volDesc = s.vol_ratio >= 1.5
+      ? `SURGING (${s.vol_ratio.toFixed(1)}x avg) — ${s.vol_r}`
+      : s.vol_ratio <= 0.6
+      ? `LOW (${s.vol_ratio.toFixed(1)}x avg) — move may lack conviction`
+      : `normal (${s.vol_ratio.toFixed(1)}x avg)`;
+    lines.push(`  Volume: ${volDesc} | ATR trend: ${s.atr_t}`);
+
+    const patterns: string[] = [];
+    if (s.pin_b) patterns.push('bullish pin bar');
+    if (s.pin_s) patterns.push('bearish pin bar');
+    if (s.eng_b) patterns.push('bullish engulfing');
+    if (s.eng_s) patterns.push('bearish engulfing');
+    if (patterns.length > 0) lines.push(`  Candle patterns: ${patterns.join(', ')}`);
+
+    if (s.support.length > 0) lines.push(`  Nearest support: ${s.support[0]}`);
+    if (s.resistance.length > 0) lines.push(`  Nearest resistance: ${s.resistance[0]}`);
+    lines.push(`  Swing high: ${s.swingHigh} | Swing low: ${s.swingLow}`);
+    lines.push('');
+    lines.push('  USE THIS: Cross-reference the live state above against the original thesis. Has structure shifted? Is the reversal against you showing on high or low volume? Is momentum dying (body compression) or is the move against you accelerating?');
   }
 
   lines.push('');

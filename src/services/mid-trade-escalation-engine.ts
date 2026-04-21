@@ -43,6 +43,8 @@ import {
   type TriggerEvaluation,
 } from './mid-trade-plan-engine';
 import { calculatePnL } from '@/types/position';
+import { marketSnapshotCache } from './market-snapshot-cache';
+import type { Timeframe } from '@/config/timeframe-hierarchy';
 
 interface OpenTrade {
   id: string;
@@ -57,6 +59,7 @@ interface OpenTrade {
   take_profit_1: number | null;
   lot_size: number;
   opened_at: string | null;
+  trade_style: string | null;
   mid_trade_plan: MidTradePlan | null;
   alpha_reasoning_snapshot: any;
   alpha_recheck_verdict: any;
@@ -257,6 +260,8 @@ class MidTradeEscalationEngine {
       }
     }
 
+    const liveSnapshot = await fetchLiveSnapshotForRecheck(trade.symbol, trade.trade_style);
+
     const input: AlphaRecheckInput = {
       tradeId: trade.id,
       userId: trade.user_id,
@@ -276,6 +281,7 @@ class MidTradeEscalationEngine {
       triggerType,
       triggerReason: evaluation.primaryMessage,
       thesisIntactBefore: trade.thesis_status !== 'WEAKENING' && trade.thesis_status !== 'INVALIDATED',
+      liveSnapshot,
     };
 
     logger.info(LogCategory.TRADE_EXECUTION, `[EscalationEngine] Calling Alpha for ${trade.symbol} | trigger=${triggerType} | rMultiple=${rMultiple.toFixed(2)}R`);
@@ -368,3 +374,58 @@ class MidTradeEscalationEngine {
 }
 
 export const midTradeEscalationEngine = new MidTradeEscalationEngine();
+
+/**
+ * Derive the confirmation timeframe from the trade's style column.
+ * SCALP/scalper → M5, MICRO_INTRADAY/micro → M15, INTRADAY/intraday → H1, fallback → M5.
+ */
+function getConfirmationTimeframe(tradeStyle: string | null): Timeframe {
+  const s = (tradeStyle ?? '').toLowerCase();
+  if (s === 'intraday') return 'H1';
+  if (s === 'micro' || s === 'micro_intraday') return 'M15';
+  return 'M5'; // scalper default
+}
+
+/**
+ * Fetch a live snapshot for the symbol at the confirmation timeframe and
+ * extract the fields needed by AlphaRecheckInput.liveSnapshot.
+ * Returns null silently on error — Alpha will fall back to entry-time context.
+ */
+async function fetchLiveSnapshotForRecheck(
+  symbol: string,
+  tradeStyle: string | null
+): Promise<AlphaRecheckInput['liveSnapshot']> {
+  try {
+    const tf = getConfirmationTimeframe(tradeStyle);
+    const snap = await marketSnapshotCache.getSnapshot(symbol, tf);
+    const s = snap.omegaSensors;
+    return {
+      rsi: snap.rsi,
+      momentum: snap.momentum,
+      atrPercent: snap.atrPercent,
+      trend: snap.trend,
+      trendScore: snap.trendScore,
+      cho: s.cho,
+      bos: s.bos,
+      rdiv: s.rdiv,
+      rdiv_candles: s.rdiv_candles,
+      mdiv: s.mdiv,
+      mom_delta: s.mom_delta,
+      vol_ratio: s.vol_ratio,
+      vol_s: s.vol_s,
+      vol_r: s.vol_r,
+      atr_t: s.atr_t,
+      pin_b: s.pat.pin_b,
+      pin_s: s.pat.pin_s,
+      eng_b: s.pat.eng_b,
+      eng_s: s.pat.eng_s,
+      swingHigh: snap.swingHigh,
+      swingLow: snap.swingLow,
+      support: snap.support,
+      resistance: snap.resistance,
+    };
+  } catch (err) {
+    logger.warn(LogCategory.TRADE_EXECUTION, '[EscalationEngine] Could not fetch live snapshot for recheck:', { symbol, err });
+    return null;
+  }
+}
