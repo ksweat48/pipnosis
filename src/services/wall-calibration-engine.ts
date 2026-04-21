@@ -159,19 +159,25 @@ class WallCalibrationEngine {
       safetyCap
     );
 
-    // CCIP-2026-04-07: Envelope floor is used as-is — no TP floor compression.
-    // The old TP_FLOOR_RATIO_BY_REGIME system (40%/65%/100%) was compressing the
-    // envelope floor based on the incorrectly-classified volatility label. Removed.
-    const envelopeTpMinPipsEffective = envelopeTpMinPips;
+    // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY — TP SIDE):
+    // envelopeTpMinPipsEffective is kept for logging/audit ONLY.
+    // It is no longer used as a corridor floor for the feasibility check.
+    // The corridor check now asks: "is the ATR ceiling itself wide enough?"
+    // not "is the ATR ceiling wide enough ABOVE the envelope floor?".
+    //
+    // The old corridor check (rawCeilingPips - envelopeTpMinPipsEffective < minCorridorWidth)
+    // always fired during low-volatility Asian sessions because envelopeTpMin was 14-110 pips
+    // while ATR-derived ceiling was only 8-30 pips. This caused CORRIDOR_INFEASIBLE_EXPANSION
+    // on every symbol every scan. Now that envelopeTpMin is no longer the TP floor, the
+    // corridor is just the ATR ceiling — always valid as long as ceiling > 0.
+    const envelopeTpMinPipsEffective = envelopeTpMinPips; // advisory reference only
 
     const rawCeilingPips = (input.atr * combinedMultiplier) / pipInfo.pipValue;
     const minCorridorWidth = MIN_CORRIDOR_WIDTH_PIPS[assetClass];
-    const corridorWidth = rawCeilingPips - envelopeTpMinPipsEffective;
 
     calibrationLog.push(
-      `[WallCalibration] Envelope floor: ${envelopeTpMinPipsEffective.toFixed(1)} pips | ` +
-      `ATR ceiling at ${combinedMultiplier}x: ${rawCeilingPips.toFixed(1)} pips | ` +
-      `Corridor: ${corridorWidth.toFixed(1)} pips`
+      `[WallCalibration] Envelope floor (advisory): ${envelopeTpMinPipsEffective.toFixed(1)} pips | ` +
+      `ATR ceiling at ${combinedMultiplier}x: ${rawCeilingPips.toFixed(1)} pips`
     );
 
     let finalMultiplier = combinedMultiplier;
@@ -179,11 +185,12 @@ class WallCalibrationEngine {
     let calibrationReason: WallCalibrationReason = 'NO_ADJUSTMENT';
     let wasCalibrated = sessionExpansionApplied;
 
-    if (corridorWidth < minCorridorWidth) {
-      calibrationLog.push(`[WallCalibration] CORRIDOR INFEASIBLE: width ${corridorWidth.toFixed(1)} pips < minimum ${minCorridorWidth} pips — expanding ceiling`);
+    // Corridor check: ATR ceiling must be at least minCorridorWidth pips.
+    // This ensures Alpha always has a meaningful TP range above the entry.
+    if (rawCeilingPips < minCorridorWidth) {
+      calibrationLog.push(`[WallCalibration] ATR ceiling too narrow: ${rawCeilingPips.toFixed(1)} pips < minimum ${minCorridorWidth} pips — expanding multiplier`);
 
-      const requiredCeilingPips = envelopeTpMinPipsEffective + minCorridorWidth;
-      const requiredMultiplier = (requiredCeilingPips * pipInfo.pipValue) / input.atr;
+      const requiredMultiplier = (minCorridorWidth * pipInfo.pipValue) / input.atr;
       finalMultiplier = Math.min(
         Math.max(requiredMultiplier, combinedMultiplier),
         safetyCap
@@ -208,13 +215,12 @@ class WallCalibrationEngine {
     }
 
     const finalCeilingPips = (input.atr * calibratedAtrMultiple) / pipInfo.pipValue;
-    const finalCorridorWidth = finalCeilingPips - envelopeTpMinPipsEffective;
+    const finalCorridorWidth = finalCeilingPips; // corridor = ceiling (floor is ATR-derived, not envelope)
 
     calibrationLog.push(
       `[WallCalibration] Final: ${originalAtrMultiple}x → ${calibratedAtrMultiple}x | ` +
       `Ceiling: ${finalCeilingPips.toFixed(1)} pips | ` +
-      `Floor: ${envelopeTpMinPipsEffective.toFixed(1)} pips | ` +
-      `Final corridor: ${finalCorridorWidth.toFixed(1)} pips | Cap: ${safetyCapApplied ? 'YES' : 'NO'}`
+      `Envelope floor (advisory): ${envelopeTpMinPipsEffective.toFixed(1)} pips | Cap: ${safetyCapApplied ? 'YES' : 'NO'}`
     );
 
     if (wasCalibrated) {
@@ -226,7 +232,7 @@ class WallCalibrationEngine {
     const result: WallCalibrationResult = {
       calibratedResolvedPlan: {
         tpMaxAtrMultiple: calibratedAtrMultiple,
-        calibratedEnvelopeTpMinPips: envelopeTpMinPipsEffective,
+        calibratedEnvelopeTpMinPips: envelopeTpMinPipsEffective, // passed through for advisory logging in omega9
       },
       wasCalibrated,
       calibrationReason,

@@ -302,13 +302,24 @@ class Omega9ConstraintProvider {
       `(R:R ceiling ${envelopeAlignedRRCeilingTP.toFixed(1)}p | envelope max ${envelopeTpMax.toFixed(1)}p | ATR ref ${atrInPipsRef.toFixed(1)}p)`
     );
 
-    // Recalculate minTakeProfitPips AFTER maxTakeProfitPips has been corrected by envelope alignment.
-    // Previously this ran before the TP ceiling fix, causing minTakeProfitPips to be clamped
-    // against the old suppressed maxTakeProfitPips (40 pips for US30 SCALP).
-    const minTakeProfitPips = Math.min(
-      Math.max(idealMinTakeProfitPips, envelopeTpMin),
-      maxTakeProfitPips
-    );
+    // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY — TP SIDE):
+    // envelopeTpMin is now ADVISORY ONLY. It is no longer a hard TP floor.
+    //
+    // Root cause of all-symbol NO_TRADE during low-volatility sessions:
+    // envelopeTpMin is derived from envelope percentage bounds (e.g. MICRO_INTRADAY INDEX 0.25%
+    // of $44,000 = 110 pips) which far exceeds what the Asian session can deliver (3-24 pips).
+    // Alpha correctly identified this as geometrically impossible and returned NO_TRADE on all symbols.
+    //
+    // The correct TP minimum is idealMinTakeProfitPips = referenceSLPips * minRiskReward.
+    // This scales with live ATR — when the session is quiet, stops are tight, TP minima are small.
+    if (idealMinTakeProfitPips < envelopeTpMin) {
+      console.log(
+        `[Omega-9 TP Floor] ${symbol}: ATR-derived TP min ${idealMinTakeProfitPips.toFixed(1)} pips ` +
+        `below envelope floor ${envelopeTpMin.toFixed(1)} pips — using ATR-derived (LIVE-ATR SOVEREIGNTY). ` +
+        `Envelope floor is advisory only.`
+      );
+    }
+    const minTakeProfitPips = Math.min(idealMinTakeProfitPips, maxTakeProfitPips);
     const constraintFeasibilityWarning = '';
 
     // Build take-profit reasoning with style-aware session context
