@@ -1867,16 +1867,29 @@ Consider in Q9: Is this cluster a risk to your SL? Should you widen to clear it,
         return alignedSweepText + crossDirectionText;
       })();
 
-      // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY): EXPECTED ENVELOPE pip range text removed.
-      // Static-derived SL/TP pip ranges gave Alpha false data about "expected" sizes,
-      // causing NO_TRADE on all symbols when live ATR was far below static floors.
-      // Alpha now receives only live ATR anchors and sweep context. He places SL/TP
-      // from structure with full sovereignty. No pip range pre-frames his decision.
+      // CCIP-2026-0421 (ALPHA SL SOVEREIGNTY):
+      // Pre-computed SL anchor prices removed from the prompt entirely.
+      //
+      // REMOVED:
+      //   IF LONG SL Anchor: [price] (Xp, X.XXx ATR)
+      //   IF SHORT SL Anchor: [price] (Xp, X.XXx ATR)
+      //   sweepZoneDirective — "The SL anchor above was computed to clear the swept zone..."
+      //
+      // ROOT CAUSE: Showing Alpha a pre-computed SL anchor price is equivalent to telling
+      // him where to place the stop. He anchors to it — and when the structural level he
+      // identifies happens to sit closer than the anchor, he either follows the anchor (wrong)
+      // or produces a tighter SL that gets blocked (the Gold scalp failure).
+      //
+      // Alpha's job is to read the candle structure, identify the structural invalidation
+      // point for this specific setup, and place the SL there. He receives ATR as a raw
+      // noise-floor reference. He receives Omega-8 sweep extremes as structural facts.
+      // He does not receive a pre-computed price to anchor to.
+      //
+      // The calculator still runs (required for omega9ConstraintProvider TP range calc and
+      // lot sizing). Its output is NOT shown to Alpha.
       stopLossDirective = `
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: ${riskMode.toUpperCase()}
-IF LONG SL Anchor: ${buyAnchorPrice.toFixed(5)} (${buyAnchorPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
-IF SHORT SL Anchor: ${sellAnchorPrice.toFixed(5)} (${sellAnchorPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
-SL/TP AUTHORITY: You have FULL authority to place SL and TP where structure justifies it. Read the candle sequence, identify structure, and commit. Only Omega-9 (mathematical impossibility) can veto.${sweepZoneDirective}
+SL/TP AUTHORITY: You have FULL authority to place SL and TP where structure justifies it. Read the candle sequence, identify the structural invalidation point for this setup, and commit. Only Omega-9 (mathematical impossibility — geometry, spread floor) can veto.
 `;
     }
 
