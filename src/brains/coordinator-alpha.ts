@@ -2685,10 +2685,12 @@ ${htfStructuralEvidenceBlock}
     // requires M5 close confirmation before execute_now is valid. Without real
     // M5 candle data the LLM confabulates M5 structure using M15 primary candles.
     //
-    // THREE-TIER ARCHITECTURE (now complete):
-    //   SCALP:          M5 (primary) + M1 (sub-confirmation) + M15/H1 (advisory)
-    //   MICRO_INTRADAY: M15 (primary) + M5 (sub-confirmation) + H1 (controlling)
-    //   INTRADAY:       H1 (primary) + M15 (sub-confirmation) + H4 (controlling)
+    // THREE-TIER ARCHITECTURE (post CCIP-2026-04-08 + CCIP-2026-04-21):
+    //   SCALP:          M5 (primary entry) + M1 (timing refinement only) + M15/H1 (advisory)
+    //   MICRO_INTRADAY: M5 (primary entry) + M15 (trend validation) + H1 (controlling)
+    //   INTRADAY:       M15 (primary entry) + H1 (trend validation) + H4 (controlling)
+    // NOTE: Sub-confirmation blocks below fetch additional same-TF candles as advisory
+    // supplementary data. All sub-confirmation is NON-BLOCKING — Alpha retains full authority.
     //
     // GOVERNANCE: Missing M5 data is NON-BLOCKING. If M5 candles are unavailable,
     // the LLM is informed via a warning block and must treat any execute_now
@@ -3326,15 +3328,12 @@ ${intradayD1StructureBlock}
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // M1 PRICE ACTION CONTEXT (ALL STYLES)
-    // CCIP-2026-04-11: For SCALP, M1 IS the primary entry timeframe.
-    // The M1 block is rendered with SCALP-specific headers and framing.
-    // For MICRO_INTRADAY and INTRADAY, M1 remains timing refinement only.
+    // M1 PRICE ACTION CONTEXT (MICRO_INTRADAY + INTRADAY ONLY)
+    // CCIP-2026-04-21: SCALP primary TF reverted to M5. M1 is timing refinement
+    // only for ALL styles. This block is skipped for SCALP because the SCALP
+    // style identity prompt already instructs Alpha to use M1 close as timing.
+    // For MICRO_INTRADAY and INTRADAY, M1 remains advisory timing refinement.
     // SSOT: MarketDataService is the single authority for candle data.
-    // NOTE: For SCALP, this block is redundant with primaryTfCandlePrompt
-    // (which now fetches M1 candles via PRIMARY_TF_MAP). To avoid sending
-    // M1 data twice, this block is skipped for SCALP — the primary candle
-    // block already contains the M1 signal data Alpha needs.
     // ═══════════════════════════════════════════════════════════════════
     let m1MicroContextPrompt = '';
     if (tradeStyle !== 'SCALP') {
