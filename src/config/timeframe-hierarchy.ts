@@ -249,7 +249,7 @@ export function getMTFConfig(riskMode: RiskMode): MultiTimeframeConfig {
 export const STYLE_MTF_CONFIGS: Record<CanonicalTradeStyle, MultiTimeframeConfig> = {
   SCALP:          { entryTimeframe: 'M5',  trendTimeframe: 'M15', contextTimeframe: 'H1'  },
   MICRO_INTRADAY: { entryTimeframe: 'M5',  trendTimeframe: 'M15', contextTimeframe: 'H1'  },
-  INTRADAY:       { entryTimeframe: 'M15', trendTimeframe: 'H1',  contextTimeframe: 'H4'  },
+  INTRADAY:       { entryTimeframe: 'M15', trendTimeframe: 'H1',  contextTimeframe: 'H1'  },
 } as const;
 
 export function getStyleMTFConfig(tradeStyle: CanonicalTradeStyle): MultiTimeframeConfig {

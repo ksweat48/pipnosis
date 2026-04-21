@@ -2447,17 +2447,19 @@ ${consecutiveSameDir >= 3
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // HTF CONTROLLING TIMEFRAME CANDLES (MICRO_INTRADAY + INTRADAY ONLY)
-    // CCIP 2026-02-19: Controlling timeframe is the structural authority.
-    // MICRO_INTRADAY: H1 is the controlling TF (validates M15 entries)
-    // INTRADAY: H4 is the controlling TF (validates H1 entries)
-    // GOVERNANCE: Missing controlling TF data = hard NO_TRADE (MTF_DATA_MISSING)
-    // Alpha cannot reason about HTF structure without HTF data.
+    // HTF DIRECTION TIMEFRAME CANDLES (MICRO_INTRADAY + INTRADAY ONLY)
+    // CCIP-2026-04-21: Direction TF demoted from "controlling gate" to
+    // "direction authority" — provides bias, not a hard block.
+    // MICRO_INTRADAY: H1 is the direction TF (validates M5 entry direction)
+    // INTRADAY: H1 is the direction TF (validates M15 entry direction)
+    // Both styles use H1. H4 is background context only for INTRADAY (no gate).
+    // GOVERNANCE: Missing direction TF data = hard NO_TRADE (MTF_DATA_MISSING)
+    // Alpha cannot reason about direction without direction TF data.
     // ═══════════════════════════════════════════════════════════════════
     const HTF_VALIDATION_MAP: Record<string, { timeframe: string; label: string; candleCount: number } | null> = {
       'SCALP': null,
       'MICRO_INTRADAY': { timeframe: 'H1', label: 'H1', candleCount: 10 },
-      'INTRADAY': { timeframe: 'H4', label: 'H4', candleCount: 8 },
+      'INTRADAY': { timeframe: 'H1', label: 'H1', candleCount: 10 },
     };
     const htfConfig = HTF_VALIDATION_MAP[styleName] ?? null;
 
@@ -2566,27 +2568,27 @@ Alpha decides the action — the audit trail records the evidence.`;
         htfCandlePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${htfConfig.label} CONTROLLING TIMEFRAME CANDLES (${marketContext.symbol}) — STRUCTURAL AUTHORITY
+${htfConfig.label} DIRECTION TIMEFRAME CANDLES (${marketContext.symbol}) — DIRECTIONAL AUTHORITY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-THIS IS YOUR STRUCTURAL CONTEXT for ${styleName} trades. The ${htfConfig.label} sets the directional bias.
-Your ${primaryTfConfig.label} entry must align with or have a justified counter-thesis to this ${htfConfig.label} structure.
+THIS IS YOUR DIRECTION CONTEXT for ${styleName} trades. The ${htfConfig.label} sets the directional bias.
+${styleName === 'INTRADAY' ? 'INTRADAY: H1 is the direction TF. My entry lens is M15. My TP is M15 leg exhaustion. H1 tells me which direction to hunt — not where to exit.' : 'MICRO_INTRADAY: H1 is the direction TF. My entry lens is M5. My TP is M5 leg exhaustion. H1 tells me which direction to hunt — not where to exit.'}
 MANDATORY: Reference this ${htfConfig.label} data in your QUESTION 1 TREND ALIGNMENT answer.
 
 ${htfLines.join('\n')}
 
-${htfConfig.label} STRUCTURAL SUMMARY:
+${htfConfig.label} DIRECTION SUMMARY:
 - ${htfConfig.label} Range (last ${htfConfig.candleCount} candles): ${htfRangePips.toFixed(1)} pips (High: ${htfHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${htfLow.toFixed(pipInfo.decimalPlaces)})
 - ${htfConfig.label} Directional bias: ${htfTrendDir}
 - Consecutive same-direction ${htfConfig.label} candles: ${htfConsecutive}
 - ${htfConfig.label} Key resistance: ${htfHigh.toFixed(pipInfo.decimalPlaces)} | Key support: ${htfLow.toFixed(pipInfo.decimalPlaces)}
 
-${htfConfig.label} STRUCTURAL AUTHORITY RULE:
-${htfTrendDir === 'BULLISH' ? `${htfConfig.label} trend is BULLISH. ${primaryTfConfig.label} BUY entries have structural tailwind. ${primaryTfConfig.label} SELL entries are counter-trend — require explicit H${htfConfig.label === 'H1' ? '1' : '4'}-level reversal evidence.` : htfTrendDir === 'BEARISH' ? `${htfConfig.label} trend is BEARISH. ${primaryTfConfig.label} SELL entries have structural tailwind. ${primaryTfConfig.label} BUY entries are counter-trend — require explicit ${htfConfig.label}-level reversal evidence.` : `${htfConfig.label} is NEUTRAL/RANGING. Both directions require structural confirmation at the range boundaries.`}
+${htfConfig.label} DIRECTION RULE:
+${htfTrendDir === 'BULLISH' ? `${htfConfig.label} trend is BULLISH. ${primaryTfConfig.label} BUY entries have directional tailwind. ${primaryTfConfig.label} SELL entries are counter-trend — require explicit ${htfConfig.label}-level reversal evidence.` : htfTrendDir === 'BEARISH' ? `${htfConfig.label} trend is BEARISH. ${primaryTfConfig.label} SELL entries have directional tailwind. ${primaryTfConfig.label} BUY entries are counter-trend — require explicit ${htfConfig.label}-level reversal evidence.` : `${htfConfig.label} is NEUTRAL/RANGING. Both directions require structural confirmation at the range boundaries.`}
 
 ${htfStructuralEvidenceBlock}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-        console.log(`[Alpha Coordinator] ${htfConfig.label} Controlling TF: ${recentHtf.length} candles, bias ${htfTrendDir}, range ${htfRangePips.toFixed(1)} pips`);
+        console.log(`[Alpha Coordinator] ${htfConfig.label} Direction TF: ${recentHtf.length} candles, bias ${htfTrendDir}, range ${htfRangePips.toFixed(1)} pips`);
       } catch (error) {
         console.error(`[Alpha Coordinator] HTF_DATA_MISSING: ${htfConfig.label} candles fetch failed for ${styleName}:`, error instanceof Error ? error.message : 'Unknown');
         if (userId && sessionId) {
@@ -3380,75 +3382,84 @@ ${intradayD1StructureBlock}
 
     // ═══════════════════════════════════════════════════════════════════
     // M1 PRICE ACTION CONTEXT (MICRO_INTRADAY + INTRADAY ONLY)
-    // CCIP-2026-04-21: SCALP primary TF reverted to M5. M1 is timing refinement
-    // only for ALL styles. This block is skipped for SCALP because the SCALP
-    // style identity prompt already instructs Alpha to use M1 close as timing.
-    // For MICRO_INTRADAY and INTRADAY, M1 remains advisory timing refinement.
+    // M1 TIMING DATA — ALL STYLES (non-blocking)
+    // SCALP:          M1 is the precision entry timing layer. M5 is primary (structure + TP).
+    //                 M1 shows Alpha exactly WHERE on the M5 leg to pull the trigger.
+    //                 20 M1 candles = 20 minutes of sub-M5 price action.
+    // MICRO_INTRADAY: M1 is timing refinement. M5 is primary.
+    // INTRADAY:       M1 is timing refinement. M15 is primary.
     // SSOT: MarketDataService is the single authority for candle data.
     // ═══════════════════════════════════════════════════════════════════
     let m1MicroContextPrompt = '';
-    if (tradeStyle !== 'SCALP') {
-      try {
-        const mds = MarketDataService.getInstance();
-        const m1CandleCount = tradeStyle === 'MICRO_INTRADAY' ? 12 : 8;
-        const m1Candles = await mds.getCandles(marketContext.symbol, 'M1', m1CandleCount);
+    try {
+      const mds = MarketDataService.getInstance();
+      const m1CandleCount = styleName === 'SCALP' ? 20 : styleName === 'MICRO_INTRADAY' ? 12 : 8;
+      const m1Candles = await mds.getCandles(marketContext.symbol, 'M1', m1CandleCount);
 
-        if (m1Candles && m1Candles.length >= 5) {
-          const recentM1 = m1Candles.slice(0, m1CandleCount).reverse();
-          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+      if (m1Candles && m1Candles.length >= 5) {
+        const recentM1 = m1Candles.slice(0, m1CandleCount).reverse();
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
-          const m1Lines: string[] = recentM1.map((c, i) => {
-            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
-            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
-            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
-            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
-          });
+        const m1Lines: string[] = recentM1.map((c, i) => {
+          const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+          const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+          const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+          const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+        });
 
-          let consecutiveSameDir = 1;
-          for (let i = recentM1.length - 2; i >= 0; i--) {
-            const prevDir = recentM1[i].close > recentM1[i].open ? 'UP' : 'DN';
-            const lastDir = recentM1[recentM1.length - 1].close > recentM1[recentM1.length - 1].open ? 'UP' : 'DN';
-            if (prevDir === lastDir) consecutiveSameDir++;
-            else break;
-          }
+        let consecutiveSameDir = 1;
+        for (let i = recentM1.length - 2; i >= 0; i--) {
+          const prevDir = recentM1[i].close > recentM1[i].open ? 'UP' : 'DN';
+          const lastDir = recentM1[recentM1.length - 1].close > recentM1[recentM1.length - 1].open ? 'UP' : 'DN';
+          if (prevDir === lastDir) consecutiveSameDir++;
+          else break;
+        }
 
-          const lastCandleM1 = recentM1[recentM1.length - 1];
-          const lastBodyM1 = Math.abs(lastCandleM1.close - lastCandleM1.open) / pipInfo.pipValue;
-          const lastUpperWickM1 = (lastCandleM1.high - Math.max(lastCandleM1.open, lastCandleM1.close)) / pipInfo.pipValue;
-          const lastLowerWickM1 = (Math.min(lastCandleM1.open, lastCandleM1.close) - lastCandleM1.low) / pipInfo.pipValue;
-          const hasRejectionWickM1 = lastUpperWickM1 > lastBodyM1 * 1.5 || lastLowerWickM1 > lastBodyM1 * 1.5;
+        const lastCandleM1 = recentM1[recentM1.length - 1];
+        const lastBodyM1 = Math.abs(lastCandleM1.close - lastCandleM1.open) / pipInfo.pipValue;
+        const lastUpperWickM1 = (lastCandleM1.high - Math.max(lastCandleM1.open, lastCandleM1.close)) / pipInfo.pipValue;
+        const lastLowerWickM1 = (Math.min(lastCandleM1.open, lastCandleM1.close) - lastCandleM1.low) / pipInfo.pipValue;
+        const hasRejectionWickM1 = lastUpperWickM1 > lastBodyM1 * 1.5 || lastLowerWickM1 > lastBodyM1 * 1.5;
 
-          const m1High = Math.max(...recentM1.map(c => c.high));
-          const m1Low = Math.min(...recentM1.map(c => c.low));
-          const m1RangePips = (m1High - m1Low) / pipInfo.pipValue;
+        const m1High = Math.max(...recentM1.map(c => c.high));
+        const m1Low = Math.min(...recentM1.map(c => c.low));
+        const m1RangePips = (m1High - m1Low) / pipInfo.pipValue;
 
-          m1MicroContextPrompt = `
+        const scalpM1Header = styleName === 'SCALP'
+          ? `SCALP PRECISION ENTRY TIMING — M5 is my primary lens (structure + TP target). M1 tells me WHERE on the M5 leg to pull the trigger. I read M1 to find: a M1 pullback completing inside a M5 bullish/bearish leg (entry into the retrace), M1 momentum reversing toward my M5 direction, M1 equal-highs/lows being swept just before the continuation impulse. I DO NOT change my TP based on M1 — TP is the M5 exhaustion point. M1 is the timing layer only.`
+          : `Use M1 data to REFINE entry timing AFTER you have assessed the ${primaryTfConfig.label} structure above. M1 signals alone do NOT determine your entry_advisory verdict. The ${primaryTfConfig.label} timeframe is primary.`;
+
+        m1MicroContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M1 MICRO PRICE ACTION (${marketContext.symbol}) — TIMING REFINEMENT (SECONDARY)
+M1 PRECISION TIMING (${marketContext.symbol}) — ${styleName === 'SCALP' ? 'ENTRY TIMING LAYER' : 'TIMING REFINEMENT (SECONDARY)'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Use M1 data to REFINE entry timing AFTER you have assessed the ${primaryTfConfig.label} structure above.
-M1 signals alone do NOT determine your entry_advisory verdict. The ${primaryTfConfig.label} timeframe is primary.
+${scalpM1Header}
 
 ${m1Lines.join('\n')}
 
-M1 MICRO SUMMARY:
+M1 SUMMARY:
 - M1 Range: ${m1RangePips.toFixed(1)} pips (High: ${m1High.toFixed(pipInfo.decimalPlaces)}, Low: ${m1Low.toFixed(pipInfo.decimalPlaces)})
 - Consecutive same-direction M1 candles: ${consecutiveSameDir}
-- Last M1 candle: ${hasRejectionWickM1 ? 'REJECTION WICK detected (possible reversal/exhaustion)' : 'Normal candle'}
-- Momentum assessment: ${consecutiveSameDir >= 4 ? 'STRONG one-way momentum - retrace likely imminent' : consecutiveSameDir >= 3 ? 'Building momentum - watch for exhaustion' : 'Mixed/choppy - normal price action'}
-
+- Last M1 candle: ${hasRejectionWickM1 ? 'REJECTION WICK detected (possible reversal/exhaustion at M1 level)' : 'Normal candle — no strong wick signal'}
+- M1 momentum: ${consecutiveSameDir >= 4 ? 'STRONG one-way — retrace/pause likely imminent' : consecutiveSameDir >= 3 ? 'Building — watch for M1 exhaustion' : 'Mixed/choppy — normal price action'}
+${styleName === 'SCALP' ? `
+SCALP ENTRY TIMING SIGNALS:
+- M1 BOS BULL (last M1 close > prior M1 high): ${recentM1.length >= 2 && lastCandleM1.close > recentM1[recentM1.length - 2].high ? 'YES — bullish M1 break of structure' : 'NO'}
+- M1 BOS BEAR (last M1 close < prior M1 low): ${recentM1.length >= 2 && lastCandleM1.close < recentM1[recentM1.length - 2].low ? 'YES — bearish M1 break of structure' : 'NO'}
+- M1 absorption wick (lower wick ≥1.5x body, last 2 candles): ${recentM1.slice(-2).some(c => { const b = Math.abs(c.close - c.open); const w = Math.min(c.open, c.close) - c.low; return b > 0 && w / b >= 1.5; }) ? 'YES — bullish absorption on M1' : 'NO'}
+- M1 rejection wick (upper wick ≥1.5x body, last 2 candles): ${recentM1.slice(-2).some(c => { const b = Math.abs(c.close - c.open); const w = c.high - Math.max(c.open, c.close); return b > 0 && w / b >= 1.5; }) ? 'YES — bearish rejection on M1' : 'NO'}
+I use this M1 picture to pick the exact moment the M5 leg restarts after a pullback. My TP target is unchanged — it is set by M5 exhaustion, not by anything I see here.` : `
 HIERARCHY REMINDER: A single M1 rejection wick does NOT override an impulsive ${primaryTfConfig.label} leg.
 If the ${primaryTfConfig.label} shows 3+ consecutive same-direction candles, the entry_advisory should be PULLBACK_EXPECTED
-regardless of what M1 shows — unless there is exceptional breakaway evidence.
+regardless of what M1 shows — unless there is exceptional breakaway evidence.`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] M1 Micro: ${recentM1.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${m1RangePips.toFixed(1)} pips`);
-        }
-      } catch (error) {
-        console.warn('[Alpha Coordinator] M1 micro context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
+        console.log(`[Alpha Coordinator] M1 Timing (${styleName}): ${recentM1.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${m1RangePips.toFixed(1)} pips`);
       }
+    } catch (error) {
+      console.warn('[Alpha Coordinator] M1 timing data unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -3842,8 +3853,8 @@ MANDATORY PRE-SUBMISSION R:R VERIFICATION (execute this as the final step before
   Example: SL is 57 pips from entry. My TP must be at least 57 pips from entry on the other side. A TP of 50 pips with a 57-pip SL = 0.88:1 = not a trade. I find the next structural level that puts TP at 57+ pips, or I output NO_TRADE.
 
 - SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1 net of spread — account for spread cost explicitly.
-  Place TP where the M1 leg exhausts. The exit is not a structural destination — it is the point where M1 momentum dies. Look for: prior M1 swing already printed in the direction of travel, M1 equal highs/lows clustering (absorption), M1 candle bodies compressing as wicks extend (pace fading). Place TP at that exhaustion point, not at a structural wall.
-  A TP placed at genuine M1 exhaustion always outperforms a TP chasing a M5 structural level that price may never reach. Name the M1 exhaustion signal in tp_structural_reference.
+  Place TP where the M5 leg exhausts. The exit is not a structural destination — it is the point where M5 momentum dies. Look for: prior M5 swing already printed in the direction of travel, M5 equal highs/lows clustering (absorption), M5 candle bodies compressing as wicks extend (pace fading). Place TP at that M5 exhaustion point — not at a structural wall, not at an M15 level.
+  M1 timing data (when present) refines the exact entry moment within the M5 structure — it does not change the TP target. The TP is always the nearest M5 exhaustion point. Name the M5 exhaustion signal in tp_structural_reference.
 - MICRO_INTRADAY: Up to TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Where the M5 leg first exhausts. Look for: the nearest prior M5 swing already printed in the direction of travel, M5 equal highs/lows clustering (absorption), M5 candle pace visibly fading. That is TP1 — not a named M15 structural zone.
   "tp2" = Where the M5 leg exhausts a second time if one exists — a second prior M5 swing, a second cluster of equal highs/lows, a M5 FVG fill zone. TP2 R:R must be >= TP1 R:R. tp1 must be closer to entry than tp2.
@@ -3855,8 +3866,8 @@ MANDATORY PRE-SUBMISSION R:R VERIFICATION (execute this as the final step before
 - INTRADAY: Up to TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Where the M15 leg first exhausts. Look for: the nearest prior M15 swing already printed in the direction of travel, M15 equal highs/lows clustering (absorption), M15 candle bodies compressing as wicks extend (pace fading). That is TP1 — not a named H1 structural zone.
   "tp2" = Where the M15 leg exhausts a second time if one exists — a second prior M15 swing, a second cluster of equal highs/lows, a M15 FVG fill zone. TP2 R:R must be >= TP1 R:R. tp1 must be closer to entry than tp2.
-  H1 confirms the directional bias. H4 orients the macro. Neither H1 nor H4 sets the exit price — M15 exhaustion does.
-  TP2 RULE: If a distinct second M15 exhaustion point exists further from entry than TP1, include "tp2". If no clear second exhaustion point exists — omit "tp2" entirely (set to null or leave absent). Do NOT fabricate a TP2 by pointing at a H1 or H4 structural wall.
+  H1 confirms the directional bias. H1 does not set the exit price — M15 exhaustion does. H4 is background macro only — it has no role in TP placement.
+  TP2 RULE: If a distinct second M15 exhaustion point exists further from entry than TP1, include "tp2". If no clear second exhaustion point exists — omit "tp2" entirely (set to null or leave absent). Do NOT fabricate a TP2 by pointing at an H1 or H4 structural wall.
   TP1 RULE: If you include "tp2", then "tp1" is MANDATORY and must differ from "tp2". If only one M15 exhaustion point exists, output only "tp1".
   If the market only offers one reachable exhaustion point, output only "tp1" at that level. This is valid and will execute as a single-target trade.
   Document the M15 exhaustion signal identified for each TP and the R:R achievable from it.
