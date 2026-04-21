@@ -15,7 +15,9 @@
  * - Logs ATR source for transparency
  */
 
-import { getRiskStrategyProfile, getStopLossMultiplierRange, getTypicalStopPipsRange, STYLE_ATR_TIMEFRAME_MAP } from '../config/risk-strategy-profiles';
+// CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY): getTypicalStopPipsRange removed.
+// Stop width is always live-ATR-derived. No static pip floor clamp is applied.
+import { getRiskStrategyProfile, getStopLossMultiplierRange, STYLE_ATR_TIMEFRAME_MAP } from '../config/risk-strategy-profiles';
 import { getCurrencyPipInfo, isXAUUSD, isJPYPair, isIndex, isCrypto } from '../utils/currencyHelpers';
 import { type ATRValue, type ATRTimeframe } from '../types/atr';
 
@@ -24,6 +26,8 @@ export interface StopLossCalculation {
   stopLossPrice: number;
   atrMultiplier: number;
   reasoning: string;
+  // CCIP-2026-04-21: withinProfileRange/profileMinPips/profileMaxPips retained for
+  // sweep-aware cap audit only. No longer reflect static pip floor enforcement.
   withinProfileRange: boolean;
   profileMinPips: number;
   profileMaxPips: number;
@@ -118,15 +122,11 @@ class RiskAwareStopCalculator {
     // SCALP uses M5 ATR (tight), MICRO_INTRADAY uses M15 ATR (medium), INTRADAY uses H1 ATR (wide).
     // Each style has multiplier ranges pre-calibrated for its ATR timeframe.
     const atrMultiplierRange = getStopLossMultiplierRange(riskMode, inputs.tradeStyle);
-    // CCIP-2026-0420A: Pass tradeStyle to enforce style-differentiated minimum pip floors.
-    // Prevents an 8-pip INTRADAY stop on USDJPY — a scalp floor applied to an H1-scale trade.
-    const typicalPipsRange = getTypicalStopPipsRange(riskMode, symbol, inputs.tradeStyle);
 
     const styleLabel = inputs.tradeStyle ? ` [${inputs.tradeStyle}]` : '';
     console.log(`[Stop Calculator] ${symbol} ${riskMode.toUpperCase()} mode${styleLabel}:`);
     console.log(`  ATR: ${atrValue.toFixed(5)}${atrTimeframe ? ` (${atrTimeframe})` : ''} | Risk: ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}%`);
     console.log(`  ATR Multiplier Range: ${atrMultiplierRange.min}x - ${atrMultiplierRange.max}x${inputs.tradeStyle ? ` (style-calibrated for ${inputs.tradeStyle})` : ''}`);
-    console.log(`  Typical Pips Range: ${typicalPipsRange.min} - ${typicalPipsRange.max}`);
 
     // Calculate ATR in pips
     const atrPips = atrValue / pipInfo.pipValue;
@@ -144,19 +144,8 @@ class RiskAwareStopCalculator {
       console.log(`  Low volatility: Multiplier decreased to ${atrMultiplier.toFixed(2)}x`);
     }
 
-    // Calculate stop distance in pips
-    let stopPips = atrPips * atrMultiplier;
-
-    // Clamp to risk profile range
-    const minPips = typicalPipsRange.min;
-    const maxPips = typicalPipsRange.max;
-    const beforeClamp = stopPips;
-    stopPips = Math.max(minPips, Math.min(maxPips, stopPips));
-
-    const withinProfileRange = (beforeClamp === stopPips);
-    if (!withinProfileRange) {
-      console.log(`  Stop clamped: ${beforeClamp.toFixed(1)} → ${stopPips.toFixed(1)} pips`);
-    }
+    // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY): Stop is pure ATR × multiplier. No pip floor clamp.
+    const stopPips = atrPips * atrMultiplier;
 
     // Calculate stop loss price
     const stopDistance = stopPips * pipInfo.pipValue;
@@ -164,20 +153,7 @@ class RiskAwareStopCalculator {
       ? entryPrice - stopDistance
       : entryPrice + stopDistance;
 
-    // Generate reasoning
-    let reasoning = `${profile.displayName} (${profile.riskPercentRange.min}-${profile.riskPercentRange.max}%): ${stopPips.toFixed(1)} pips (${atrMultiplier.toFixed(2)}x ATR)`;
-
-    if (!withinProfileRange) {
-      if (stopPips === minPips) {
-        reasoning += ` - clamped to profile minimum`;
-      } else if (stopPips === maxPips) {
-        reasoning += ` - clamped to profile maximum`;
-      }
-    }
-
-    if (marketVolatility !== 'normal') {
-      reasoning += ` - adjusted for ${marketVolatility} volatility`;
-    }
+    const reasoning = `${profile.displayName} (${profile.riskPercentRange.min}-${profile.riskPercentRange.max}%): ${stopPips.toFixed(1)} pips (${atrMultiplier.toFixed(2)}x ATR)${marketVolatility !== 'normal' ? ` - adjusted for ${marketVolatility} volatility` : ''}`;
 
     console.log(`  Final Stop: ${stopPips.toFixed(1)} pips at ${stopLossPrice.toFixed(pipInfo.decimalPlaces)}`);
     console.log(`  Reasoning: ${reasoning}`);
@@ -187,6 +163,8 @@ class RiskAwareStopCalculator {
     // the stop must be placed BEYOND that extreme — not inside the sweep zone.
     // This prevents stops being placed inside the liquidity pool where they become
     // targets for the next sweep. Applies to all 3 trade styles.
+    // CCIP-2026-04-21: profileMaxPips for sweep cap uses ATR × max multiplier (no static floor).
+    const profileMaxPips = atrPips * atrMultiplierRange.max * 2; // generous cap for sweep zone clearance
     const sweepResult = this.applySweepAwareAdjustment({
       symbol,
       direction,
@@ -197,7 +175,7 @@ class RiskAwareStopCalculator {
       sweepContext: inputs.sweepContext,
       tradeStyle: inputs.tradeStyle,
       atrValue,
-      profileMaxPips: maxPips
+      profileMaxPips
     });
 
     return {
@@ -205,9 +183,9 @@ class RiskAwareStopCalculator {
       stopLossPrice: sweepResult.stopPrice,
       atrMultiplier,
       reasoning: sweepResult.reasoning,
-      withinProfileRange,
-      profileMinPips: minPips,
-      profileMaxPips: maxPips,
+      withinProfileRange: true,
+      profileMinPips: 0,
+      profileMaxPips,
       atrTimeframe,
       sweepAwareAdjustment: sweepResult.adjustment,
       crossDirectionClusterWarning: sweepResult.crossDirectionClusterWarning,
@@ -347,42 +325,20 @@ class RiskAwareStopCalculator {
   /**
    * Validate if a proposed stop loss matches the risk profile
    */
+  // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY): Stop validation no longer checks static pip ranges.
+  // Validation is advisory only — R:R and risk percent are the meaningful checks.
   validateStopLoss(
     stopPips: number,
     riskMode: 'low' | 'medium' | 'high'
   ): {
     valid: boolean;
     warnings: string[];
-    score: number; // 0-100
+    score: number;
   } {
-    const profile = getRiskStrategyProfile(riskMode);
-    const typicalRange = getTypicalStopPipsRange(riskMode);
-
+    getRiskStrategyProfile(riskMode); // retain profile lookup for future use
     const warnings: string[] = [];
-    let score = 100;
-
-    if (stopPips < typicalRange.min) {
-      warnings.push(`Stop too tight: ${stopPips.toFixed(1)} pips < ${typicalRange.min} (${riskMode} profile minimum)`);
-      score -= 30;
-    }
-
-    if (stopPips > typicalRange.max) {
-      warnings.push(`Stop too wide: ${stopPips.toFixed(1)} pips > ${typicalRange.max} (${riskMode} profile maximum)`);
-      score -= 30;
-    }
-
-    // Aggressive mode with wide stops is a red flag
-    if (riskMode === 'high' && stopPips > 25) {
-      warnings.push(`AGGRESSIVE mode using WIDE stops (${stopPips.toFixed(1)} pips) - should be scalp-style (10-20 pips for 20min-2hr trades)`);
-      score -= 40;
-    }
-
-    // Conservative mode with scalp stops is suboptimal
-    if (riskMode === 'low' && stopPips < 25) {
-      warnings.push(`CONSERVATIVE mode using SCALP stops (${stopPips.toFixed(1)} pips) - consider wider stops (30-50 pips)`);
-      score -= 20;
-    }
-
+    const score = 100;
+    // No pip-range enforcement. Alpha's live-ATR stop is always valid structurally.
     return {
       valid: warnings.length === 0,
       warnings,
@@ -393,13 +349,12 @@ class RiskAwareStopCalculator {
   /**
    * Get recommended stop width explanation for a risk mode
    */
+  // CCIP-2026-04-21: Recommendation shows ATR-derived range only, no static pip floor.
   getRecommendation(riskMode: 'low' | 'medium' | 'high', atr?: number, symbol: string = 'EURUSD'): string {
     const profile = getRiskStrategyProfile(riskMode);
-    const stopRange = getTypicalStopPipsRange(riskMode);
     const atrRange = getStopLossMultiplierRange(riskMode);
 
-    let recommendation = `${profile.displayName} mode: ${stopRange.min}-${stopRange.max} pips`;
-    recommendation += ` | ${atrRange.min}x-${atrRange.max}x ATR | ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% risk`;
+    let recommendation = `${profile.displayName} mode: ${atrRange.min}x-${atrRange.max}x ATR | ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% risk`;
 
     if (atr) {
       const pipValue = getCurrencyPipInfo(symbol).pipValue;

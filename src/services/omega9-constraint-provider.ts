@@ -262,24 +262,20 @@ class Omega9ConstraintProvider {
       );
     }
 
-    let envelopeAlignedProfileMin = stopLossCalc.profileMinPips;
-    let envelopeAlignedProfileMax = stopLossCalc.profileMaxPips;
+    // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY): Static SL floor enforcement removed.
+    // profileMinPips is now 0 (no static floor). The envelope SL pip floor is NOT raised
+    // to override the live-ATR stop. Alpha's stop comes from live ATR × multiplier only.
+    // The envelope slPips values are kept for reference/advisory logging only.
+    const envelopeAlignedProfileMin = stopLossCalc.profileMinPips; // always 0 now
+    const envelopeAlignedProfileMax = stopLossCalc.profileMaxPips; // ATR × max-multiplier × 2
 
-    if (envelopeBounds.slPips.min > envelopeAlignedProfileMin) {
-      console.log(`[Omega-9 Envelope Align] ${symbol}: Raising SL min from ${envelopeAlignedProfileMin.toFixed(1)} to ${envelopeBounds.slPips.min.toFixed(1)} pips (envelope floor for ${mappedStyle} ${envelopeAssetClass})`);
-      envelopeAlignedProfileMin = envelopeBounds.slPips.min;
-    }
+    console.log(
+      `[Omega-9 SL Bounds] ${symbol}: SL floor=${envelopeAlignedProfileMin.toFixed(1)}p (live-ATR sovereignty) ` +
+      `envelope SL ref=${envelopeBounds.slPips.min.toFixed(1)}-${envelopeBounds.slPips.max.toFixed(1)}p (advisory only)`
+    );
 
-    if (envelopeBounds.slPips.max > envelopeAlignedProfileMax) {
-      console.log(`[Omega-9 Envelope Align] ${symbol}: Raising SL max from ${envelopeAlignedProfileMax.toFixed(1)} to ${envelopeBounds.slPips.max.toFixed(1)} pips (envelope ceiling for ${mappedStyle} ${envelopeAssetClass})`);
-      envelopeAlignedProfileMax = envelopeBounds.slPips.max;
-    }
-
-    // CCIP (2026-02-17): Envelope percentage bounds are the SOLE style wall authority.
-    // Noise floor is advisory intelligence for Alpha, NOT a constraint that raises the SL minimum.
-    // Previous behavior: Math.max(envelopeMin, noiseFloor) -- this inflated SL min, caused
-    // SSOT_MATH_CORRUPTION cascades, and required envelope expansion hacks (1.5x multiplier).
-    // New behavior: Envelope bounds define the wall. Alpha sees the noise floor as market intel.
+    // CCIP (2026-02-17 + 2026-04-21): Noise floor and envelope SL bounds are advisory only.
+    // No static or envelope-derived pip minimum is enforced on the stop.
     const finalMinStopLoss = envelopeAlignedProfileMin;
     const finalMaxStopLoss = envelopeAlignedProfileMax;
 

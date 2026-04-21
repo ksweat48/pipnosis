@@ -29,16 +29,22 @@
  *
  * Risk profiles define ONLY:
  * - Position sizing parameters
- * - Stop loss width preferences (ATR multiples)
+ * - ATR multiplier ranges for stop sizing
  * - Confidence thresholds
  * - Loss tolerance limits
+ *
+ * CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY):
+ * Static pip floors (typicalStopPips, STYLE_MIN_PIP_FLOORS, getTypicalStopPipsRange)
+ * have been removed. They were calibrated for peak European/NY session volatility and
+ * silently blocked Alpha during Asian session by clamping ATR-derived stops to values
+ * 10-70x the live ATR (e.g., US30 ATR=9 pips clamped to 100-pip minimum).
+ * Alpha receives live ATR and decides stop placement from structure — no pre-computed
+ * pip floors constrain his output. The style envelope percentage bounds (price-dynamic)
+ * remain as structural reference in the prompt; they are advisory, not blocking.
  *
  * Alpha independently determines style using time-to-fill calculator
  * and style progression system (SCALP → MICRO → INTRADAY).
  */
-
-import { getAssetClassRiskProfile } from './asset-class-risk-profiles';
-import { getSymbolConfig } from './symbol-registry';
 
 export interface RiskStrategyProfile {
   riskMode: 'low' | 'medium' | 'high';
@@ -59,9 +65,8 @@ export interface RiskStrategyProfile {
   secondaryTimeframes: string[];
   analysisDepth: 'quick' | 'moderate' | 'deep';
 
-  // Stop Loss Configuration
+  // Stop Loss Configuration — ATR multiplier only (no static pip floors)
   stopLossMultiplier: { min: number; max: number }; // Multiple of ATR
-  typicalStopPips: { min: number; max: number }; // Typical range for forex
 
   // Take Profit Strategy
   riskRewardRange: { min: number; max: number };
@@ -124,9 +129,6 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
   analysisDepth: 'quick',
 
   stopLossMultiplier: { min: 0.5, max: 1.0 },
-  // CCIP 2026-03-03: min adjusted from 10 to 8 to match SCALP_ENVELOPE.slPips.min = 8 (style-execution-envelopes.ts).
-  // The style envelope is the geometric authority. This advisory range must not contradict it.
-  typicalStopPips: { min: 8, max: 20 },
 
   riskRewardRange: { min: 1.5, max: 2.5 },
   targetSpeed: 'fast',
@@ -184,9 +186,6 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
   analysisDepth: 'moderate',
 
   stopLossMultiplier: { min: 1.0, max: 1.5 },
-  // CCIP 2026-03-03: min adjusted from 20 to 15, max from 35 to 50 to match
-  // MICRO_INTRADAY_ENVELOPE.slPips = {min:15, max:50} (style-execution-envelopes.ts).
-  typicalStopPips: { min: 15, max: 50 },
 
   riskRewardRange: { min: 1.8, max: 3.0 },
   targetSpeed: 'moderate',
@@ -244,8 +243,6 @@ export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   analysisDepth: 'deep',
 
   stopLossMultiplier: { min: 1.5, max: 2.5 },
-  // CCIP 2026-03-03: max adjusted from 50 to 60 to match INTRADAY_ENVELOPE.slPips.max = 60 (style-execution-envelopes.ts).
-  typicalStopPips: { min: 30, max: 60 },
 
   riskRewardRange: { min: 2.0, max: 4.0 },
   targetSpeed: 'patient',
@@ -365,88 +362,6 @@ export function getStopLossMultiplierRange(
 }
 
 /**
- * Style-differentiated minimum pip floors (CCIP-2026-0420A).
- *
- * The risk-mode profiles define pip ranges calibrated primarily for SCALP/MICRO_INTRADAY.
- * An INTRADAY trade needs materially wider stops to survive H1-scale volatility.
- * JPY pairs (USDJPY, GBPJPY, EURJPY) require even wider floors due to their larger
- * pip size and typical intraday swing distances.
- *
- * These floors are applied as a hard minimum in getTypicalStopPipsRange() when tradeStyle
- * is provided. They prevent an 8-pip INTRADAY stop on USDJPY — a scalp-level stop that
- * normal H1 volatility (10-15 pips typical noise) will clip before the trade can develop.
- */
-const STYLE_MIN_PIP_FLOORS: Record<'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY', {
-  forex: number;
-  jpyPair: number;
-  metals: number;
-  index: number;
-}> = {
-  SCALP:          { forex: 5,  jpyPair: 6,  metals: 10, index: 8  },
-  MICRO_INTRADAY: { forex: 10, jpyPair: 12, metals: 20, index: 15 },
-  INTRADAY:       { forex: 15, jpyPair: 18, metals: 30, index: 25 },
-};
-
-/**
- * Get typical stop loss pip range for any symbol (asset-class and style aware).
- * @param riskMode - Risk mode (low, medium, high)
- * @param symbol - Optional symbol to get asset-class-specific ranges
- * @param tradeStyle - Optional trade style to enforce style-differentiated minimum pip floors
- */
-export function getTypicalStopPipsRange(
-  riskMode: 'low' | 'medium' | 'high',
-  symbol?: string,
-  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'
-): { min: number; max: number } {
-  const profile = getRiskStrategyProfile(riskMode);
-
-  let base: { min: number; max: number };
-
-  if (!symbol) {
-    base = profile.typicalStopPips;
-  } else {
-    const assetProfile = getAssetClassRiskProfile(symbol);
-
-    if (assetProfile.typicalStopRange.unit === 'atr') {
-      const config = getSymbolConfig(symbol);
-      if (config) {
-        const avgATR = config.typicalSessionMovePoints * 0.5;
-        base = {
-          min: Math.round(avgATR * assetProfile.typicalStopRange.min),
-          max: Math.round(avgATR * assetProfile.typicalStopRange.max)
-        };
-      } else {
-        base = profile.typicalStopPips;
-      }
-    } else if (assetProfile.typicalStopRange.unit === 'points' || assetProfile.typicalStopRange.unit === 'pips') {
-      base = {
-        min: assetProfile.typicalStopRange.min,
-        max: assetProfile.typicalStopRange.max
-      };
-    } else {
-      base = profile.typicalStopPips;
-    }
-  }
-
-  // CCIP-2026-0420A: Apply style-differentiated minimum pip floor.
-  // An INTRADAY stop must survive H1-scale noise. A SCALP stop floor is far too tight
-  // for an INTRADAY trade — this was the root cause of the 8-pip USDJPY INTRADAY SL clip.
-  if (tradeStyle && STYLE_MIN_PIP_FLOORS[tradeStyle]) {
-    const floors = STYLE_MIN_PIP_FLOORS[tradeStyle];
-    const sym = (symbol ?? '').toUpperCase();
-    const isJPY = sym.includes('JPY');
-    const isMetal = sym.includes('XAU') || sym.includes('XAG') || sym.includes('GOLD');
-    const isIdx = ['US30', 'NAS100', 'SPX500', 'UK100', 'DE30', 'JP225'].some(i => sym.includes(i));
-    const styleFloor = isJPY ? floors.jpyPair : isMetal ? floors.metals : isIdx ? floors.index : floors.forex;
-    if (base.min < styleFloor) {
-      base = { min: styleFloor, max: Math.max(base.max, styleFloor + 10) };
-    }
-  }
-
-  return base;
-}
-
-/**
  * Get risk-reward ratio range for trade planning
  */
 export function getRiskRewardRange(riskMode: 'low' | 'medium' | 'high'): { min: number; max: number } {
@@ -469,11 +384,11 @@ export function formatRiskProfileForLLM(riskMode: 'low' | 'medium' | 'high'): st
   const profile = getRiskStrategyProfile(riskMode);
 
   return `
-🎯 ACTIVE RISK PROFILE: ${profile.displayName.toUpperCase()} MODE
+ACTIVE RISK PROFILE: ${profile.displayName.toUpperCase()} MODE
 Capital Exposure: ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% per trade
 Entry Urgency: ${profile.entryUrgency} | Target Speed: ${profile.targetSpeed}
 Timeframes: ${profile.primaryTimeframes.join(', ')} primary | ${profile.secondaryTimeframes.join(', ')} secondary
-Stop Width: ${profile.typicalStopPips.min}-${profile.typicalStopPips.max} pips (${profile.stopLossMultiplier.min}-${profile.stopLossMultiplier.max}x ATR)
+ATR Multiplier: ${profile.stopLossMultiplier.min}-${profile.stopLossMultiplier.max}x (stop width is live-ATR-derived, no static pip floor)
 R:R Target: ${profile.riskRewardRange.min}-${profile.riskRewardRange.max}:1
 Duration: ${Math.floor(profile.expectedDuration.min / 60)}h-${Math.floor(profile.expectedDuration.max / 60)}h expected
 Entry Preference: ${Object.entries(profile.entryTypePreference)
@@ -515,15 +430,8 @@ export function validateTradeMatchesProfile(
     score -= 20;
   }
 
-  // Check stop width
-  if (stopPips < profile.typicalStopPips.min) {
-    warnings.push(`Stop too tight: ${stopPips} pips < ${profile.typicalStopPips.min} pips (${profile.displayName} profile)`);
-    score -= 15;
-  }
-  if (stopPips > profile.typicalStopPips.max) {
-    warnings.push(`Stop too wide: ${stopPips} pips > ${profile.typicalStopPips.max} pips (${profile.displayName} profile)`);
-    score -= 15;
-  }
+  // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY): Stop width validation removed.
+  // Alpha derives stop placement from live structure. No static pip floor enforced here.
 
   // Check R:R ratio
   if (riskRewardRatio < profile.riskRewardRange.min) {

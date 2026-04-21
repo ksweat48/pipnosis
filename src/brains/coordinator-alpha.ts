@@ -1809,10 +1809,8 @@ The trade_management object in my response documents my campaign plan for this t
     if (buyStopAnchor && sellStopAnchor) {
       const pipInfo = getCurrencyPipInfo(marketContext.symbol);
       const atrPips = (extractATRValue(marketContext.atr) / pipInfo.pipValue).toFixed(1);
-      const wallSlMin = dualArenaWalls ? Math.min(dualArenaWalls.long.slPips.min, dualArenaWalls.short.slPips.min) : buyStopAnchor.profileMinPips;
-      const wallSlMax = dualArenaWalls ? Math.max(dualArenaWalls.long.slPips.max, dualArenaWalls.short.slPips.max) : buyStopAnchor.profileMaxPips;
-      const wallTpMin = dualArenaWalls ? Math.min(dualArenaWalls.long.tpPips.min, dualArenaWalls.short.tpPips.min) : 0;
-      const wallTpMax = dualArenaWalls ? Math.max(dualArenaWalls.long.tpPips.max, dualArenaWalls.short.tpPips.max) : 999;
+      // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY): wallSl/wallTp pip range variables removed.
+      // Alpha receives live ATR anchors only. No static pip envelope is shown to Alpha.
 
       // CCIP-2026-03-18 ALPHA AUTHORITY: SL anchors are presented to Alpha as-is from the
       // stop calculator. The coordinator MUST NOT pre-modify anchor values to comply with
@@ -1869,27 +1867,16 @@ Consider in Q9: Is this cluster a risk to your SL? Should you widen to clear it,
         return alignedSweepText + crossDirectionText;
       })();
 
-      const slMinPct = marketContext.price > 0
-        ? ((wallSlMin * pipInfo.pipValue) / marketContext.price * 100).toFixed(3)
-        : null;
-      const slMaxPct = marketContext.price > 0
-        ? ((wallSlMax * pipInfo.pipValue) / marketContext.price * 100).toFixed(3)
-        : null;
-      const tpMinPct = marketContext.price > 0
-        ? ((wallTpMin * pipInfo.pipValue) / marketContext.price * 100).toFixed(3)
-        : null;
-      const tpMaxPct = marketContext.price > 0
-        ? ((wallTpMax * pipInfo.pipValue) / marketContext.price * 100).toFixed(3)
-        : null;
-      const wallPctContext = (slMinPct && slMaxPct && tpMinPct && tpMaxPct)
-        ? ` [SL: ${slMinPct}%-${slMaxPct}% of price | TP: ${tpMinPct}%-${tpMaxPct}% of price]`
-        : '';
-
+      // CCIP-2026-04-21 (LIVE-ATR SOVEREIGNTY): EXPECTED ENVELOPE pip range text removed.
+      // Static-derived SL/TP pip ranges gave Alpha false data about "expected" sizes,
+      // causing NO_TRADE on all symbols when live ATR was far below static floors.
+      // Alpha now receives only live ATR anchors and sweep context. He places SL/TP
+      // from structure with full sovereignty. No pip range pre-frames his decision.
       stopLossDirective = `
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: ${riskMode.toUpperCase()}
 IF LONG SL Anchor: ${buyAnchorPrice.toFixed(5)} (${buyAnchorPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 IF SHORT SL Anchor: ${sellAnchorPrice.toFixed(5)} (${sellAnchorPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
-EXPECTED ENVELOPE (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL expected ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP expected ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips${wallPctContext}. These are structural guidelines derived from volatility and style. You have FULL authority to place SL and TP where structure justifies it. Placements outside the envelope are logged for analysis but are not rejected. Only Omega-9 (mathematical impossibility) can veto a trade.${sweepZoneDirective}
+SL/TP AUTHORITY: You have FULL authority to place SL and TP where structure justifies it. Read the candle sequence, identify structure, and commit. Only Omega-9 (mathematical impossibility) can veto.${sweepZoneDirective}
 `;
     }
 
