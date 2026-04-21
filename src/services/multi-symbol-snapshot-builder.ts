@@ -97,17 +97,34 @@ class MultiSymbolSnapshotBuilder {
     console.log(`[Multi-Symbol] Building snapshots for ${symbols.length} symbols using cache... Style: ${canonicalStyle} -> TF: ${timeframe}`);
     const startTime = Date.now();
 
-    // ✅ Use MarketSnapshotCache for all symbols (parallel)
-    const snapshotPromises = symbols.map(symbol =>
-      sharedIntelligenceCoordinator.getMarketSnapshot(symbol, timeframe)
-        .then(snapshot => snapshot ? this.convertToSymbolSnapshot(snapshot) : null)
-        .catch(error => {
-          console.error(`[Multi-Symbol] Failed to build snapshot for ${symbol}:`, error.message);
-          return null;
-        })
-    );
+    // Build snapshots in batches of 3 with a 300ms stagger between batches.
+    // Prevents a thundering herd of 9 simultaneous cold-start DB queries against
+    // the forex_candles_best view when the cache is empty (session start / hard refresh).
+    // Warm cache hits are near-instant so the stagger adds negligible latency in
+    // steady state.
+    const BATCH_SIZE = 3;
+    const BATCH_DELAY_MS = 300;
+    const allResults: (SymbolSnapshot | null)[] = [];
 
-    const snapshots = (await Promise.all(snapshotPromises)).filter((s): s is SymbolSnapshot => s !== null);
+    for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      }
+      const batch = symbols.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(symbol =>
+          sharedIntelligenceCoordinator.getMarketSnapshot(symbol, timeframe)
+            .then(snapshot => snapshot ? this.convertToSymbolSnapshot(snapshot) : null)
+            .catch(error => {
+              console.error(`[Multi-Symbol] Failed to build snapshot for ${symbol}:`, error.message);
+              return null;
+            })
+        )
+      );
+      allResults.push(...batchResults);
+    }
+
+    const snapshots = allResults.filter((s): s is SymbolSnapshot => s !== null);
 
     const tradeableSymbols = snapshots.filter(s => s.tradeable).map(s => s.symbol);
     const blockedSymbols = new Map<string, string>();
