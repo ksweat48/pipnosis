@@ -125,6 +125,7 @@ import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle, getEstimatedS
 import { wallCalibrationEngine } from '../services/wall-calibration-engine';
 import { resolveCanonicalStyle } from '../config/timeframe-hierarchy';
 import { alphaHunterLearningContext } from '../services/alpha-hunter-learning-context';
+import { computeMomentumTrajectory, formatMomentumTrajectoryForPrompt } from '../services/momentum-trajectory-analyzer';
 
 /**
  * Helper: Determine asset class from symbol
@@ -1259,6 +1260,50 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
         }
       } catch (error) {
         console.error('[Alpha Coordinator] Failed to extract sweep facts:', error);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 2B: MOMENTUM TRAJECTORY ANALYSIS (CCIP-2026-0421-MTL)
+    //
+    // Pure computation — no LLM calls, no external requests.
+    // Runs over raw candles already in memory. Advisory-only context
+    // for Alpha — does NOT gate, score, or restrict any trade decision.
+    //
+    // Every phase contains a hunt. This tells Alpha WHAT KIND of hunt
+    // is available, not whether to hunt.
+    //
+    // Supports: SCALP, MICRO_INTRADAY, INTRADAY
+    // Sessions: Asian, London, NY, Overlap, Dead — all supported
+    // ═══════════════════════════════════════════════════════════════════
+    let momentumTrajectoryContext = '';
+
+    if (fullCandles && fullCandles.length >= 10) {
+      try {
+        const trajectoryCandles = fullCandles.map((c: any) => ({
+          open: Number(c.open),
+          high: Number(c.high),
+          low: Number(c.low),
+          close: Number(c.close),
+          volume: c.volume ? Number(c.volume) : undefined,
+        }));
+
+        const sessionCtx = calculateSessionContext();
+        const sessionName = sessionCtx.currentSession ?? 'unknown';
+
+        const trajectory = computeMomentumTrajectory(
+          trajectoryCandles,
+          sweepFacts,
+          regimeResult,
+          tradeStyle,
+          sessionName
+        );
+
+        momentumTrajectoryContext = formatMomentumTrajectoryForPrompt(trajectory);
+
+        console.log(`[Alpha Coordinator] Momentum Trajectory: phase=${trajectory.phase} | velocity=${trajectory.velocityState} | atr=${trajectory.atrExpansionState} | sweep=${trajectory.sweepFollowThrough} | style=${tradeStyle} | session=${sessionName}`);
+      } catch (error) {
+        console.warn('[Alpha Coordinator] Momentum trajectory computation failed (non-blocking):', error);
       }
     }
 
@@ -3700,7 +3745,7 @@ These three questions replace the need for a "perfect setup". Structure + range 
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${hunterLearningContextText}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
+${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${momentumTrajectoryContext}${patternContext}${intelligenceContext}${hunterLearningContextText}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
