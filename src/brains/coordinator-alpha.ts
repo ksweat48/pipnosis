@@ -880,8 +880,15 @@ Place it at the root of the JSON object, not inside entry_spec or any other sub-
 
   "entry_mode": "execute_now"       → Structure and momentum support an immediate entry at current price.
 
-  "entry_mode": "wait_pullback"     → Thesis is valid but price is extended. You want a better entry at a structural level.
-                                      The system places a limit-style entry that triggers on first touch — no candle close needed.
+  "entry_mode": "wait_pullback"     → TWO use cases:
+                                      (1) Price is extended — thesis is valid but you want a better structural entry. The system
+                                          places a limit-style entry that triggers on first touch when price retraces to your zone.
+                                      (2) Trigger has NOT yet fired — sweep not yet completed, BOS not yet broken, reclaim not
+                                          yet confirmed. You have identified the directional setup and the structural level where
+                                          the trigger will fire. The wait_condition names THAT level as the zone. The system
+                                          monitors and executes when price enters the zone. This is the correct output when you
+                                          describe a pending sweep-reclaim, a pending BOS, or a pending pullback completion.
+                                          DO NOT output NO_TRADE when you can name the trigger zone — output wait_pullback.
                                       Include a wait_condition block with the zone, invalidation price, and reasoning.
 
   "entry_mode": "push_confirmation" → You want a candle close inside a specific zone before entering.
