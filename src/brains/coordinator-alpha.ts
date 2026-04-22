@@ -81,7 +81,7 @@ import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
-import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER } from '../config/confidence-tier';
+import { VALID_CONFIDENCE_TIERS, ACTIONABLE_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER } from '../config/confidence-tier';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
@@ -872,42 +872,65 @@ class AlphaCoordinatorBrain {
     const entryMonitorActive = monitorPrefRaw?.entry_price_monitor_enabled === true;
 
     const entryModePromptSection = entryMonitorActive
-      ? `ENTRY MODE — SMART WAITING SYSTEM:
+      ? `ENTRY MODE — SEQUENTIAL DECISION PROCESS (CCIP-2026-0422F):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field
 in the JSON. Omitting entry_mode will BLOCK the trade — it is not optional, not nested, not skippable.
 Place it at the root of the JSON object, not inside entry_spec or any other sub-object.
 
-  "entry_mode": "execute_now"       → Structure and momentum support an immediate entry at current price.
+MANDATORY DECISION SEQUENCE — evaluate in this exact order for every pair:
 
-  "entry_mode": "wait_pullback"     → TWO use cases:
-                                      (1) Price is extended — thesis is valid but you want a better structural entry. The system
-                                          places a limit-style entry that triggers on first touch when price retraces to your zone.
-                                      (2) Trigger has NOT yet fired — sweep not yet completed, BOS not yet broken, reclaim not
-                                          yet confirmed. You have identified the directional setup and the structural level where
-                                          the trigger will fire. The wait_condition names THAT level as the zone. The system
-                                          monitors and executes when price enters the zone. This is the correct output when you
-                                          describe a pending sweep-reclaim, a pending BOS, or a pending pullback completion.
-                                          DO NOT output NO_TRADE when you can name the trigger zone — output wait_pullback.
-                                      Include a wait_condition block with the zone, invalidation price, and reasoning.
+STEP 1 — CAN I EXECUTE NOW?
+Ask: Is the setup valid at the current price? Is the trigger fired or firing? Is the R:R clear?
+If YES → output BUY/SELL + "entry_mode": "execute_now" + your confidence tier. DONE.
 
-  "entry_mode": "push_confirmation" → You want a candle close inside a specific zone before entering.
-                                      Use for breakout entries or when you need confirmed commitment before executing.
-                                      Include a wait_condition block. Zone should be tight (1-3 pip width).
+STEP 2 — CAN I SET A WAIT INTENT? (only if Step 1 fails)
+Ask: Is there a named structural level where the trigger WILL fire? Can I define the zone?
+If YES → output BUY/SELL + "entry_mode": "wait_pullback" or "push_confirmation" + your confidence tier. DONE.
+Wait intents are valid for: pending sweeps, pending BOS, pending reclaims, price not yet at zone.
+A wait intent is NOT a weaker decision — it is the correct decision when the trigger has not yet fired.
+
+STEP 3 — NO_TRADE (only if BOTH Step 1 and Step 2 fail)
+NO_TRADE is only valid when you cannot find a direction AND cannot name a trigger zone.
+If you can name a trigger zone — output a wait intent, not NO_TRADE.
+If you have a directional lean and a named level — that is a wait intent, not NO_TRADE.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENTRY MODE OPTIONS:
+
+  "entry_mode": "execute_now"
+    → Trigger has fired. Structure and momentum support entry at current price.
+    → No wait_condition block required.
+
+  "entry_mode": "wait_pullback"
+    → TWO valid use cases:
+      (1) Price extended — thesis is valid but you want a better structural entry.
+          The system monitors and executes when price retraces to your zone.
+      (2) Trigger has NOT yet fired — sweep pending, BOS not yet broken, reclaim not confirmed.
+          You have identified the zone where the trigger will fire.
+          The system monitors and executes when price enters the zone.
+    → ALWAYS preferred over NO_TRADE when you can name the trigger zone.
+    → Include a wait_condition block.
+
+  "entry_mode": "push_confirmation"
+    → You require a candle CLOSE inside a specific zone before entry is confirmed.
+    → Use for breakout entries or when you need committed close-based confirmation.
+    → Zone should be tight (1-3 pip width).
+    → Include a wait_condition block.
 
 For wait_pullback or push_confirmation, include:
 {
   "wait_condition": {
-    "target_entry_zone_min": <lower bound>,
-    "target_entry_zone_max": <upper bound>,
-    "invalidation_price": <price that invalidates the thesis>,
-    "wait_reasoning": "Named structural level and why you are waiting",
-    "expected_wait_minutes": <your estimate>
+    "target_entry_zone_min": <lower bound of the trigger zone>,
+    "target_entry_zone_max": <upper bound of the trigger zone>,
+    "invalidation_price": <price that invalidates the thesis entirely>,
+    "wait_reasoning": "Name the structural level and state exactly why you are waiting",
+    "expected_wait_minutes": <your estimate of how long until trigger fires>
   }
 }
 
 REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
-{ "action": "BUY", "entry_mode": "execute_now", ... }
+{ "action": "BUY", "entry_mode": "wait_pullback", "wait_condition": { ... }, ... }
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
       : `ENTRY MODE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -5188,115 +5211,80 @@ Return PURE JSON only — all required fields from the schema in my system promp
         );
       }
 
-      // CCIP-2026-0415A: Tier-to-action governance enforcement.
-      // Updated: NO_TRADE now permitted at cautious and moderate (CCIP-2026-0422A).
+      // CCIP-2026-0422F: Simplified decision governance.
       //
-      // The tier-to-action map defines which outputs are permitted per confidence tier:
-      //   no_read               → NO_TRADE only
-      //   low                   → NO_TRADE or Wait Intent (execute_now forbidden)
-      //   cautious, moderate    → NO_TRADE, Wait Intent, or Execute Now
-      //   confident, high       → Wait Intent or Execute Now (NO_TRADE forbidden)
-      //   very_high, extreme    → Execute Now only (wait and NO_TRADE forbidden)
+      // Alpha follows a sequential decision process:
+      //   1. Can I execute NOW?       → BUY/SELL + execute_now + confident..extreme
+      //   2. Can I set a wait intent? → BUY/SELL + wait_pullback/push_confirmation + confident..extreme
+      //   3. Only if BOTH fail        → NO_TRADE (no confidence tier required)
       //
-      // Violations are corrected here — the goal is to honour Alpha's intent while
-      // enforcing the structural logic of the tier system.
-      // Corrections applied:
-      //   - NO_TRADE at confident/high → downgraded to wait_pullback BUY/SELL
-      //     (Alpha has named structural clarity at these tiers — surfaced as a wait intent)
-      //   - NO_TRADE at very_high/extreme → overridden to execute_now with the stated direction
-      //     (exceptional clarity must result in execution)
-      //   - execute_now at low → corrected to wait_pullback
-      //     (low confidence cannot support an immediate market order)
-      //   - wait_pullback/push_confirmation at very_high/extreme → corrected to execute_now
-      //     (edge is live and sharp — waiting surrenders it)
-      //   - NO_TRADE at no_read → passes through unchanged (valid)
-      //   - NO_TRADE at low → passes through unchanged (valid when no lean can be structured)
+      // Confidence tier describes setup quality — it does NOT restrict which action is permitted.
+      // Both execute_now and wait intents are valid at any tier from confident through extreme.
+      // NO_TRADE is valid when Alpha genuinely cannot find a direction or a trigger zone.
+      //
+      // The single rescue rule: if Alpha outputs NO_TRADE but has a non-neutral directional lean
+      // AND a named trigger exists (wait_condition or Q_SWEEP_RECLAIM populated), this is a
+      // deferred setup — rescue as wait_pullback at the stated directional lean.
       {
         const tier = confidenceTier as string | null;
-        const NO_TRADE_FORBIDDEN_TIERS = new Set(['confident', 'high', 'very_high', 'extreme']);
-        const EXECUTE_NOW_ONLY_TIERS = new Set(['very_high', 'extreme']);
-        const WAIT_ONLY_TIERS = new Set(['low']);
 
-        if (action === 'NO_TRADE' && tier && NO_TRADE_FORBIDDEN_TIERS.has(tier)) {
-          // Alpha has structural clarity at this tier — NO_TRADE is not permitted.
-          // We must surface his directional lean as a wait intent or execution.
-          // Use directional_lean to determine the action, defaulting to BUY_LEAN path.
+        if (action === 'NO_TRADE') {
+          // Check for a deferred setup: Alpha identified a direction and a named trigger zone
+          // but still output NO_TRADE — this violates the sequential decision model.
           const lean = (parsed.directional_lean as string | undefined) ?? 'NEUTRAL';
-          const correctedAction = (lean === 'SELL_LEAN') ? 'SELL' : 'BUY';
-          const correctedEntryMode = EXECUTE_NOW_ONLY_TIERS.has(tier) ? 'execute_now' : 'wait_pullback';
-          console.warn(
-            `[Alpha Coordinator] CCIP-2026-0415A: NO_TRADE_TIER_VIOLATION — ` +
-            `Alpha returned NO_TRADE at confidence_tier="${tier}" where NO_TRADE is forbidden. ` +
-            `Directional lean: ${lean}. ` +
-            `Correcting to action=${correctedAction} entry_mode=${correctedEntryMode}. ` +
-            `Symbol=${symbol}. All thesis fields preserved.`
-          );
-          // Mutate action and entry_mode on parsed object so downstream parse picks them up.
-          // The thesis, levels, and all structural fields are preserved.
-          (parsed as Record<string, unknown>).action = correctedAction;
-          (parsed as Record<string, unknown>).entry_mode = correctedEntryMode;
-          // If no wait_condition present, build a minimal one from SL geometry so the
-          // entry monitor has a zone to work with. The executor will refine at execution.
-          if (correctedEntryMode !== 'execute_now' && !parsed.wait_condition) {
-            (parsed as Record<string, unknown>).wait_condition = {
-              target_entry_zone_min: parsed.entry ?? currentPrice,
-              target_entry_zone_max: parsed.entry ?? currentPrice,
-              invalidation_price: parsed.stopLoss ?? parsed.stop_loss ?? currentPrice,
-              wait_reasoning: `CCIP-2026-0415A: Auto-generated wait zone. Alpha chose NO_TRADE at tier=${tier} but this tier requires execution or wait. Zone inferred from entry geometry.`,
-              expected_wait_minutes: 30,
-            };
-          }
-          logViolation({
-            violationType: 'NO_TRADE_TIER_VIOLATION',
-            symbol: marketContext.symbol,
-            attemptedOperation: 'no_trade_at_forbidden_tier',
-            callLocation: 'coordinator-alpha.tier_action_governance',
-            blocked: false,
-            errorDetails: {
-              tier,
-              original_action: 'NO_TRADE',
-              corrected_action: correctedAction,
-              corrected_entry_mode: correctedEntryMode,
-              directional_lean: lean,
-              description: `NO_TRADE forbidden at tier=${tier}. Corrected to ${correctedAction}/${correctedEntryMode}.`,
-            },
-          }).catch(() => {});
-        } else if (action === 'BUY' || action === 'SELL') {
-          const rawEntryMode = (parsed.entry_mode as string | undefined) ?? (parsed.entry_spec?.entry_mode as string | undefined);
-          if (tier && WAIT_ONLY_TIERS.has(tier) && rawEntryMode === 'execute_now') {
-            // execute_now at low confidence — correct to wait_pullback
+          const hasDirectionalLean = lean !== 'NEUTRAL' && lean !== '' && lean != null;
+          const hasWaitCondition = !!(parsed.wait_condition);
+          const sweepReclaimField = (parsed.answer_sheet as Record<string, unknown> | undefined)?.Q_SWEEP_RECLAIM as string | undefined;
+          const hasNamedTrigger = hasWaitCondition ||
+            (sweepReclaimField && sweepReclaimField.length > 0 && !sweepReclaimField.startsWith('NO_SWEEP'));
+          const noTradeStatement = (parsed.no_trade_statement as string | undefined) ?? '';
+          // Detect named price level in no_trade_statement (e.g. "waiting for sweep of 78399.95")
+          const hasNamedPriceInStatement = /\b\d{4,6}(\.\d+)?\b/.test(noTradeStatement);
+
+          if (hasDirectionalLean && (hasNamedTrigger || hasNamedPriceInStatement)) {
+            // Alpha found a deferred setup but chose NO_TRADE — rescue as wait_pullback
+            const correctedAction = (lean === 'SELL_LEAN') ? 'SELL' : 'BUY';
+            const rescuedTier = tier && ACTIONABLE_CONFIDENCE_TIERS.has(tier) ? tier : 'confident';
             console.warn(
-              `[Alpha Coordinator] CCIP-2026-0415A: EXECUTE_NOW_AT_LOW_TIER — ` +
-              `Alpha returned execute_now at confidence_tier="${tier}" where execute_now is forbidden. ` +
-              `Correcting entry_mode: execute_now → wait_pullback. Symbol=${symbol}.`
+              `[Alpha Coordinator] CCIP-2026-0422F: DEFERRED_SETUP_RESCUE — ` +
+              `Alpha returned NO_TRADE but has directional lean="${lean}" and a named trigger zone. ` +
+              `This is a deferred setup, not a no-opportunity. ` +
+              `Rescuing as action=${correctedAction} entry_mode=wait_pullback tier=${rescuedTier}. ` +
+              `Symbol=${symbol}.`
             );
+            (parsed as Record<string, unknown>).action = correctedAction;
             (parsed as Record<string, unknown>).entry_mode = 'wait_pullback';
+            (parsed as Record<string, unknown>).confidence_tier = rescuedTier;
+            // Build wait_condition from existing geometry if not present
+            if (!parsed.wait_condition) {
+              (parsed as Record<string, unknown>).wait_condition = {
+                target_entry_zone_min: parsed.entry ?? currentPrice,
+                target_entry_zone_max: parsed.entry ?? currentPrice,
+                invalidation_price: parsed.stopLoss ?? parsed.stop_loss ?? currentPrice,
+                wait_reasoning: `CCIP-2026-0422F: Auto-generated wait zone. Alpha identified deferred setup (${lean}) but output NO_TRADE. Zone inferred from stated entry geometry. Trigger: ${sweepReclaimField ?? noTradeStatement.slice(0, 120)}`,
+                expected_wait_minutes: 45,
+              };
+            }
             logViolation({
-              violationType: 'EXECUTE_NOW_AT_LOW_TIER',
+              violationType: 'DEFERRED_SETUP_NO_TRADE_RESCUE',
               symbol: marketContext.symbol,
-              attemptedOperation: 'execute_now_at_low_confidence',
-              callLocation: 'coordinator-alpha.tier_action_governance',
+              attemptedOperation: 'no_trade_with_named_deferred_trigger',
+              callLocation: 'coordinator-alpha.decision_governance',
               blocked: false,
-              errorDetails: { tier, entry_mode_before: 'execute_now', entry_mode_after: 'wait_pullback' },
-            }).catch(() => {});
-          } else if (tier && EXECUTE_NOW_ONLY_TIERS.has(tier) && rawEntryMode && rawEntryMode !== 'execute_now') {
-            // wait at very_high/extreme — edge is live, correct to execute_now
-            console.warn(
-              `[Alpha Coordinator] CCIP-2026-0415A: WAIT_AT_VERY_HIGH_TIER — ` +
-              `Alpha returned entry_mode="${rawEntryMode}" at confidence_tier="${tier}" where only execute_now is permitted. ` +
-              `Correcting entry_mode → execute_now. Symbol=${symbol}.`
-            );
-            (parsed as Record<string, unknown>).entry_mode = 'execute_now';
-            logViolation({
-              violationType: 'WAIT_AT_VERY_HIGH_TIER',
-              symbol: marketContext.symbol,
-              attemptedOperation: 'wait_at_very_high_confidence',
-              callLocation: 'coordinator-alpha.tier_action_governance',
-              blocked: false,
-              errorDetails: { tier, entry_mode_before: rawEntryMode, entry_mode_after: 'execute_now' },
+              errorDetails: {
+                lean,
+                original_action: 'NO_TRADE',
+                rescued_action: correctedAction,
+                rescued_entry_mode: 'wait_pullback',
+                has_wait_condition: hasWaitCondition,
+                has_named_trigger: hasNamedTrigger,
+                description: `Alpha found deferred setup (${lean}) but output NO_TRADE. Rescued to ${correctedAction}/wait_pullback.`,
+              },
             }).catch(() => {});
           }
+          // Genuine NO_TRADE (no direction, no trigger) — passes through unchanged
         }
+        // BUY/SELL: any confidence tier and any entry_mode are valid — no restrictions
       }
 
       const entryQualityScore = parsed.entry_quality_score ?? 0;

@@ -941,90 +941,64 @@ class AlphaOmegaOrchestrator {
         const noTradeDecisions = evaluatedDecisions.filter(d => d.action === 'NO_TRADE');
         const allNoTrade = noTradeDecisions.length === evaluatedDecisions.length;
 
-        // Detect schema violations: decisions with no confidence_tier (legacy numeric path)
-        const schemaViolations = noTradeDecisions.filter(d => !d.confidence_tier);
-        if (schemaViolations.length > 0) {
-          console.warn(
-            `[Alpha Orchestrator] CCIP-2026-0413 SCHEMA_VIOLATION_BATCH: ` +
-            `${schemaViolations.length}/${evaluatedDecisions.length} NO_TRADE decisions are missing confidence_tier. ` +
-            `Alpha is reverting to numeric confidence output. This indicates a stale cached prompt. ` +
-            `Check [Alpha Raw Response] logs for completion_tokens and cache hit %.`
+        // CCIP-2026-0422F: NO_TRADE decisions intentionally have no confidence_tier (by design).
+        // Only flag schema violations for system-generated NO_TRADEs with non-SYSTEM_ origin
+        // that somehow lost their confidence_tier — those indicate coordinator bugs, not stale prompts.
+        // CCIP-2026-0413 legacy check updated: exclude SYSTEM_ decision_origin (gate bypasses)
+        // since those are synthetic and never receive a confidence_tier from Alpha.
+        const alphaNoTradeDecisions = noTradeDecisions.filter(
+          d => !String(d.decision_origin ?? '').startsWith('SYSTEM_')
+        );
+        const systemGeneratedCount = noTradeDecisions.length - alphaNoTradeDecisions.length;
+        if (systemGeneratedCount > 0) {
+          console.log(
+            `[Alpha Orchestrator] CCIP-2026-0422F: ${systemGeneratedCount}/${evaluatedDecisions.length} NO_TRADE decisions were system-generated ` +
+            `(HUNT_READINESS_GATE or data failure) — not Alpha output. These are expected and correct.`
           );
         }
 
         if (allNoTrade) {
-          const tiers = noTradeDecisions.map(d => d.confidence_tier ?? `numeric:${d.confidence}`);
-          const uniqueTiers = new Set(tiers);
-          const allHaveContentTier = noTradeDecisions.every(d => !!d.confidence_tier);
-          if (uniqueTiers.size === 1) {
-            const sharedTier = tiers[0];
-            if (allHaveContentTier) {
-              // All symbols returned NO_TRADE with a genuine confidence_tier (content-validated).
-              // Identical tier across all symbols during low-volatility sessions (e.g. Asian) is
-              // statistically plausible — Alpha correctly abstains when no edge exists.
-              // Token thresholds: NO_TRADE genuine range = 200-600 tokens (content-validated by
-              // coordinator-alpha.ts). BUY/SELL genuine range = 600-1500 tokens.
-              // This is NOT the same as the legacy degenerate pattern (150-340 tokens + NULL
-              // no_trade_statement) documented in CCIP-2026-0332A.
-              console.log(
-                `[Alpha Orchestrator] CCIP-2026-0413 ALL_NO_TRADE_UNIFORM_TIER: ` +
-                `All ${evaluatedDecisions.length} symbols returned NO_TRADE with identical ` +
-                `confidence_tier="${sharedTier}". All responses passed content-based validation. ` +
-                `During low-volatility sessions (Asian hours, quiet markets) this is expected — ` +
-                `Alpha correctly abstains when no structural edge exists across the watchlist. ` +
-                `Degenerate indicator: check for NULL no_trade_statement or missing confidence_tier ` +
-                `(none detected here). Genuine NO_TRADE tokens = 200-600. BUY/SELL tokens = 600-1500.`
-              );
-            } else {
-              // Missing confidence_tier = numeric output = stale prompt cache = real degenerate signal
-              console.warn(
-                `[Alpha Orchestrator] CCIP-2026-0413 DEGENERATE_SCAN_DETECTED (TIER 1): ` +
-                `All ${evaluatedDecisions.length} symbols returned NO_TRADE with identical ` +
-                `confidence_tier="${sharedTier}" but ${schemaViolations.length} are missing confidence_tier. ` +
-                `Likely cause: stale OpenAI prompt cache causing numeric anchoring. ` +
-                `Check [Alpha Raw Response] logs for NULL no_trade_statement and completion_tokens < 200. ` +
-                `Genuine NO_TRADE = 200-600 tokens with substantive no_trade_statement. ` +
-                `Degenerate NO_TRADE = < 200 tokens with empty/null no_trade_statement.`
-              );
-            }
-          } else {
+          // CCIP-2026-0422F: NO_TRADE decisions intentionally have no confidence_tier.
+          // Degenerate scan detection is now based on no_trade_statement presence and token count,
+          // not confidence_tier uniformity (which is always null under the new model).
+          const alphaNoTrades = noTradeDecisions.filter(
+            d => !String(d.decision_origin ?? '').startsWith('SYSTEM_')
+          );
+          const missingStatement = alphaNoTrades.filter(d => { const s = (d as Record<string, unknown>).no_trade_statement as string | undefined; return !s || s.length < 50; });
+          if (missingStatement.length > 0) {
+            console.warn(
+              `[Alpha Orchestrator] CCIP-2026-0413 DEGENERATE_SCAN_DETECTED: ` +
+              `${missingStatement.length}/${alphaNoTrades.length} Alpha NO_TRADE decisions are missing ` +
+              `a substantive no_trade_statement (< 50 chars). ` +
+              `Likely cause: stale prompt cache or degenerate response. ` +
+              `Check [Alpha Raw Response] logs for completion_tokens < 200.`
+            );
+          } else if (alphaNoTrades.length > 0) {
             console.log(
-              `[Alpha Orchestrator] All ${evaluatedDecisions.length} symbols returned NO_TRADE ` +
-              `(varied tiers: ${[...uniqueTiers].join(', ')}). Genuine no-edge scan.`
+              `[Alpha Orchestrator] All ${evaluatedDecisions.length} symbols returned NO_TRADE. ` +
+              `${systemGeneratedCount} system-generated (gate bypasses), ${alphaNoTrades.length} from Alpha. ` +
+              `All Alpha NO_TRADE decisions have substantive statements. Genuine no-edge scan.`
             );
           }
         }
 
-        if (noTradeDecisions.length >= 2) {
-          // Count how many share the same tier (uniformity check)
-          const tierCounts = noTradeDecisions.reduce((acc: Record<string, number>, d) => {
-            const tier = d.confidence_tier ?? `numeric:${d.confidence}`;
-            acc[tier] = (acc[tier] ?? 0) + 1;
-            return acc;
-          }, {});
-          const maxCount = Math.max(...Object.values(tierCounts));
-          const uniformRatio = maxCount / evaluatedDecisions.length;
-          if (uniformRatio >= 0.6 && !allNoTrade) {
-            const dominantTier = Object.entries(tierCounts).find(([, count]) => count === maxCount)?.[0] ?? 'unknown';
-            const breakdownStr = Object.entries(tierCounts).map(([k, v]) => `"${k}": ${v}x`).join(', ');
-            const missingTierCount = noTradeDecisions.filter(d => !d.confidence_tier).length;
-            if (missingTierCount > 0) {
-              console.warn(
-                `[Alpha Orchestrator] CCIP-2026-0413 DEGENERATE_SCAN_SUSPECTED (TIER 2): ` +
-                `${maxCount}/${evaluatedDecisions.length} symbols (${Math.round(uniformRatio * 100)}%) ` +
-                `returned NO_TRADE with the same confidence_tier="${dominantTier}". ${breakdownStr}. ` +
-                `${missingTierCount} responses missing confidence_tier — possible stale prompt cache. ` +
-                `Check [Alpha Raw Response] for NULL no_trade_statement (degenerate) vs substantive text (genuine). ` +
-                `Genuine NO_TRADE tokens = 200-600. Degenerate = < 200 with null statement.`
-              );
-            } else {
-              console.log(
-                `[Alpha Orchestrator] CCIP-2026-0413 PARTIAL_NO_TRADE_UNIFORM_TIER: ` +
-                `${maxCount}/${evaluatedDecisions.length} symbols (${Math.round(uniformRatio * 100)}%) ` +
-                `returned NO_TRADE with tier="${dominantTier}". ${breakdownStr}. ` +
-                `All have confidence_tier — content-validated. Likely low-volatility session.`
-              );
-            }
+        if (noTradeDecisions.length >= 2 && !allNoTrade) {
+          // CCIP-2026-0422F: partial NO_TRADE batch — log for diagnostics
+          const alphaNTs = noTradeDecisions.filter(d => !String(d.decision_origin ?? '').startsWith('SYSTEM_'));
+          const sysNTs = noTradeDecisions.length - alphaNTs.length;
+          const missingStmt = alphaNTs.filter(d => { const s = (d as Record<string, unknown>).no_trade_statement as string | undefined; return !s || s.length < 50; });
+          if (missingStmt.length > 0) {
+            console.warn(
+              `[Alpha Orchestrator] CCIP-2026-0413 DEGENERATE_SCAN_SUSPECTED: ` +
+              `${noTradeDecisions.length}/${evaluatedDecisions.length} returned NO_TRADE. ` +
+              `${sysNTs} system-generated. ${missingStmt.length}/${alphaNTs.length} Alpha NO_TRADEs missing substantive statement. ` +
+              `Check [Alpha Raw Response] logs for completion_tokens < 200.`
+            );
+          } else {
+            console.log(
+              `[Alpha Orchestrator] ${noTradeDecisions.length}/${evaluatedDecisions.length} symbols returned NO_TRADE ` +
+              `(${sysNTs} system-generated, ${alphaNTs.length} Alpha). Content-validated. Partial no-edge scan.`
+            );
           }
         }
       }
