@@ -4613,11 +4613,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
       ) {
         logViolation({
           violationType: 'LIQUIDITY_SWEEP_READ_OMITTED',
-          severity: 'medium',
-          source: 'coordinator-alpha',
-          description: `Sweep sensor data was present (sweep_type=${sweepFacts.sweep_type}, BOS=${sweepFacts.has_bos}) but Alpha omitted liquidity_sweep_read from answer_sheet. This is a MANDATORY field when sweep data is injected.`,
           symbol: marketContext.symbol,
-          userId: userId || 'unknown',
+          attemptedOperation: 'answer_sheet_validation',
+          callLocation: 'coordinator-alpha/coordinate',
+          blocked: false,
+          errorDetails: {
+            sweep_type: sweepFacts.sweep_type,
+            has_bos: sweepFacts.has_bos,
+            userId: userId || 'unknown',
+          },
         }).catch(() => {});
         console.warn(
           `[Alpha Coordinator] CCIP-2026-0324C: LIQUIDITY_SWEEP_READ_OMITTED — sweep data was present ` +
@@ -4637,11 +4641,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
       ) {
         logViolation({
           violationType: 'Q12_MARKET_PHASE_OMITTED',
-          severity: 'low',
-          source: 'coordinator-alpha',
-          description: `Alpha omitted Q12_market_phase from answer_sheet. This is a mandatory field per CCIP-2026-0325A. Phase classification on the control TF is required for session-phase audit trail.`,
           symbol: marketContext.symbol,
-          userId: userId || 'unknown',
+          attemptedOperation: 'answer_sheet_validation',
+          callLocation: 'coordinator-alpha/coordinate',
+          blocked: false,
+          errorDetails: { userId: userId || 'unknown' },
         }).catch(() => {});
         console.warn(
           `[Alpha Coordinator] CCIP-2026-0325A: Q12_MARKET_PHASE_OMITTED — ` +
@@ -5655,11 +5659,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
           if (!hasCoherence) {
             logViolation({
               violationType: 'Q8D_WEEKLY_NARRATIVE_CONFLICT_UNRESOLVED',
-              severity: 'medium',
-              source: 'coordinator-alpha',
-              description: `Q8D=${q8d} conflicts with action=${action} and thesis_coherence_statement is absent or too short. Alpha was required to name the override reason or reduce confidence.`,
               symbol: marketContext.symbol,
-              userId: userId || 'unknown',
+              attemptedOperation: 'answer_sheet_validation',
+              callLocation: 'coordinator-alpha/parseDecision',
+              blocked: false,
+              errorDetails: { q8d, action, userId: userId || 'unknown' },
             }).catch(() => {});
             console.warn(
               `[Alpha Coordinator] CCIP-2026-0324D: Q8D=${q8d} conflicts with action=${action} but no coherence resolution found. ` +
@@ -5699,11 +5703,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
             if (!hasCoherence) {
               logViolation({
                 violationType: 'Q5_CONFIDENCE_GAP_NARROW_NO_COHERENCE',
-                severity: 'medium',
-                source: 'coordinator-alpha',
-                description: `Q5_failure_probability=${q5Prob} and trade_confidence=${confVal} — gap=${gap} points. Prompt requires named edge preserver when gap ≤ 15 points, but thesis_coherence_statement is absent or too short.`,
                 symbol: marketContext.symbol,
-                userId: userId || 'unknown',
+                attemptedOperation: 'answer_sheet_validation',
+                callLocation: 'coordinator-alpha/parseDecision',
+                blocked: false,
+                errorDetails: { q5Prob, confVal, gap, userId: userId || 'unknown' },
               }).catch(() => {});
               console.warn(
                 `[Alpha Coordinator] CCIP-2026-0324E: Q5 failure gap=${gap}pts (prob=${q5Prob}, conf=${confVal}) without coherence statement. ` +
@@ -6006,10 +6010,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
         logViolation({
           violationType: 'MISSING_ENTRY_PRICE',
           symbol,
-          tradeStyle,
-          details: `Alpha returned ${action} for ${symbol} without a valid entry price. entry=${parsed.entry} (type: ${typeof parsed.entry}). This violates the output contract.`,
-          severity: 'HIGH',
+          attemptedOperation: 'trade_execution',
+          callLocation: 'coordinator-alpha/parseDecision',
           blocked: true,
+          errorDetails: {
+            action,
+            tradeStyle,
+            parsedEntry: parsed.entry,
+            entryType: typeof parsed.entry,
+          },
         }).catch(() => {});
         console.error(`[CCIP-2026-0333] MISSING_ENTRY_PRICE — Alpha returned ${action} for ${symbol} without a valid entry. entry=${parsed.entry}. Trade BLOCKED.`);
         return {
@@ -6325,11 +6334,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
         if (!rawTraderStatement || traderStatementWordCount < 30) {
           logViolation({
             violationType: 'TRADER_STATEMENT_ABSENT_OR_TOO_SHORT',
-            severity: 'low',
-            source: 'coordinator-alpha',
-            description: `trader_statement ${rawTraderStatement ? `has only ${traderStatementWordCount} words` : 'is absent'}. Schema requires 80+ words. Token budget pressure likely.`,
             symbol: marketContext.symbol,
-            userId: userId || 'unknown',
+            attemptedOperation: 'answer_sheet_validation',
+            callLocation: 'coordinator-alpha/parseDecision',
+            blocked: false,
+            errorDetails: { wordCount: traderStatementWordCount, userId: userId || 'unknown' },
           }).catch(() => {});
           console.warn(
             `[Alpha Coordinator] CCIP-2026-0324G: trader_statement ${rawTraderStatement ? `too short (${traderStatementWordCount} words)` : 'absent'}. ` +

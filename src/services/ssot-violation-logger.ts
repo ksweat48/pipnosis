@@ -14,16 +14,17 @@
 
 import { supabase } from '../lib/supabase';
 
-function deriveComponent(callLocation: string, violationType: string): string {
-  if (callLocation.includes('alpha') || violationType.startsWith('ALPHA_')) return 'alpha-brain';
-  if (callLocation.includes('omega') || violationType.startsWith('OMEGA_')) return 'omega-council';
-  if (callLocation.includes('validation') || callLocation.includes('gateway')) return 'validation-gateway';
-  if (callLocation.includes('execution') || callLocation.includes('trade-execution')) return 'trade-execution';
-  if (callLocation.includes('freshness') || violationType.includes('FRESHNESS')) return 'freshness-gate';
-  if (callLocation.includes('position') || violationType.includes('POSITION')) return 'position-manager';
-  if (callLocation.includes('style') || violationType.startsWith('STYLE_')) return 'style-engine';
-  if (callLocation.includes('constraint') || violationType.includes('CONSTRAINT')) return 'constraint-validator';
-  return callLocation || 'unknown';
+function deriveComponent(callLocation: string | undefined, violationType: string): string {
+  const loc = callLocation ?? '';
+  if (loc.includes('alpha') || violationType.startsWith('ALPHA_')) return 'alpha-brain';
+  if (loc.includes('omega') || violationType.startsWith('OMEGA_')) return 'omega-council';
+  if (loc.includes('validation') || loc.includes('gateway')) return 'validation-gateway';
+  if (loc.includes('execution') || loc.includes('trade-execution')) return 'trade-execution';
+  if (loc.includes('freshness') || violationType.includes('FRESHNESS')) return 'freshness-gate';
+  if (loc.includes('position') || violationType.includes('POSITION')) return 'position-manager';
+  if (loc.includes('style') || violationType.startsWith('STYLE_')) return 'style-engine';
+  if (loc.includes('constraint') || violationType.includes('CONSTRAINT')) return 'constraint-validator';
+  return loc || 'unknown';
 }
 
 function deriveSeverity(violationType: string): string {
