@@ -3991,18 +3991,20 @@ BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
 TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
 You choose ALL profit targets. No pre-computed ceiling exists. TP placement is driven entirely by market structure. The style envelope shown above is a structural reference — not a formula, not a constraint.
-Process: (1) Find the directional edge. (2) Name the structural target. (3) Place TP there. (4) Calculate the R:R that results. If R:R ≥ 1:1 and the edge is real, execute. The minimum is 1.0:1 net of spread. Above that, TP goes where structure offers the most probable exit.
+Process: (1) Find the directional edge. (2) Name the structural target. (3) Place TP there. (4) Calculate the R:R that results. Above that, TP goes where structure offers the most probable exit.
+SCALP: no minimum R:R — I place TP at the M5 structural exhaustion point. The market decides what R:R that produces.
+MICRO_INTRADAY / INTRADAY: minimum 1.0:1 net of spread applies.
 
-MANDATORY PRE-SUBMISSION R:R VERIFICATION (execute this as the final step before outputting JSON):
+MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step before outputting JSON):
   Step A: Calculate my SL distance in pips — abs(entry - stopLoss).
-  Step B: Verify SL distance >= minimum viable SL shown above (${(getEstimatedSpreadPips(marketContext.symbol) * 1.5).toFixed(1)} pips for ${marketContext.symbol}). If my SL distance is below this floor, the position cannot survive the spread — widen the SL to the next structural level that clears this floor. If no structural anchor exists at or beyond the floor, I output NO_TRADE.
+  Step B: Verify SL distance >= minimum viable SL shown above (${(getEstimatedSpreadPips(marketContext.symbol) * 1.5).toFixed(1)} pips for ${marketContext.symbol}). If my SL distance is below this floor, the position cannot survive the spread — widen the SL to the next structural level that clears this floor. If no structural anchor exists at or beyond the floor, I output NO_TRADE. Applies to ALL styles.
   Step C: Calculate my TP distance in pips — abs(takeProfit - entry).
-  Step D: Verify TP distance >= SL distance. If TP distance < SL distance, I have constructed a direction, not a trade. This geometry does not qualify as a trade candidate.
-  Step E: If Step D fails — I do not submit. I select the next structural level further from entry that satisfies TP >= SL distance. If no such level exists after a genuine structural search, I output NO_TRADE with the specific structural reason.
-  Example: SL is 57 pips from entry. My TP must be at least 57 pips from entry on the other side. A TP of 50 pips with a 57-pip SL = 0.88:1 = not a trade. I find the next structural level that puts TP at 57+ pips, or I output NO_TRADE.
-  ETHUSD example: Minimum SL = 7.5 pips. If my structural SL is at 7.1 pips, I widen to the next structural extreme that is >= 7.5 pips. I do NOT submit a 7.1 pip SL — it will be hard-blocked before execution.
+  Step D (MICRO_INTRADAY and INTRADAY only — NOT applicable to SCALP): Verify TP distance >= SL distance. If TP distance < SL distance, I have constructed a direction, not a trade. This geometry does not qualify as a trade candidate. I select the next structural level further from entry that satisfies TP >= SL distance. If no such level exists after a genuine structural search, I output NO_TRADE with the specific structural reason.
+  Step D (SCALP only): No minimum R:R floor. I place TP at the M5 structural exhaustion point. Whatever R:R results is my trade. I do NOT inflate TP beyond the M5 exhaustion point to satisfy a ratio.
+  ETHUSD example (Step B): Minimum SL = 7.5 pips. If my structural SL is at 7.1 pips, I widen to the next structural extreme that is >= 7.5 pips. I do NOT submit a 7.1 pip SL — it will be hard-blocked before execution.
+  MICRO_INTRADAY/INTRADAY example (Step D): SL is 57 pips. My TP must be >= 57 pips. A TP of 50 pips with a 57-pip SL = 0.88:1 = not a trade. I find the next structural level that puts TP at 57+ pips, or I output NO_TRADE.
 
-- SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1 net of spread — account for spread cost explicitly.
+- SCALP: ONE take-profit ("takeProfit"). No minimum R:R — I place TP at the M5 structural exhaustion point. The structure decides R:R, not a formula.
   Place TP where the M5 leg exhausts. The exit is not a structural destination — it is the point where M5 momentum dies. Look for: prior M5 swing already printed in the direction of travel, M5 equal highs/lows clustering (absorption), M5 candle bodies compressing as wicks extend (pace fading). Place TP at that M5 exhaustion point — not at a structural wall, not at an M15 level.
   M1 timing data (when present) refines the exact entry moment within the M5 structure — it does not change the TP target. The TP is always the nearest M5 exhaustion point. Name the M5 exhaustion signal in tp_structural_reference.
 - MICRO_INTRADAY: Up to TWO take-profits. Minimum R:R 1.0:1.
@@ -5262,10 +5264,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
             (parsed as Record<string, unknown>).entry_mode = 'wait_pullback';
             (parsed as Record<string, unknown>).confidence_tier = rescuedTier;
             // CCIP-2026-0422G: entry must be set for the rescued BUY/SELL — MISSING_ENTRY_PRICE
-            // fires at line 6009 when entry is undefined. For a wait_pullback rescue, currentPrice
-            // is the correct sentinel: the actual fill happens when price reaches the wait zone.
+            // fires when entry is undefined. For a wait_pullback rescue, currentPrice is the
+            // correct sentinel: the actual fill happens when price reaches the wait zone.
             if (parsed.entry === null || parsed.entry === undefined || typeof parsed.entry !== 'number' || isNaN(parsed.entry) || parsed.entry <= 0) {
               (parsed as Record<string, unknown>).entry = currentPrice;
+            }
+            // CCIP-2026-0422G: stopLoss must also be set for the rescued BUY/SELL —
+            // MISSING_STOPPLOSS fires when stopLoss is undefined (rescue reads it but never writes it).
+            // currentPrice is the sentinel for wait_pullback; the executor assigns the real SL
+            // from the wait_condition.invalidation_price once the zone is reached.
+            if (parsed.stopLoss === null || parsed.stopLoss === undefined || typeof parsed.stopLoss !== 'number' || isNaN(parsed.stopLoss) || parsed.stopLoss <= 0) {
+              (parsed as Record<string, unknown>).stopLoss = currentPrice;
             }
             // Build wait_condition from existing geometry if not present
             if (!parsed.wait_condition) {
@@ -6071,7 +6080,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // If Alpha omits them, it is a prompt compliance failure — not a market condition.
       // Do NOT silently fall back. Log the violation loudly so it is visible in governance.
       if (typeof stopLoss !== 'number' || isNaN(stopLoss) || stopLoss <= 0) {
-        console.error(`[Alpha Coordinator] CRITICAL PROMPT COMPLIANCE FAILURE: Alpha returned ${action} for ${symbol} WITHOUT a valid stopLoss. stopLoss=${stopLoss} (type: ${typeof stopLoss}). This violates the output contract. Trade BLOCKED.`);
+        console.error(`[Alpha Coordinator] CRITICAL PROMPT COMPLIANCE FAILURE: Alpha returned ${correctedAction} for ${symbol} WITHOUT a valid stopLoss. stopLoss=${stopLoss} (type: ${typeof stopLoss}). This violates the output contract. Trade BLOCKED.`);
         console.error(`[Alpha Coordinator] Parsed response fields: action=${parsed.action}, entry=${parsed.entry}, stopLoss=${parsed.stopLoss}, takeProfit=${parsed.takeProfit}`);
         return {
           action: 'NO_TRADE',
@@ -6080,12 +6089,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
           stopLoss: currentPrice,
           takeProfit: currentPrice,
           confidence: 0,
-          reasoning: `BLOCKED: Alpha returned ${action} without a valid stopLoss. Prompt compliance failure — Alpha must always provide stopLoss for BUY/SELL.`,
+          reasoning: `BLOCKED: Alpha returned ${correctedAction} without a valid stopLoss. Prompt compliance failure — Alpha must always provide stopLoss for BUY/SELL.`,
           omega_summary: '',
           risk_pct: 0,
           decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
           alpha_original_decision: {
-            action: action as 'BUY' | 'SELL',
+            action: correctedAction as 'BUY' | 'SELL',
             entry: entry ?? currentPrice,
             stopLoss: currentPrice,
             takeProfit: takeProfit ?? currentPrice,

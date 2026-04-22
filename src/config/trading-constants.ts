@@ -15,11 +15,12 @@
 export const TRADING_CONSTANTS = {
   RISK_REWARD_RATIOS: {
     CATASTROPHIC_THRESHOLD: 0.5,
-    // CCIP-2026-03-06: Unified floor — all styles share 1.0:1 minimum.
-    // Alpha scales freely within the style band up to the style maximum.
+    // CCIP-2026-03-06: Unified floor — MICRO_INTRADAY and INTRADAY share 1.0:1 minimum.
+    // CCIP-2026-0422I: SCALP minimum removed — Alpha decides TP based on M5 structural
+    // exhaustion. No R:R floor enforced. Omega-9 hard block disabled for SCALP.
     MINIMUM: 1.0,
-    // Per-style floors
-    MINIMUM_SCALP: 1.0,
+    // Per-style floors — 0 means no floor (Omega-9 block disabled for that style)
+    MINIMUM_SCALP: 0,
     MINIMUM_MICRO_INTRADAY: 1.0,
     MINIMUM_INTRADAY: 1.0,
     // Per-style ceilings — Alpha cannot set TP beyond these R:R multiples
