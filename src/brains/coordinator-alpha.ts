@@ -3995,10 +3995,12 @@ Process: (1) Find the directional edge. (2) Name the structural target. (3) Plac
 
 MANDATORY PRE-SUBMISSION R:R VERIFICATION (execute this as the final step before outputting JSON):
   Step A: Calculate my SL distance in pips — abs(entry - stopLoss).
-  Step B: Calculate my TP distance in pips — abs(takeProfit - entry).
-  Step C: Verify TP distance >= SL distance. If TP distance < SL distance, I have constructed a direction, not a trade. This geometry does not qualify as a trade candidate.
-  Step D: If Step C fails — I do not submit. I select the next structural level further from entry that satisfies TP >= SL distance. If no such level exists after a genuine structural search, I output NO_TRADE with the specific structural reason.
+  Step B: Verify SL distance >= minimum viable SL shown above (${(getEstimatedSpreadPips(marketContext.symbol) * 1.5).toFixed(1)} pips for ${marketContext.symbol}). If my SL distance is below this floor, the position cannot survive the spread — widen the SL to the next structural level that clears this floor. If no structural anchor exists at or beyond the floor, I output NO_TRADE.
+  Step C: Calculate my TP distance in pips — abs(takeProfit - entry).
+  Step D: Verify TP distance >= SL distance. If TP distance < SL distance, I have constructed a direction, not a trade. This geometry does not qualify as a trade candidate.
+  Step E: If Step D fails — I do not submit. I select the next structural level further from entry that satisfies TP >= SL distance. If no such level exists after a genuine structural search, I output NO_TRADE with the specific structural reason.
   Example: SL is 57 pips from entry. My TP must be at least 57 pips from entry on the other side. A TP of 50 pips with a 57-pip SL = 0.88:1 = not a trade. I find the next structural level that puts TP at 57+ pips, or I output NO_TRADE.
+  ETHUSD example: Minimum SL = 7.5 pips. If my structural SL is at 7.1 pips, I widen to the next structural extreme that is >= 7.5 pips. I do NOT submit a 7.1 pip SL — it will be hard-blocked before execution.
 
 - SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1 net of spread — account for spread cost explicitly.
   Place TP where the M5 leg exhausts. The exit is not a structural destination — it is the point where M5 momentum dies. Look for: prior M5 swing already printed in the direction of travel, M5 equal highs/lows clustering (absorption), M5 candle bodies compressing as wicks extend (pace fading). Place TP at that M5 exhaustion point — not at a structural wall, not at an M15 level.
@@ -5259,6 +5261,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
             (parsed as Record<string, unknown>).action = correctedAction;
             (parsed as Record<string, unknown>).entry_mode = 'wait_pullback';
             (parsed as Record<string, unknown>).confidence_tier = rescuedTier;
+            // CCIP-2026-0422G: entry must be set for the rescued BUY/SELL — MISSING_ENTRY_PRICE
+            // fires at line 6009 when entry is undefined. For a wait_pullback rescue, currentPrice
+            // is the correct sentinel: the actual fill happens when price reaches the wait zone.
+            if (parsed.entry === null || parsed.entry === undefined || typeof parsed.entry !== 'number' || isNaN(parsed.entry) || parsed.entry <= 0) {
+              (parsed as Record<string, unknown>).entry = currentPrice;
+            }
             // Build wait_condition from existing geometry if not present
             if (!parsed.wait_condition) {
               (parsed as Record<string, unknown>).wait_condition = {
@@ -6020,7 +6028,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             entryType: typeof parsed.entry,
           },
         }).catch(() => {});
-        console.error(`[CCIP-2026-0333] MISSING_ENTRY_PRICE — Alpha returned ${action} for ${symbol} without a valid entry. entry=${parsed.entry}. Trade BLOCKED.`);
+        console.error(`[CCIP-2026-0333] MISSING_ENTRY_PRICE — Alpha returned ${correctedAction} for ${symbol} without a valid entry. entry=${parsed.entry}. Trade BLOCKED.`);
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',
@@ -6028,7 +6036,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           stopLoss: currentPrice,
           takeProfit: currentPrice,
           confidence: 0,
-          reasoning: `GOVERNANCE_BLOCK: Alpha returned ${action} without a valid entry price. Prompt compliance failure — Alpha must always provide entry for BUY/SELL.`,
+          reasoning: `GOVERNANCE_BLOCK: Alpha returned ${correctedAction} without a valid entry price. Prompt compliance failure — Alpha must always provide entry for BUY/SELL.`,
           omega_summary: '',
           risk_pct: 0,
           decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
