@@ -3870,12 +3870,17 @@ My confidence_tier determines which actions are available to me. This is not a f
                If I have a directional lean and a zone to monitor: wait_pullback or push_confirmation.
                If even a lean cannot be structured: NO_TRADE.
 
-  cautious   → Wait Intent or Execute Now (NO_TRADE is NOT available at this tier).
-  moderate   → Wait Intent or Execute Now (NO_TRADE is NOT available at this tier).
+  cautious   → NO_TRADE, Wait Intent, or Execute Now.
+               Signal visible but significant structural gaps. If a lean can be structured with a named level
+               and valid stop geometry: wait_pullback, push_confirmation, or execute_now.
+               If the structural gaps are too severe to anchor a stop or identify a credible path: NO_TRADE.
+
+  moderate   → NO_TRADE, Wait Intent, or Execute Now.
                Partial-to-solid structure. Direction is readable. I have identified a named level and a credible
                path. The only question is whether entry conditions are met now or require zone confirmation.
                If trigger has fired or price is at the structural level: execute_now.
                If price is extended and I want a better entry: wait_pullback or push_confirmation.
+               If the structure I identified lacks the minimum geometry for a valid stop and 1:1 R:R: NO_TRADE.
 
   confident  → Wait Intent or Execute Now (NO_TRADE is NOT available at this tier).
   high       → Wait Intent or Execute Now (NO_TRADE is NOT available at this tier).
@@ -5098,19 +5103,20 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       // CCIP-2026-0415A: Tier-to-action governance enforcement.
+      // Updated: NO_TRADE now permitted at cautious and moderate (CCIP-2026-0422A).
       //
       // The tier-to-action map defines which outputs are permitted per confidence tier:
       //   no_read               → NO_TRADE only
       //   low                   → NO_TRADE or Wait Intent (execute_now forbidden)
-      //   cautious, moderate    → Wait Intent or Execute Now (NO_TRADE forbidden)
+      //   cautious, moderate    → NO_TRADE, Wait Intent, or Execute Now
       //   confident, high       → Wait Intent or Execute Now (NO_TRADE forbidden)
       //   very_high, extreme    → Execute Now only (wait and NO_TRADE forbidden)
       //
       // Violations are corrected here — the goal is to honour Alpha's intent while
       // enforcing the structural logic of the tier system.
       // Corrections applied:
-      //   - NO_TRADE at cautious/moderate/confident/high → downgraded to wait_pullback BUY/SELL
-      //     (Alpha has directional clarity at these tiers — we surface it as a wait intent)
+      //   - NO_TRADE at confident/high → downgraded to wait_pullback BUY/SELL
+      //     (Alpha has named structural clarity at these tiers — surfaced as a wait intent)
       //   - NO_TRADE at very_high/extreme → overridden to execute_now with the stated direction
       //     (exceptional clarity must result in execution)
       //   - execute_now at low → corrected to wait_pullback
@@ -5121,7 +5127,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       //   - NO_TRADE at low → passes through unchanged (valid when no lean can be structured)
       {
         const tier = confidenceTier as string | null;
-        const NO_TRADE_FORBIDDEN_TIERS = new Set(['cautious', 'moderate', 'confident', 'high', 'very_high', 'extreme']);
+        const NO_TRADE_FORBIDDEN_TIERS = new Set(['confident', 'high', 'very_high', 'extreme']);
         const EXECUTE_NOW_ONLY_TIERS = new Set(['very_high', 'extreme']);
         const WAIT_ONLY_TIERS = new Set(['low']);
 
