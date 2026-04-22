@@ -21,6 +21,17 @@ import {
   type TrailingSLOptions
 } from './mid-trade-plan-engine';
 
+export interface PersistedMidTradeAlert {
+  trigger_type: string;
+  primary_message: string;
+  sub_message: string;
+  action_price: number | null;
+  action_label: string | null;
+  action: string;
+  color: string;
+  fired_at: string;
+}
+
 export interface MidTradeGuidance {
   tradeId: string;
   symbol: string;
@@ -118,6 +129,10 @@ export interface MidTradeGuidance {
   // tp1BreakevenSL: the exact SL price set after TP1 hit (null when TP1 not yet reached)
   tp1Hit: boolean;
   tp1BreakevenSL: number | null;
+
+  // Persisted alert from DB — shown as a sticky banner even after page refresh
+  // Populated when a trail SL / profit milestone / warning trigger has fired previously
+  persistedAlert: PersistedMidTradeAlert | null;
 }
 
 export interface MidTradeMonitorStats {
@@ -337,6 +352,17 @@ class MidTradeMonitorService {
           }
         }
 
+        // Restore fired triggers from DB so they don't re-fire after page refresh
+        const persistedAlert: PersistedMidTradeAlert | null = trade.last_mid_trade_alert
+          ? (typeof trade.last_mid_trade_alert === 'string'
+            ? JSON.parse(trade.last_mid_trade_alert)
+            : trade.last_mid_trade_alert)
+          : null;
+
+        if (persistedAlert?.trigger_type && !firedTriggers.has(persistedAlert.trigger_type)) {
+          firedTriggers.add(persistedAlert.trigger_type);
+        }
+
         // SSOT: Deterministic trigger evaluation — zero LLM calls
         const evaluation: TriggerEvaluation = evaluateAllTriggers(
           trade as GoalSessionTrade,
@@ -347,8 +373,31 @@ class MidTradeMonitorService {
         );
 
         // Record triggered type to prevent re-firing in subsequent calls
+        // Persist actionable alerts (trail SL, profit milestones) to DB so they survive page refresh
         if (evaluation.triggered && evaluation.triggerType) {
           firedTriggers.add(evaluation.triggerType);
+
+          const isActionableAlert = ['trail_sl', 'warning', 'tp1_timing', 'risk_alert'].includes(evaluation.action);
+          if (isActionableAlert) {
+            const alert: PersistedMidTradeAlert = {
+              trigger_type: evaluation.triggerType,
+              primary_message: evaluation.primaryMessage,
+              sub_message: evaluation.subMessage,
+              action_price: evaluation.actionPrice,
+              action_label: evaluation.actionLabel,
+              action: evaluation.action,
+              color: evaluation.color,
+              fired_at: new Date().toISOString()
+            };
+            // Fire-and-forget — don't block guidance delivery
+            supabase
+              .from('goal_session_trades')
+              .update({ last_mid_trade_alert: alert })
+              .eq('id', trade.id)
+              .then(({ error }) => {
+                if (error) console.error('[MidTradeMonitor] Failed to persist alert:', error.message);
+              });
+          }
         }
 
         const staleness = stalenessMap.get(trade.symbol);
@@ -412,7 +461,8 @@ class MidTradeMonitorService {
           liveRR,
           lotSize,
           tp1Hit: trade.tp1_hit === true,
-          tp1BreakevenSL: trade.tp1_breakeven_price ?? null
+          tp1BreakevenSL: trade.tp1_breakeven_price ?? null,
+          persistedAlert
         });
       }
 
@@ -534,11 +584,32 @@ class MidTradeMonitorService {
         firedTriggers
       );
 
-      // Record newly fired triggers
+      // Record newly fired triggers and persist actionable ones to DB
       if (evaluation.triggered && evaluation.triggerType) {
         firedTriggers.add(evaluation.triggerType);
         if (!this.firedTriggersPerTrade.has(guide.tradeId)) {
           this.firedTriggersPerTrade.set(guide.tradeId, firedTriggers);
+        }
+
+        const isActionableAlert = ['trail_sl', 'warning', 'tp1_timing', 'risk_alert'].includes(evaluation.action);
+        if (isActionableAlert) {
+          const alert: PersistedMidTradeAlert = {
+            trigger_type: evaluation.triggerType,
+            primary_message: evaluation.primaryMessage,
+            sub_message: evaluation.subMessage,
+            action_price: evaluation.actionPrice,
+            action_label: evaluation.actionLabel,
+            action: evaluation.action,
+            color: evaluation.color,
+            fired_at: new Date().toISOString()
+          };
+          supabase
+            .from('goal_session_trades')
+            .update({ last_mid_trade_alert: alert })
+            .eq('id', guide.tradeId)
+            .then(({ error }) => {
+              if (error) console.error('[MidTradeMonitor] Failed to persist alert:', error.message);
+            });
         }
       }
 

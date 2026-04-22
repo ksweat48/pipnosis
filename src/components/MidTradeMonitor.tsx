@@ -16,10 +16,11 @@ import {
   Zap,
   Brain,
   XCircle,
-  Star
+  Star,
+  Pin
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-trade-monitor-service';
+import { midTradeMonitorService, type MidTradeGuidance, type PersistedMidTradeAlert } from '@/services/mid-trade-monitor-service';
 import { pricePollingCoordinator } from '@/services/price-polling-coordinator';
 import type { TrailingSLOptions } from '@/services/mid-trade-plan-engine';
 
@@ -88,6 +89,99 @@ const TrailingSLCard: React.FC<{
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+};
+
+const PersistedAlertBanner: React.FC<{
+  alert: PersistedMidTradeAlert;
+  symbol: string;
+}> = ({ alert, symbol }) => {
+  const [copied, setCopied] = useState(false);
+
+  const colorMap: Record<string, { bg: string; border: string; text: string; badge: string }> = {
+    emerald: {
+      bg: 'bg-emerald-900/30',
+      border: 'border-emerald-500/40',
+      text: 'text-emerald-300',
+      badge: 'bg-emerald-500/20 text-emerald-300'
+    },
+    amber: {
+      bg: 'bg-amber-900/30',
+      border: 'border-amber-500/40',
+      text: 'text-amber-300',
+      badge: 'bg-amber-500/20 text-amber-300'
+    },
+    red: {
+      bg: 'bg-red-900/30',
+      border: 'border-red-500/40',
+      text: 'text-red-300',
+      badge: 'bg-red-500/20 text-red-300'
+    },
+    blue: {
+      bg: 'bg-blue-900/30',
+      border: 'border-blue-500/40',
+      text: 'text-blue-300',
+      badge: 'bg-blue-500/20 text-blue-300'
+    },
+  };
+
+  const c = colorMap[alert.color] ?? colorMap.amber;
+
+  const handleCopy = () => {
+    if (alert.action_price == null) return;
+    navigator.clipboard.writeText(alert.action_price.toString()).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const firedAt = alert.fired_at
+    ? new Date(alert.fired_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  return (
+    <div className={`rounded-lg border ${c.border} ${c.bg} overflow-hidden`}>
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-white/5">
+        <Pin className={`w-3 h-3 ${c.text} flex-shrink-0`} />
+        <span className={`text-[9px] uppercase tracking-widest font-bold ${c.text}`}>
+          Alpha Alert — persisted
+        </span>
+        {firedAt && (
+          <span className="ml-auto text-[9px] text-gray-500">fired {firedAt}</span>
+        )}
+      </div>
+      <div className="px-3 py-2.5">
+        <p className={`text-sm font-semibold ${c.text} leading-snug`}>
+          {alert.primary_message}
+        </p>
+        {alert.sub_message && (
+          <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+            {alert.sub_message}
+          </p>
+        )}
+        {alert.action_price != null && alert.action_label && (
+          <div className="mt-2 flex items-center gap-2">
+            <div className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border ${c.border} ${c.bg}`}>
+              <div>
+                <p className="text-[9px] text-gray-400 uppercase tracking-wide">{alert.action_label}</p>
+                <p className={`text-sm font-bold font-mono ${c.text}`}>
+                  {alert.action_price.toFixed(symbol === 'EURUSD' || symbol === 'GBPUSD' ? 5 : 2)}
+                </p>
+              </div>
+              <button
+                onClick={handleCopy}
+                className="p-1 hover:bg-white/10 rounded transition-colors"
+                title="Copy price"
+              >
+                {copied
+                  ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  : <Copy className="w-3.5 h-3.5 text-gray-400" />
+                }
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -921,6 +1015,15 @@ export const MidTradeMonitor: React.FC<MidTradeMonitorProps> = ({ activeTradeId 
 
                 {/* Alpha Mid-Trade Re-Analysis — thesis verdict from event-driven recheck */}
                 <AlphaRecheckPanel guide={guide} />
+
+                {/* Persisted Alert — sticky banner from a previous trigger, survives page refresh.
+                    Hidden when the current live guidance is already showing the same message. */}
+                {guide.persistedAlert && guide.persistedAlert.primary_message !== guide.primaryMessage && (
+                  <PersistedAlertBanner
+                    alert={guide.persistedAlert}
+                    symbol={guide.symbol}
+                  />
+                )}
 
                 {/* Primary Guidance */}
                 <div className={`${colors.bg} rounded-lg p-3 border ${colors.border}`}>
