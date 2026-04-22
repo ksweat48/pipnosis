@@ -447,19 +447,18 @@ class Omega9ConstraintProvider {
 
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-    // ✅ CRYPTO SCALE MISMATCH DIAGNOSTIC (NON-BLOCKING)
-    // Detect when crypto TP is suspiciously small relative to SL (likely scale error)
-    if (assetClassifier.isCrypto(symbol)) {
+    // CRYPTO SCALE MISMATCH DIAGNOSTIC (NON-BLOCKING)
+    // Only meaningful when a positive R:R floor exists. When minRiskReward=0, minTP is
+    // intentionally 0 and the ratio will always be 0% — not an anomaly, just no TP floor.
+    if (assetClassifier.isCrypto(symbol) && minRiskReward > 0) {
       const tpToSLRatio = constraints.minTakeProfitPips / referenceSLPips;
 
       if (tpToSLRatio < 0.2) {
-        // TP is less than 20% of SL - very suspicious for crypto
         console.error('[Omega-9 Crypto Scale] DIAGNOSTIC: Crypto TP/SL ratio anomaly detected (NON-BLOCKING)');
         console.error(`[Omega-9 Crypto Scale] ${symbol}: minTP=${constraints.minTakeProfitPips.toFixed(0)} pips / referenceSL=${referenceSLPips.toFixed(0)} pips = ${(tpToSLRatio * 100).toFixed(1)}% ratio (expected >20%)`);
         console.error(`[Omega-9 Crypto Scale] referenceSLPips source: ${referenceSLPips === stopLossCalc.stopLossPips ? 'stop-calculator (no proposed SL)' : 'calculatePipDistance(entry, proposedSL)'}`);
         console.error(`[Omega-9 Crypto Scale] idealMinTakeProfitPips=${idealMinTakeProfitPips.toFixed(0)}, maxTakeProfitPips=${maxTakeProfitPips.toFixed(0)}, minRiskReward=${minRiskReward}`);
 
-        // Add diagnostic warning (NOT blocking, just visibility)
         constraints.violations.push({
           type: 'CRYPTO_SCALE_MISMATCH',
           severity: 'WARNING',
