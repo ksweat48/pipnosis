@@ -6403,6 +6403,14 @@ Return PURE JSON only — all required fields from the schema in my system promp
       parts.push(`  Stop-Run Type: ${adversarial.stop_run_classification.type} (${adversarial.stop_run_classification.candles_ago} candles ago)`);
       parts.push(`  BOS Confirmed: ${adversarial.stop_run_classification.has_bos ? 'Yes' : 'No'}`);
       parts.push(`  Reasoning: ${adversarial.stop_run_classification.reasoning}`);
+
+      // CCIP-2026-0422A: When a stop run is active and BOS has NOT fired, inject an explicit
+      // structural timing note. This is a sensor reading — Alpha interprets it and decides.
+      // The note surfaces the information Alpha needs for sweep-reclaim reasoning without
+      // pre-scoring the decision or blocking any entry_mode.
+      if (!adversarial.stop_run_classification.has_bos) {
+        parts.push(`  [STRUCTURAL NOTE — CCIP-2026-0422A]: Stop run detected, Break of Structure NOT YET confirmed. The sweep has fired but price has not yet reclaimed the swept level with a ${adversarial.stop_run_classification.type === 'active_stop_run' ? 'fresh directional close' : 'structural close above/below the sweep extreme'}. Sweep-reclaim protocol (4B) applies to any reversal thesis at this level. Alpha reads this and determines entry timing.`);
+      }
     }
 
     return parts.join('\n');
