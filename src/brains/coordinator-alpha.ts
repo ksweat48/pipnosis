@@ -81,7 +81,7 @@ import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
-import { VALID_CONFIDENCE_TIERS, ACTIONABLE_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER } from '../config/confidence-tier';
+import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER } from '../config/confidence-tier';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
@@ -5219,105 +5219,20 @@ Return PURE JSON only — all required fields from the schema in my system promp
         );
       }
 
-      // CCIP-2026-0422F: Simplified decision governance.
+      // CCIP-2026-0422H: Alpha sovereignty — no rescue, no conversion, no sentinel injection.
       //
       // Alpha follows a sequential decision process:
-      //   1. Can I execute NOW?       → BUY/SELL + execute_now + confident..extreme
-      //   2. Can I set a wait intent? → BUY/SELL + wait_pullback/push_confirmation + confident..extreme
-      //   3. Only if BOTH fail        → NO_TRADE (no confidence tier required)
+      //   1. Can I execute NOW?       → BUY/SELL + execute_now
+      //   2. Can I set a wait intent? → BUY/SELL + wait_pullback/push_confirmation
+      //   3. Only if BOTH fail        → NO_TRADE
       //
-      // Confidence tier describes setup quality — it does NOT restrict which action is permitted.
-      // Both execute_now and wait intents are valid at any tier from confident through extreme.
-      // NO_TRADE is valid when Alpha genuinely cannot find a direction or a trigger zone.
+      // Alpha's decision stands unmodified. NO_TRADE stays NO_TRADE.
+      // BUY/SELL passes through with Alpha's own entry/stopLoss/takeProfit.
+      // Omega-9 is the only authority that may block a trade, and only when the
+      // geometry Alpha supplied is mathematically impossible.
       //
-      // The single rescue rule: if Alpha outputs NO_TRADE but has a non-neutral directional lean
-      // AND a named trigger exists (wait_condition or Q_SWEEP_RECLAIM populated), this is a
-      // deferred setup — rescue as wait_pullback at the stated directional lean.
-      {
-        const tier = confidenceTier as string | null;
-
-        if (action === 'NO_TRADE') {
-          // Check for a deferred setup: Alpha identified a direction and a named trigger zone
-          // but still output NO_TRADE — this violates the sequential decision model.
-          const lean = (parsed.directional_lean as string | undefined) ?? 'NEUTRAL';
-          const hasDirectionalLean = lean !== 'NEUTRAL' && lean !== '' && lean != null;
-          const hasWaitCondition = !!(parsed.wait_condition);
-          const sweepReclaimField = (parsed.answer_sheet as Record<string, unknown> | undefined)?.Q_SWEEP_RECLAIM as string | undefined;
-          const hasNamedTrigger = hasWaitCondition ||
-            (sweepReclaimField && sweepReclaimField.length > 0 && !sweepReclaimField.startsWith('NO_SWEEP'));
-          const noTradeStatement = (parsed.no_trade_statement as string | undefined) ?? '';
-          // Detect named price level in no_trade_statement (e.g. "waiting for sweep of 78399.95")
-          const hasNamedPriceInStatement = /\b\d{4,6}(\.\d+)?\b/.test(noTradeStatement);
-
-          if (hasDirectionalLean && (hasNamedTrigger || hasNamedPriceInStatement)) {
-            // Alpha found a deferred setup but chose NO_TRADE — rescue as wait_pullback
-            const correctedAction = (lean === 'SELL_LEAN') ? 'SELL' : 'BUY';
-            const rescuedTier = tier && ACTIONABLE_CONFIDENCE_TIERS.has(tier) ? tier : 'confident';
-            console.warn(
-              `[Alpha Coordinator] CCIP-2026-0422F: DEFERRED_SETUP_RESCUE — ` +
-              `Alpha returned NO_TRADE but has directional lean="${lean}" and a named trigger zone. ` +
-              `This is a deferred setup, not a no-opportunity. ` +
-              `Rescuing as action=${correctedAction} entry_mode=wait_pullback tier=${rescuedTier}. ` +
-              `Symbol=${symbol}.`
-            );
-            (parsed as Record<string, unknown>).action = correctedAction;
-            (parsed as Record<string, unknown>).entry_mode = 'wait_pullback';
-            (parsed as Record<string, unknown>).confidence_tier = rescuedTier;
-            // CCIP-2026-0422G: entry must be set for the rescued BUY/SELL — MISSING_ENTRY_PRICE
-            // fires when entry is undefined. For a wait_pullback rescue, currentPrice is the
-            // correct sentinel: the actual fill happens when price reaches the wait zone.
-            if (parsed.entry === null || parsed.entry === undefined || typeof parsed.entry !== 'number' || isNaN(parsed.entry) || parsed.entry <= 0) {
-              (parsed as Record<string, unknown>).entry = currentPrice;
-            }
-            // CCIP-2026-0422G: stopLoss must also be set for the rescued BUY/SELL —
-            // MISSING_STOPPLOSS fires when stopLoss is undefined (rescue reads it but never writes it).
-            // currentPrice is the sentinel for wait_pullback; the executor assigns the real SL
-            // from the wait_condition.invalidation_price once the zone is reached.
-            if (parsed.stopLoss === null || parsed.stopLoss === undefined || typeof parsed.stopLoss !== 'number' || isNaN(parsed.stopLoss) || parsed.stopLoss <= 0) {
-              (parsed as Record<string, unknown>).stopLoss = currentPrice;
-            }
-            // CCIP-2026-0422G: takeProfit must also be set — compliance check at line ~6106
-            // blocks any BUY/SELL without a valid takeProfit. Alpha's NO_TRADE response
-            // never includes a TP, so the rescue must supply a sentinel. currentPrice is
-            // used here; the real TP comes from Alpha's stated target zone in no_trade_statement
-            // or wait_condition, which the executor reads when the zone is hit.
-            if (parsed.takeProfit === null || parsed.takeProfit === undefined || typeof parsed.takeProfit !== 'number' || isNaN(parsed.takeProfit) || parsed.takeProfit <= 0) {
-              (parsed as Record<string, unknown>).takeProfit = currentPrice;
-            }
-            if (parsed.tp2 === null || parsed.tp2 === undefined || typeof parsed.tp2 !== 'number' || isNaN(parsed.tp2) || parsed.tp2 <= 0) {
-              (parsed as Record<string, unknown>).tp2 = currentPrice;
-            }
-            // Build wait_condition from existing geometry if not present
-            if (!parsed.wait_condition) {
-              (parsed as Record<string, unknown>).wait_condition = {
-                target_entry_zone_min: parsed.entry ?? currentPrice,
-                target_entry_zone_max: parsed.entry ?? currentPrice,
-                invalidation_price: parsed.stopLoss ?? parsed.stop_loss ?? currentPrice,
-                wait_reasoning: `CCIP-2026-0422F: Auto-generated wait zone. Alpha identified deferred setup (${lean}) but output NO_TRADE. Zone inferred from stated entry geometry. Trigger: ${sweepReclaimField ?? noTradeStatement.slice(0, 120)}`,
-                expected_wait_minutes: 45,
-              };
-            }
-            logViolation({
-              violationType: 'DEFERRED_SETUP_NO_TRADE_RESCUE',
-              symbol: marketContext.symbol,
-              attemptedOperation: 'no_trade_with_named_deferred_trigger',
-              callLocation: 'coordinator-alpha.decision_governance',
-              blocked: false,
-              errorDetails: {
-                lean,
-                original_action: 'NO_TRADE',
-                rescued_action: correctedAction,
-                rescued_entry_mode: 'wait_pullback',
-                has_wait_condition: hasWaitCondition,
-                has_named_trigger: hasNamedTrigger,
-                description: `Alpha found deferred setup (${lean}) but output NO_TRADE. Rescued to ${correctedAction}/wait_pullback.`,
-              },
-            }).catch(() => {});
-          }
-          // Genuine NO_TRADE (no direction, no trigger) — passes through unchanged
-        }
-        // BUY/SELL: any confidence tier and any entry_mode are valid — no restrictions
-      }
+      // If Alpha repeatedly returns NO_TRADE when a deferred setup is obvious, the fix
+      // is in alpha-identity.ts (improve reasoning), not here (fabricate a trade).
 
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       // CCIP-2026-0319A (Fix 2): entry_mode is only valid for BUY/SELL decisions.
