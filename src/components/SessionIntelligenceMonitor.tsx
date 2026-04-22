@@ -13,9 +13,9 @@
 //   of execution based on Alpha's four structural hunting preconditions.
 //
 //   Hunt states:
-//     live      — all 4 preconditions confirmed incl. fired trigger
-//     ready     — PC1/PC2/PC3 confirmed, trigger developing
-//     not_ready — structural material absent — do not show to user
+//     live      — all 5 preconditions confirmed incl. fired trigger + quality ≥ 60
+//     ready     — PC1–PC3 + PC5 confirmed, trigger developing
+//     not_ready — any PC failed (incl. quality gate) — do not show to user
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect } from 'react';
@@ -63,6 +63,7 @@ interface HuntReadinessRow {
   trigger_state: TriggerState;
   trigger_evidence: string;
   direction_lean: DirectionLean;
+  quality_score: number;
   hunt_summary: string;
   last_scanned_at: string;
   expires_at: string;
@@ -180,6 +181,7 @@ function PreconditionBadge({ code, met }: { code: string; met: boolean }) {
     PC2_SETUP_MATERIAL: 'Setup',
     PC3_STRUCTURAL_ROOM: 'Room',
     PC4_TRIGGER: 'Trigger',
+    PC5_QUALITY: 'Quality',
   };
   return (
     <span className={`inline-flex items-center gap-0.5 px-1.5 py-px rounded text-[9px] font-bold border ${
@@ -192,7 +194,19 @@ function PreconditionBadge({ code, met }: { code: string; met: boolean }) {
   );
 }
 
-const ALL_PCS = ['PC1_PHASE_READABLE', 'PC2_SETUP_MATERIAL', 'PC3_STRUCTURAL_ROOM', 'PC4_TRIGGER'];
+function QualityScorePill({ score }: { score: number }) {
+  const color =
+    score >= 80 ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' :
+    score >= 60 ? 'bg-blue-500/15 border-blue-500/30 text-blue-300' :
+    'bg-slate-700/30 border-slate-600/20 text-slate-500';
+  return (
+    <span className={`inline-flex items-center gap-0.5 px-1.5 py-px rounded border text-[9px] font-bold tabular-nums ${color}`}>
+      Q{score}
+    </span>
+  );
+}
+
+const ALL_PCS = ['PC1_PHASE_READABLE', 'PC2_SETUP_MATERIAL', 'PC3_STRUCTURAL_ROOM', 'PC4_TRIGGER', 'PC5_QUALITY'];
 
 function HuntReadinessCard({ row }: { row: HuntReadinessRow }) {
   const [expanded, setExpanded] = useState(false);
@@ -242,8 +256,9 @@ function HuntReadinessCard({ row }: { row: HuntReadinessRow }) {
             </div>
           </div>
 
-          {/* Right: Direction + expand */}
+          {/* Right: Quality score + Direction + expand */}
           <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+            {row.quality_score > 0 && <QualityScorePill score={row.quality_score} />}
             {row.direction_lean !== 'NEUTRAL' && (
               <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-px rounded border ${
                 row.direction_lean === 'BUY'

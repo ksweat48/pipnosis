@@ -4,7 +4,7 @@
  * GOVERNANCE CONTRACT (CCIP-2026-0421-HUNT-READINESS):
  * ─────────────────────────────────────────────────────
  * This scanner answers ONE question per symbol+style:
- *   "Does Alpha have the raw structural material to execute a trade here right now?"
+ *   "Does Alpha have the raw structural material for a CONFIDENT (or higher) trade here?"
  *
  * It does NOT:
  * - Score candle patterns or detect generic market events
@@ -12,16 +12,24 @@
  * - Predict trade direction with conviction
  * - Pre-approve or gate Alpha's decisions
  *
- * It DOES detect Alpha's four hunting preconditions:
+ * It DOES detect Alpha's five hunting preconditions:
  *   PC1 — Market phase is readable (ACCUMULATION/EXPANSION/DISTRIBUTION/RETRACEMENT/REVERSAL)
  *   PC2 — Phase-native trade type has raw structural material
  *   PC3 — Structural room exists (measurable open distance before first wall)
  *   PC4 — Trigger evidence present or developing (sweep, BOS, compression break)
+ *   PC5 — Quality score ≥ 60/100 (setup quality gate: only surfaces confident+ setups)
  *
  * Hunt states:
- *   live      — PC1+PC2+PC3+PC4 all confirmed. Trigger has fired. Alpha likely executes.
- *   ready     — PC1+PC2+PC3 confirmed. Trigger developing or imminent. Worth scanning.
- *   not_ready — PC1/PC2/PC3 absent. Alpha will likely output NO_TRADE. Skip scanning.
+ *   live      — PC1+PC2+PC3+PC4+PC5 all confirmed. Trigger has fired. Alpha likely executes.
+ *   ready     — PC1+PC2+PC3+PC5 confirmed. Trigger developing or imminent. Worth scanning.
+ *   not_ready — Any PC failed. Alpha likely cautious/moderate/lower. Hidden from UI.
+ *
+ * Quality score components (PC5):
+ *   - Structural room depth relative to minimum (0–30 pts)
+ *   - Trigger state: fired=30, developing=15, none=0
+ *   - Phase clarity: strong phase signals score higher (0–20 pts)
+ *   - EMA momentum alignment (0–10 pts)
+ *   - Range consistency (0–10 pts)
  *
  * Schedule: every 3 minutes (same cadence as old market-behavior-scanner).
  * Runs for 9 symbols × 3 styles = 27 rows per scan.
@@ -80,6 +88,11 @@ const MIN_STRUCTURAL_ROOM: Record<TradingStyle, number> = {
   INTRADAY: 35,
 };
 
+// Minimum quality score (0-100) to surface as ready/live.
+// Setups below this threshold are hidden from the UI — Alpha would likely return
+// cautious or moderate at best, not the confident+ tier users expect to see.
+const MIN_QUALITY_SCORE = 60;
+
 interface CandleRow {
   open: number;
   high: number;
@@ -101,6 +114,7 @@ interface HuntAssessment {
   trigger_state: TriggerState;
   trigger_evidence: string;
   direction_lean: DirectionLean;
+  quality_score: number;
   hunt_summary: string;
   last_scanned_at: string;
   expires_at: string;
@@ -514,6 +528,90 @@ function detectTrigger(
   return { state: 'none', evidence: 'No trigger evidence detected — Alpha would wait or pass' };
 }
 
+// ─── PC5: Quality Scoring ─────────────────────────────────────────────────────
+// Scores the setup quality from 0–100 using data already computed.
+// A score below MIN_QUALITY_SCORE means Alpha would likely rate this cautious/moderate
+// at best, so we suppress it from the UI entirely.
+//
+// Score breakdown:
+//   Structural room depth (0–30):  how far beyond the minimum threshold the room extends
+//   Trigger state       (0–30):  fired=30, developing=15, none=0
+//   Phase clarity       (0–20):  strong/directional phases score higher than ambiguous
+//   EMA alignment       (0–10):  EMA stack matches direction lean
+//   Range consistency   (0–10):  candles show consistent directional momentum
+
+function scoreSetupQuality(
+  phase: PhaseLabel,
+  directionLean: DirectionLean,
+  triggerState: TriggerState,
+  structuralRoomPips: number,
+  minRoom: number,
+  candles: CandleRow[],
+  symbol: string
+): number {
+  let score = 0;
+
+  // ── Structural room depth (0–30) ────────────────────────────────────────────
+  // Room at exactly the minimum scores 0. Room at 3× the minimum scores the full 30.
+  if (minRoom > 0) {
+    const roomMultiple = structuralRoomPips / minRoom;
+    const roomScore = Math.min(30, Math.floor((roomMultiple - 1) * 15));
+    score += Math.max(0, roomScore);
+  }
+
+  // ── Trigger state (0–30) ────────────────────────────────────────────────────
+  if (triggerState === 'fired') score += 30;
+  else if (triggerState === 'developing') score += 15;
+
+  // ── Phase clarity (0–20) ────────────────────────────────────────────────────
+  // Phases with strong directional evidence score higher.
+  // EXPANSION with non-NEUTRAL lean = clearest. ACCUMULATION/REVERSAL are ambiguous.
+  if (phase === 'EXPANSION' && directionLean !== 'NEUTRAL') score += 20;
+  else if (phase === 'RETRACEMENT' && directionLean !== 'NEUTRAL') score += 18;
+  else if (phase === 'DISTRIBUTION' && directionLean !== 'NEUTRAL') score += 15;
+  else if (phase === 'REVERSAL' && directionLean !== 'NEUTRAL') score += 12;
+  else if (phase === 'ACCUMULATION' && directionLean !== 'NEUTRAL') score += 10;
+  else if (directionLean === 'NEUTRAL') score += 5;
+
+  // ── EMA alignment (0–10) ────────────────────────────────────────────────────
+  // Checks whether EMA20 is stacked with EMA50 in the direction of the lean.
+  if (candles.length >= 50) {
+    const closes = candles.map(c => c.close);
+    const ema20 = calcEMA(closes, 20);
+    const ema50 = calcEMA(closes, 50);
+    if (ema20.length > 0 && ema50.length > 0) {
+      const e20 = ema20[ema20.length - 1];
+      const e50 = ema50[ema50.length - 1];
+      const lastClose = candles[candles.length - 1].close;
+      const bullStack = lastClose > e20 && e20 > e50;
+      const bearStack = lastClose < e20 && e20 < e50;
+      if ((directionLean === 'BUY' && bullStack) || (directionLean === 'SELL' && bearStack)) {
+        score += 10;
+      } else if (directionLean === 'NEUTRAL') {
+        score += 5;
+      }
+    }
+  }
+
+  // ── Range consistency (0–10) ────────────────────────────────────────────────
+  // Last 5 candles moving consistently in the lean direction scores points.
+  if (candles.length >= 5) {
+    const last5 = candles.slice(-5);
+    let directionalCloses = 0;
+    for (let i = 1; i < last5.length; i++) {
+      if (directionLean === 'BUY' && last5[i].close > last5[i - 1].close) directionalCloses++;
+      else if (directionLean === 'SELL' && last5[i].close < last5[i - 1].close) directionalCloses++;
+    }
+    if (directionLean !== 'NEUTRAL') {
+      score += Math.floor((directionalCloses / 4) * 10);
+    } else {
+      score += 5;
+    }
+  }
+
+  return Math.min(100, score);
+}
+
 // ─── Session Detection ────────────────────────────────────────────────────────
 
 function detectSession(): string {
@@ -569,7 +667,7 @@ async function assessHuntReadiness(
   const expiresAt = new Date(now.getTime() + EXPIRE_MINUTES[style] * 60 * 1000);
   const minRoom = MIN_STRUCTURAL_ROOM[style];
 
-  const notReady = (reason: string): HuntAssessment => ({
+  const notReady = (reason: string, qualityScore = 0): HuntAssessment => ({
     symbol, style, session,
     hunt_state: 'not_ready',
     phase_detected: 'UNCLEAR',
@@ -580,6 +678,7 @@ async function assessHuntReadiness(
     trigger_state: 'none',
     trigger_evidence: '',
     direction_lean: 'NEUTRAL',
+    quality_score: qualityScore,
     hunt_summary: `No structural material detected — Alpha will likely NO_TRADE.`,
     last_scanned_at: now.toISOString(),
     expires_at: expiresAt.toISOString(),
@@ -633,6 +732,7 @@ async function assessHuntReadiness(
       trigger_state: 'none',
       trigger_evidence: pc2Evidence,
       direction_lean: directionLean,
+      quality_score: 0,
       hunt_summary: `${phase} phase detected but no phase-native setup material — ${pc2Evidence}`,
       last_scanned_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
@@ -656,6 +756,7 @@ async function assessHuntReadiness(
       trigger_state: 'none',
       trigger_evidence: '',
       direction_lean: directionLean,
+      quality_score: 0,
       hunt_summary: `${phase} phase but only ${structuralRoomPips.toFixed(0)} pips structural room (need ${minRoom}) — geometry too tight for ${style}`,
       last_scanned_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
@@ -668,6 +769,33 @@ async function assessHuntReadiness(
   if (triggerState !== 'none') {
     preconditionsMet.push('PC4_TRIGGER');
   }
+
+  // ── PC5: Quality Score Gate ─────────────────────────────────────────────────
+  // Only surface setups that score high enough to indicate Alpha will likely
+  // reach confident tier or above. Setups below the threshold are suppressed.
+  const qualityScore = scoreSetupQuality(
+    phase, directionLean, triggerState, structuralRoomPips, minRoom, primary, symbol
+  );
+
+  if (qualityScore < MIN_QUALITY_SCORE) {
+    return {
+      symbol, style, session,
+      hunt_state: 'not_ready',
+      phase_detected: phase,
+      phase_evidence: phaseEvidence,
+      preconditions_met: preconditionsMet,
+      structural_room_pips: structuralRoomPips,
+      structural_room_direction: roomDirection,
+      trigger_state: triggerState,
+      trigger_evidence: triggerEvidence,
+      direction_lean: directionLean,
+      quality_score: qualityScore,
+      hunt_summary: `${phase} phase — structural material present but setup quality ${qualityScore}/100 below confident threshold (${MIN_QUALITY_SCORE}) — not surfaced`,
+      last_scanned_at: now.toISOString(),
+      expires_at: expiresAt.toISOString(),
+    };
+  }
+  preconditionsMet.push('PC5_QUALITY');
 
   // ── Determine Hunt State ────────────────────────────────────────────────────
   const huntState: HuntState = triggerState === 'fired' ? 'live' : 'ready';
@@ -688,6 +816,7 @@ async function assessHuntReadiness(
     trigger_state: triggerState,
     trigger_evidence: triggerEvidence,
     direction_lean: directionLean,
+    quality_score: qualityScore,
     hunt_summary: huntSummary,
     last_scanned_at: now.toISOString(),
     expires_at: expiresAt.toISOString(),
@@ -719,6 +848,7 @@ export const handler: Handler = async () => {
           trigger_state: 'none',
           trigger_evidence: '',
           direction_lean: 'NEUTRAL',
+          quality_score: 0,
           hunt_summary: 'Scanner error — treating as not ready',
           last_scanned_at: new Date().toISOString(),
           expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
