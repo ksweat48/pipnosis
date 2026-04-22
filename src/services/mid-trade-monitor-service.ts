@@ -133,6 +133,10 @@ export interface MidTradeGuidance {
   // Persisted alert from DB — shown as a sticky banner even after page refresh
   // Populated when a trail SL / profit milestone / warning trigger has fired previously
   persistedAlert: PersistedMidTradeAlert | null;
+
+  // Full chronological log of all actionable alerts fired during this trade's life.
+  // Append-only — preserved on trade closure for post-trade journal review.
+  alertLog: PersistedMidTradeAlert[];
 }
 
 export interface MidTradeMonitorStats {
@@ -352,13 +356,28 @@ class MidTradeMonitorService {
           }
         }
 
-        // Restore fired triggers from DB so they don't re-fire after page refresh
+        // Restore fired triggers from the full alert log so no trigger re-fires after page refresh.
+        // Each entry in mid_trade_alert_log is a PersistedMidTradeAlert stored as jsonb.
+        const rawAlertLog: unknown[] = Array.isArray(trade.mid_trade_alert_log)
+          ? trade.mid_trade_alert_log
+          : [];
+        const alertLog: PersistedMidTradeAlert[] = rawAlertLog.map(entry =>
+          typeof entry === 'string' ? JSON.parse(entry) : entry as PersistedMidTradeAlert
+        );
+        for (const logEntry of alertLog) {
+          if (logEntry.trigger_type && !firedTriggers.has(logEntry.trigger_type)) {
+            firedTriggers.add(logEntry.trigger_type);
+          }
+        }
+
+        // Also read the single last_mid_trade_alert for backward-compat (may pre-date the log)
         const persistedAlert: PersistedMidTradeAlert | null = trade.last_mid_trade_alert
           ? (typeof trade.last_mid_trade_alert === 'string'
             ? JSON.parse(trade.last_mid_trade_alert)
             : trade.last_mid_trade_alert)
           : null;
 
+        // Ensure the most recent persisted alert's trigger is also in the dedup set
         if (persistedAlert?.trigger_type && !firedTriggers.has(persistedAlert.trigger_type)) {
           firedTriggers.add(persistedAlert.trigger_type);
         }
@@ -372,8 +391,9 @@ class MidTradeMonitorService {
           firedTriggers
         );
 
-        // Record triggered type to prevent re-firing in subsequent calls
-        // Persist actionable alerts (trail SL, profit milestones) to DB so they survive page refresh
+        // Record triggered type to prevent re-firing in subsequent calls.
+        // Persist all actionable alerts to both last_mid_trade_alert (most recent)
+        // and mid_trade_alert_log (append-only history, never cleared).
         if (evaluation.triggered && evaluation.triggerType) {
           firedTriggers.add(evaluation.triggerType);
 
@@ -389,10 +409,15 @@ class MidTradeMonitorService {
               color: evaluation.color,
               fired_at: new Date().toISOString()
             };
+            // Update in-memory log so UI gets the new entry immediately (no round-trip)
+            alertLog.push(alert);
             // Fire-and-forget — don't block guidance delivery
             supabase
               .from('goal_session_trades')
-              .update({ last_mid_trade_alert: alert })
+              .update({
+                last_mid_trade_alert: alert,
+                mid_trade_alert_log: [...rawAlertLog, alert]
+              })
               .eq('id', trade.id)
               .then(({ error }) => {
                 if (error) console.error('[MidTradeMonitor] Failed to persist alert:', error.message);
@@ -462,7 +487,8 @@ class MidTradeMonitorService {
           lotSize,
           tp1Hit: trade.tp1_hit === true,
           tp1BreakevenSL: trade.tp1_breakeven_price ?? null,
-          persistedAlert
+          persistedAlert,
+          alertLog
         });
       }
 
@@ -584,7 +610,13 @@ class MidTradeMonitorService {
         firedTriggers
       );
 
-      // Record newly fired triggers and persist actionable ones to DB
+      // liveRR updates with every tick — remaining reward / remaining risk
+      const updatedRemainingReward = Math.abs(guide.takeProfit - newCurrentPrice);
+      const updatedRemainingRisk = Math.abs(newCurrentPrice - guide.stopLoss);
+      const updatedLiveRR = updatedRemainingRisk > 0 ? updatedRemainingReward / updatedRemainingRisk : 0;
+
+      // Record newly fired triggers and persist actionable ones to DB.
+      // Appends to mid_trade_alert_log (history) and overwrites last_mid_trade_alert (most recent).
       if (evaluation.triggered && evaluation.triggerType) {
         firedTriggers.add(evaluation.triggerType);
         if (!this.firedTriggersPerTrade.has(guide.tradeId)) {
@@ -603,20 +635,43 @@ class MidTradeMonitorService {
             color: evaluation.color,
             fired_at: new Date().toISOString()
           };
+          // Append to the in-memory log on the guide so the UI updates immediately
+          const updatedLog = [...(guide.alertLog ?? []), alert];
+          // Persist both columns fire-and-forget
           supabase
             .from('goal_session_trades')
-            .update({ last_mid_trade_alert: alert })
+            .update({
+              last_mid_trade_alert: alert,
+              mid_trade_alert_log: updatedLog
+            })
             .eq('id', guide.tradeId)
             .then(({ error }) => {
               if (error) console.error('[MidTradeMonitor] Failed to persist alert:', error.message);
             });
+          // Propagate the updated log into the returned guide object
+          return {
+            ...guide,
+            currentPrice: newCurrentPrice,
+            currentPnL: newPnL,
+            priceAgeSeconds: 0,
+            isPriceFresh: true,
+            stalePriceWarning: undefined,
+            primaryAction: evaluation.action,
+            primaryMessage: evaluation.primaryMessage,
+            subMessage: evaluation.subMessage,
+            actionColor: evaluation.color,
+            actionPrice: evaluation.actionPrice,
+            actionLabel: evaluation.actionLabel,
+            thesisIntact: evaluation.thesisIntact,
+            urgencyScore: evaluation.urgencyScore,
+            trailingSLOptions: evaluation.trailingSLOptions,
+            rMultiple: evaluation.rMultiple,
+            liveRR: updatedLiveRR,
+            persistedAlert: alert,
+            alertLog: updatedLog
+          };
         }
       }
-
-      // liveRR updates with every tick — remaining reward / remaining risk
-      const updatedRemainingReward = Math.abs(guide.takeProfit - newCurrentPrice);
-      const updatedRemainingRisk = Math.abs(newCurrentPrice - guide.stopLoss);
-      const updatedLiveRR = updatedRemainingRisk > 0 ? updatedRemainingReward / updatedRemainingRisk : 0;
 
       return {
         ...guide,

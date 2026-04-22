@@ -17,7 +17,8 @@ import {
   Brain,
   XCircle,
   Star,
-  Pin
+  Pin,
+  History
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { midTradeMonitorService, type MidTradeGuidance, type PersistedMidTradeAlert } from '@/services/mid-trade-monitor-service';
@@ -183,6 +184,103 @@ const PersistedAlertBanner: React.FC<{
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+const alertActionLabel: Record<string, string> = {
+  trail_sl: 'Trail SL',
+  warning: 'Warning',
+  tp1_timing: 'TP Timing',
+  risk_alert: 'Risk Alert',
+  hold: 'Hold',
+};
+
+const AlertHistoryLog: React.FC<{
+  alertLog: PersistedMidTradeAlert[];
+  symbol: string;
+  currentPersistedAlert: PersistedMidTradeAlert | null;
+}> = ({ alertLog, symbol, currentPersistedAlert }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  // Show only past alerts that are not the current sticky banner
+  const pastAlerts = alertLog.filter(
+    a => a.trigger_type !== currentPersistedAlert?.trigger_type
+  );
+
+  if (pastAlerts.length === 0) return null;
+
+  const colorMap: Record<string, { text: string; badge: string; dot: string }> = {
+    emerald: { text: 'text-emerald-300', badge: 'bg-emerald-500/20 text-emerald-300', dot: 'bg-emerald-400' },
+    amber:   { text: 'text-amber-300',   badge: 'bg-amber-500/20 text-amber-300',     dot: 'bg-amber-400'   },
+    red:     { text: 'text-red-300',     badge: 'bg-red-500/20 text-red-300',         dot: 'bg-red-400'     },
+    blue:    { text: 'text-blue-300',    badge: 'bg-blue-500/20 text-blue-300',       dot: 'bg-blue-400'    },
+    orange:  { text: 'text-orange-300',  badge: 'bg-orange-500/20 text-orange-300',   dot: 'bg-orange-400'  },
+  };
+
+  const decimalPlaces = symbol.includes('JPY') ? 3 : symbol.length <= 6 && !symbol.includes('USD') ? 5 : 2;
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-white/5 transition-colors"
+      >
+        <History className="w-3 h-3 text-gray-500 flex-shrink-0" />
+        <span className="text-[10px] uppercase tracking-widest font-semibold text-gray-500">
+          {pastAlerts.length} prior alert{pastAlerts.length !== 1 ? 's' : ''}
+        </span>
+        <span className="ml-auto">
+          {expanded
+            ? <ChevronUp className="w-3 h-3 text-gray-500" />
+            : <ChevronDown className="w-3 h-3 text-gray-500" />
+          }
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="divide-y divide-white/5">
+          {[...pastAlerts].reverse().map((alert, idx) => {
+            const c = colorMap[alert.color] ?? colorMap.amber;
+            const firedAt = alert.fired_at
+              ? new Date(alert.fired_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : null;
+            const actionLabel = alertActionLabel[alert.action] ?? alert.action;
+
+            return (
+              <div key={`${alert.trigger_type}-${idx}`} className="px-3 py-2.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.dot}`} />
+                  <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${c.badge}`}>
+                    {actionLabel}
+                  </span>
+                  {firedAt && (
+                    <span className="ml-auto text-[9px] text-gray-600 flex items-center gap-1">
+                      <Clock className="w-2.5 h-2.5" /> {firedAt}
+                    </span>
+                  )}
+                </div>
+                <p className={`text-xs font-medium ${c.text} leading-snug`}>
+                  {alert.primary_message}
+                </p>
+                {alert.sub_message && (
+                  <p className="text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+                    {alert.sub_message}
+                  </p>
+                )}
+                {alert.action_price != null && alert.action_label && (
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <span className="text-[9px] text-gray-500 uppercase">{alert.action_label}:</span>
+                    <span className={`text-xs font-bold font-mono ${c.text}`}>
+                      {alert.action_price.toFixed(decimalPlaces)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
@@ -1016,7 +1114,7 @@ export const MidTradeMonitor: React.FC<MidTradeMonitorProps> = ({ activeTradeId 
                 {/* Alpha Mid-Trade Re-Analysis — thesis verdict from event-driven recheck */}
                 <AlphaRecheckPanel guide={guide} />
 
-                {/* Persisted Alert — sticky banner from a previous trigger, survives page refresh.
+                {/* Persisted Alert — sticky banner from the most recent trigger, survives page refresh.
                     Hidden when the current live guidance is already showing the same message. */}
                 {guide.persistedAlert && guide.persistedAlert.primary_message !== guide.primaryMessage && (
                   <PersistedAlertBanner
@@ -1024,6 +1122,13 @@ export const MidTradeMonitor: React.FC<MidTradeMonitorProps> = ({ activeTradeId 
                     symbol={guide.symbol}
                   />
                 )}
+
+                {/* Alert History Log — all prior alerts fired during this trade's life, collapsed by default */}
+                <AlertHistoryLog
+                  alertLog={guide.alertLog ?? []}
+                  symbol={guide.symbol}
+                  currentPersistedAlert={guide.persistedAlert}
+                />
 
                 {/* Primary Guidance */}
                 <div className={`${colors.bg} rounded-lg p-3 border ${colors.border}`}>
