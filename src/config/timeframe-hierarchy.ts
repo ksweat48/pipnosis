@@ -234,20 +234,21 @@ export function getMTFConfig(riskMode: RiskMode): MultiTimeframeConfig {
  * Trade style is the authoritative source for which timeframes to analyze.
  * Risk mode MUST NOT influence timeframe selection — it only controls financial exposure.
  *
- * CCIP-2026-04-21: SCALP reverted to M5 entry (was M1 per CCIP-2026-04-08).
- * Reason: M1 primary caused Alpha to miss clean M5 setups correctly detected
- * by the hunt readiness scanner. M1 confirmation never fires when M5 structure
- * is clean but M1 is choppy (common in low-volatility sessions).
- * M1 is now timing refinement only, not a confirmation gate.
- * SCALP:          Entry M5  | Trend M15 | Context H1
+ * CCIP-2026-04-22: SCALP restored to M1 entry with M5 direction.
+ * ATR/feasibility precompute gates and style qualification blocks that previously
+ * prevented Alpha from trading on M1 have been removed. Alpha's block conditions
+ * are now pure data integrity gates (staleness, broken feed, missing candles) —
+ * not market condition judgments. M1 gives Alpha faster pattern visibility for
+ * tight scalps; M5 provides the directional structural context.
+ * SCALP:          Entry M1  | Trend M5  | Context H1
  * MICRO_INTRADAY: Entry M5  | Trend M15 | Context H1
  * INTRADAY:       Entry M15 | Trend H1  | Context H4
  *
- * ATR NOTE: SCALP stop sizing uses M5 ATR (atr20).
+ * ATR NOTE: SCALP stop sizing uses M1 ATR (atr20) at this timeframe.
  * See alpha-omega-orchestrator.ts styleAtrTimeframe logic.
  */
 export const STYLE_MTF_CONFIGS: Record<CanonicalTradeStyle, MultiTimeframeConfig> = {
-  SCALP:          { entryTimeframe: 'M5',  trendTimeframe: 'M15', contextTimeframe: 'H1'  },
+  SCALP:          { entryTimeframe: 'M1',  trendTimeframe: 'M5',  contextTimeframe: 'H1'  },
   MICRO_INTRADAY: { entryTimeframe: 'M5',  trendTimeframe: 'M15', contextTimeframe: 'H1'  },
   INTRADAY:       { entryTimeframe: 'M15', trendTimeframe: 'H1',  contextTimeframe: 'H1'  },
 } as const;

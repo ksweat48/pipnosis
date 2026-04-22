@@ -53,16 +53,16 @@ type PhaseLabel = 'ACCUMULATION' | 'EXPANSION' | 'DISTRIBUTION' | 'RETRACEMENT' 
 type TriggerState = 'fired' | 'developing' | 'none';
 type DirectionLean = 'BUY' | 'SELL' | 'NEUTRAL';
 
-// Style → primary timeframe for phase detection
+// Style → primary timeframe for phase detection (CCIP-2026-04-22)
 const STYLE_PRIMARY_TF: Record<TradingStyle, string> = {
-  SCALP: 'M5',          // Alpha reads M5 for phase when scalping on M1
+  SCALP: 'M1',           // Alpha reads M1 for phase — fast scalp pattern visibility
   MICRO_INTRADAY: 'M15', // Alpha reads M15 for phase when on M5
   INTRADAY: 'H1',        // Alpha reads H1 for phase when on M15
 };
 
-// Style → control timeframe for structural validation
+// Style → control timeframe for structural validation / direction
 const STYLE_CONTROL_TF: Record<TradingStyle, string> = {
-  SCALP: 'M15',
+  SCALP: 'M5',           // M5 provides directional structural context for M1 scalps
   MICRO_INTRADAY: 'H1',
   INTRADAY: 'H4',
 };
