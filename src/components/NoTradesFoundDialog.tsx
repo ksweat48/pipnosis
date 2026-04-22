@@ -85,6 +85,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
       SYSTEM_PARSE_FAILURE: 'Response could not be parsed',
       SYSTEM_NETWORK_FAILURE: 'Network / infrastructure error',
       SYSTEM_DATA_MISSING: 'Candle data unavailable',
+      SYSTEM_PAIR_NOT_READY: 'Pair not ready',
       SYSTEM_FRESHNESS_BLOCK: 'Price data was stale',
       ALPHA_BLOCKED_GEOMETRY: 'Alpha found a trade — geometry blocked it',
       ALPHA_BLOCKED_COMPLIANCE: 'Alpha found a trade — missing required field',
@@ -97,10 +98,13 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     const wasAlphaCall =
       alphaOriginalAction &&
       (decisionOrigin.startsWith('ALPHA_BLOCKED_') || decisionOrigin.startsWith('ENGINE_'));
+    const isPairNotReady = decisionOrigin === 'SYSTEM_PAIR_NOT_READY';
     return {
       state: 'NO_TRADE_SYSTEM_BLOCK' as const,
       text: label,
-      expandedText: wasAlphaCall
+      expandedText: isPairNotReady
+        ? 'Pre-scan readiness check found no structural phase or setup material. Alpha was not called — there was nothing to evaluate.'
+        : wasAlphaCall
         ? `Alpha actually wanted to ${alphaOriginalAction} — but the system blocked execution. Reason: ${label}. This is NOT Alpha's trading judgment.`
         : `This is a system failure, not Alpha's trading judgment. Reason: ${label}.`,
       dotClass: 'bg-red-400',

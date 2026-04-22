@@ -561,7 +561,7 @@ export interface AlphaDecision {
    * ENGINE_FEASIBILITY_BLOCKED — Goal feasibility blocked execution
    * ENGINE_CAPACITY_BLOCKED — Concurrent trade limit reached
    */
-  decision_origin?: 'ALPHA_GENUINE' | 'ALPHA_BLOCKED_GEOMETRY' | 'ALPHA_BLOCKED_COMPLIANCE' | 'ALPHA_BLOCKED_SURVIVAL' | 'SYSTEM_DATA_MISSING' | 'SYSTEM_PARSE_FAILURE' | 'SYSTEM_DEGENERATE' | 'SYSTEM_TRUNCATED' | 'SYSTEM_NETWORK_FAILURE' | 'SYSTEM_FRESHNESS_BLOCK' | 'ENGINE_RISK_BLOCKED' | 'ENGINE_FEASIBILITY_BLOCKED' | 'ENGINE_CAPACITY_BLOCKED';
+  decision_origin?: 'ALPHA_GENUINE' | 'ALPHA_BLOCKED_GEOMETRY' | 'ALPHA_BLOCKED_COMPLIANCE' | 'ALPHA_BLOCKED_SURVIVAL' | 'SYSTEM_DATA_MISSING' | 'SYSTEM_PAIR_NOT_READY' | 'SYSTEM_PARSE_FAILURE' | 'SYSTEM_DEGENERATE' | 'SYSTEM_TRUNCATED' | 'SYSTEM_NETWORK_FAILURE' | 'SYSTEM_FRESHNESS_BLOCK' | 'ENGINE_RISK_BLOCKED' | 'ENGINE_FEASIBILITY_BLOCKED' | 'ENGINE_CAPACITY_BLOCKED';
   /**
    * CCIP-2026-0415: Preserved original Alpha decision when system blocked it.
    * Only set when decision_origin starts with ALPHA_BLOCKED_* or ENGINE_*.
@@ -1430,7 +1430,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
           takeProfit: marketContext.price,
           confidence: 0,
           reasoning: `HUNT_READINESS_NOT_MET: Pre-scan assessment found no readable phase and no structural setup material for ${tradeStyle} on ${marketContext.symbol}. Phase: ${huntReadiness.phase_detected ?? 'UNCLEAR'}. ${huntReadiness.hunt_summary ?? ''}`,
-          decision_origin: 'SYSTEM_DATA_MISSING' as const,
+          decision_origin: 'SYSTEM_PAIR_NOT_READY' as const,
         };
       }
     } catch {
@@ -4815,16 +4815,18 @@ Return PURE JSON only — all required fields from the schema in my system promp
         let auditSessionSweepStatus = 'NOT_IN_RESPONSE';
         try {
           const rawParsed = (decision as any)._rawParsed;
-          if (rawParsed?.answer_sheet) {
-            const as = rawParsed.answer_sheet;
-            auditSweepReclaimStatus = as.Q_SWEEP_RECLAIM_STATUS || 'NOT_PRESENT';
-            auditQTrappedFuel = as.Q_TRAPPED_FUEL || 'NOT_PRESENT';
-            auditQ12Phase = as.Q12 || 'NOT_PRESENT';
-            auditQPricedIn = as.Q_PRICED_IN || 'NOT_PRESENT';
-            auditQ4B = as.Q4B_realtime_participant_read || 'NOT_PRESENT';
-            auditSessionSweepStatus = as.session_sweep_status || 'NOT_PRESENT';
+          if (rawParsed) {
+            // NO_TRADE JSON is flat — answer_sheet only exists in BUY/SELL responses.
+            // Read top-level first (NO_TRADE path), fall back to answer_sheet (BUY/SELL path).
+            const src = rawParsed.answer_sheet ?? rawParsed;
+            auditSweepReclaimStatus = src.Q_SWEEP_RECLAIM_STATUS || 'NOT_PRESENT';
+            auditQTrappedFuel = src.Q_TRAPPED_FUEL || 'NOT_PRESENT';
+            auditQ12Phase = src.Q12 || 'NOT_PRESENT';
+            auditQPricedIn = src.Q_PRICED_IN || 'NOT_PRESENT';
+            auditQ4B = src.Q4B_realtime_participant_read || 'NOT_PRESENT';
+            auditSessionSweepStatus = src.session_sweep_status || 'NOT_PRESENT';
           }
-        } catch { /* answer_sheet unavailable */ }
+        } catch { /* rawParsed unavailable */ }
 
         console.log(
           `[Alpha NO_TRADE AUDIT] ════════════════════════════════════════\n` +
@@ -4853,6 +4855,34 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const isGenericPhrase = !noTradeStatement ||
           wordCount < 60 ||
           /^(ranging|no clear|low volatility|uncertain|choppy|unclear|sideways|no edge|insufficient)/i.test(noTradeStatement.trim());
+
+        // CCIP-2026-0422C: When Alpha has a directional lean, vague deferrals are governance violations.
+        const directionalLean = (decision as any).directional_lean;
+        const leanConfidence = (decision as any).lean_confidence || 0;
+        const hasLean = (directionalLean === 'BUY_LEAN' || directionalLean === 'SELL_LEAN') && leanConfidence > 0;
+        const hasVagueDeferral = hasLean && noTradeStatement &&
+          /wait.{0,20}(till|until|for).{0,20}(next|another).{0,20}(cycle|scan)|check back later/i.test(noTradeStatement);
+        if (hasVagueDeferral) {
+          console.warn(
+            `[CCIP-2026-0422C] DIRECTIONAL_LEAN_WITHOUT_PRICE_ZONE — ` +
+            `Alpha has ${directionalLean} (lean_confidence: ${leanConfidence}) but used a vague deferral phrase. ` +
+            `no_trade_statement must name a specific price level and trigger event. ` +
+            `Symbol=${marketContext.symbol}. Governance violation logged.`
+          );
+          logViolation({
+            violationType: 'DIRECTIONAL_LEAN_WITHOUT_PRICE_ZONE',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'no_trade_governance_check',
+            callLocation: 'coordinator-alpha.no_trade_governance',
+            blocked: false,
+            errorDetails: {
+              directional_lean: directionalLean,
+              lean_confidence: leanConfidence,
+              no_trade_statement_snippet: noTradeStatement?.slice(0, 200) || null,
+              sessionId: goalContext?.sessionId || null,
+            }
+          }).catch(() => {});
+        }
 
         if (isGenericPhrase) {
           // CCIP-2026-0333: Do NOT synthesise a fallback. Persist NULL and log the violation.
