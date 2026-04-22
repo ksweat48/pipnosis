@@ -264,7 +264,10 @@ class TradeClosureCoordinator {
           .eq('goal_session_id', request.goalSessionId),
       ]);
 
-      if (!session) return;
+      if (!session) {
+        console.error('[TradeClosureCoordinator] showInstantClosureModal: goal session not found for', request.goalSessionId, '— modal will not appear. Realtime path is fallback.');
+        return;
+      }
 
       const isGoalAchieved = goalAchieved || (session.current_progress || 0) >= (session.target_value || Infinity);
 

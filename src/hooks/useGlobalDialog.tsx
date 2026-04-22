@@ -191,6 +191,8 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           isGoalAchieved={currentDialog.data.isGoalAchieved || false}
           dollarRisk={currentDialog.data.dollarRisk || 0}
           timestamp={currentDialog.data.timestamp}
+          tp1Pnl={currentDialog.data.tp1Pnl ?? null}
+          tp2Pnl={currentDialog.data.tp2Pnl ?? null}
           onStartNewSession={currentDialog.data.onStartNewSession || (() => {})}
           onContinueSession={currentDialog.data.onContinueSession || (() => {})}
           onCloseForNow={async () => {
