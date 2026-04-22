@@ -5276,6 +5276,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
             if (parsed.stopLoss === null || parsed.stopLoss === undefined || typeof parsed.stopLoss !== 'number' || isNaN(parsed.stopLoss) || parsed.stopLoss <= 0) {
               (parsed as Record<string, unknown>).stopLoss = currentPrice;
             }
+            // CCIP-2026-0422G: takeProfit must also be set — compliance check at line ~6106
+            // blocks any BUY/SELL without a valid takeProfit. Alpha's NO_TRADE response
+            // never includes a TP, so the rescue must supply a sentinel. currentPrice is
+            // used here; the real TP comes from Alpha's stated target zone in no_trade_statement
+            // or wait_condition, which the executor reads when the zone is hit.
+            if (parsed.takeProfit === null || parsed.takeProfit === undefined || typeof parsed.takeProfit !== 'number' || isNaN(parsed.takeProfit) || parsed.takeProfit <= 0) {
+              (parsed as Record<string, unknown>).takeProfit = currentPrice;
+            }
+            if (parsed.tp2 === null || parsed.tp2 === undefined || typeof parsed.tp2 !== 'number' || isNaN(parsed.tp2) || parsed.tp2 <= 0) {
+              (parsed as Record<string, unknown>).tp2 = currentPrice;
+            }
             // Build wait_condition from existing geometry if not present
             if (!parsed.wait_condition) {
               (parsed as Record<string, unknown>).wait_condition = {

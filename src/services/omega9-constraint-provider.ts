@@ -454,12 +454,10 @@ class Omega9ConstraintProvider {
 
       if (tpToSLRatio < 0.2) {
         // TP is less than 20% of SL - very suspicious for crypto
-        console.error('[Omega-9 Crypto Scale] 🚨 DIAGNOSTIC: Crypto scale mismatch detected (NON-BLOCKING)');
-        console.error(`[Omega-9 Crypto Scale] ${symbol}: TP ${constraints.minTakeProfitPips.toFixed(0)} pips / SL ${referenceSLPips.toFixed(0)} pips = ${(tpToSLRatio * 100).toFixed(1)}% ratio`);
-        console.error(`[Omega-9 Crypto Scale] This suggests a calculation error in session constraints or ATR scaling`);
-        console.error(`[Omega-9 Crypto Scale] Expected: TP should be at least 20-50% of SL for crypto trades`);
-        console.error(`[Omega-9 Crypto Scale] Root cause likely: Session time constraint crushing TP for 24/7 market`);
-        console.error(`[Omega-9 Crypto Scale] Recommendation: Verify 24/7 market detection and session constraint exemption`);
+        console.error('[Omega-9 Crypto Scale] DIAGNOSTIC: Crypto TP/SL ratio anomaly detected (NON-BLOCKING)');
+        console.error(`[Omega-9 Crypto Scale] ${symbol}: minTP=${constraints.minTakeProfitPips.toFixed(0)} pips / referenceSL=${referenceSLPips.toFixed(0)} pips = ${(tpToSLRatio * 100).toFixed(1)}% ratio (expected >20%)`);
+        console.error(`[Omega-9 Crypto Scale] referenceSLPips source: ${referenceSLPips === stopLossCalc.stopLossPips ? 'stop-calculator (no proposed SL)' : 'calculatePipDistance(entry, proposedSL)'}`);
+        console.error(`[Omega-9 Crypto Scale] idealMinTakeProfitPips=${idealMinTakeProfitPips.toFixed(0)}, maxTakeProfitPips=${maxTakeProfitPips.toFixed(0)}, minRiskReward=${minRiskReward}`);
 
         // Add diagnostic warning (NOT blocking, just visibility)
         constraints.violations.push({
