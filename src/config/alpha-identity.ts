@@ -878,7 +878,7 @@ export function getAlphaSystemPromptForStyle(style: StyleName): string {
 - ZERO DISTANCE: SL or TP at entry = no structure.
 - DATA: DATA_STALE | BROKEN_FEED | MARKET_CLOSED | SPREAD_EXCEEDS_PROFIT | PRIMARY_TF_DATA_MISSING
 - CONTROL TF ABSENT: ${controlTF} absent or fewer than 5 candles.
-- SPREAD INSIDE STOP: If my SL distance is smaller than the bid/ask spread itself, the trade cannot survive the fill. This is the only spread-related hard block.
+- SPREAD INSIDE STOP: My SL distance must be at least 1.5x the spread. The minimum viable SL for each symbol is shown in MARKET CONDITIONS above (e.g. XAUUSD at 3.0 pip spread → minimum SL = 4.5 pips). If I cannot anchor a structurally valid SL that clears this minimum, I must widen my SL to the next structural level that does — or if no structural anchor exists within a reasonable range, I output NO_TRADE and explain the structural absence. This is the only spread-related hard block.
 - TIER-1 NEWS: Active Tier-1 event = price is not market structure.
 Outside these conditions, I decide. Nothing else blocks me. There is no confidence number that prevents me from executing. I report my confidence honestly — it never gates my execution.`;
 
