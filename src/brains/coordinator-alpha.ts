@@ -4795,6 +4795,55 @@ Return PURE JSON only — all required fields from the schema in my system promp
       console.log('[Alpha Coordinator] Reasoning:', decision.reasoning);
       console.log('[Alpha Coordinator] Omega Summary:', decision.omega_summary);
 
+      // ─── NO_TRADE AUDIT LOG (CCIP-2026-0422B) ───────────────────────────────
+      // Surfaces Alpha's full structured reasoning for every NO_TRADE so it can
+      // be audited in the console without querying the database. This is the
+      // single most important diagnostic log — it reveals WHY Alpha passed.
+      if (decision.action === 'NO_TRADE') {
+        const auditNoTradeStatement: string = (decision as any).no_trade_statement || '';
+        const auditConfidenceTier: string = (decision as any).confidence_tier || 'unknown';
+        const auditDirectionalLean: string = (decision as any).directional_lean || 'NEUTRAL';
+        const auditLeanConfidence: number = (decision as any).lean_confidence || 0;
+        const auditBlockReason: string = (decision as any).block_reason || 'none';
+
+        // Parse answer_sheet fields from the raw parsed response for audit visibility
+        let auditSweepReclaimStatus = 'NOT_IN_RESPONSE';
+        let auditQTrappedFuel = 'NOT_IN_RESPONSE';
+        let auditQ12Phase = 'NOT_IN_RESPONSE';
+        let auditQPricedIn = 'NOT_IN_RESPONSE';
+        let auditQ4B = 'NOT_IN_RESPONSE';
+        let auditSessionSweepStatus = 'NOT_IN_RESPONSE';
+        try {
+          const rawParsed = (decision as any)._rawParsed;
+          if (rawParsed?.answer_sheet) {
+            const as = rawParsed.answer_sheet;
+            auditSweepReclaimStatus = as.Q_SWEEP_RECLAIM_STATUS || 'NOT_PRESENT';
+            auditQTrappedFuel = as.Q_TRAPPED_FUEL || 'NOT_PRESENT';
+            auditQ12Phase = as.Q12 || 'NOT_PRESENT';
+            auditQPricedIn = as.Q_PRICED_IN || 'NOT_PRESENT';
+            auditQ4B = as.Q4B_realtime_participant_read || 'NOT_PRESENT';
+            auditSessionSweepStatus = as.session_sweep_status || 'NOT_PRESENT';
+          }
+        } catch { /* answer_sheet unavailable */ }
+
+        console.log(
+          `[Alpha NO_TRADE AUDIT] ════════════════════════════════════════\n` +
+          `  Symbol:              ${marketContext.symbol}\n` +
+          `  Confidence Tier:     ${auditConfidenceTier}\n` +
+          `  Directional Lean:    ${auditDirectionalLean} (lean_confidence: ${auditLeanConfidence})\n` +
+          `  Block Reason:        ${auditBlockReason}\n` +
+          `  Q12 Phase:           ${auditQ12Phase}\n` +
+          `  Session Sweep:       ${auditSessionSweepStatus}\n` +
+          `  Q_SWEEP_RECLAIM:     ${auditSweepReclaimStatus}\n` +
+          `  Q_TRAPPED_FUEL:      ${auditQTrappedFuel}\n` +
+          `  Q_PRICED_IN:         ${auditQPricedIn}\n` +
+          `  Q4B Participant:     ${auditQ4B}\n` +
+          `  No-Trade Statement:\n    ${(auditNoTradeStatement || '(MISSING — governance violation)').replace(/\n/g, '\n    ')}\n` +
+          `════════════════════════════════════════════════════════════════`
+        );
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       // CCIP-2026-0333: Fail-loud governance for missing/generic no_trade_statement.
       // Alpha's output is the sole authority. If Alpha did not produce a substantive
       // no_trade_statement, the audit trail persists NULL — the system never invents text.
@@ -5910,6 +5959,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
           })(),
           // CCIP-2026-0415: This is Alpha's genuine judgment — he searched and found no edge.
           decision_origin: 'ALPHA_GENUINE' as const,
+          // CCIP-2026-0422B: Raw parsed response attached for audit log upstream to read
+          // answer_sheet fields (Q_SWEEP_RECLAIM_STATUS, Q_TRAPPED_FUEL, Q12) without
+          // querying the database. Stripped before any persistence layer sees it.
+          _rawParsed: parsed,
         };
       }
 
