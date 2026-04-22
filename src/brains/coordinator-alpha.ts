@@ -1394,6 +1394,50 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
       }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // HUNT READINESS PRE-SCAN GATE
+    // CCIP-2026-04-21: Query alpha_hunt_readiness before assembling the full
+    // Alpha prompt. If hunt_state === 'not_ready' (PC1 phase unreadable AND
+    // PC2 no structural material), skip the full LLM scan — the structural
+    // raw material for a trade does not exist.
+    //
+    // Gate fires ONLY on 'not_ready'. 'ready', 'live', or missing/expired
+    // records all proceed to the full scan — no data = no gate.
+    //
+    // This preserves Alpha's full decision authority when material exists.
+    // It only prevents scans where the pre-computed structural assessment
+    // has already determined there is no phase, no setup, and no structural room.
+    // ═══════════════════════════════════════════════════════════════════
+    try {
+      const { data: huntReadiness } = await supabase
+        .from('alpha_hunt_readiness')
+        .select('hunt_state, preconditions_met, hunt_summary, phase_detected, expires_at')
+        .eq('symbol', marketContext.symbol)
+        .eq('style', tradeStyle)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+
+      if (huntReadiness && huntReadiness.hunt_state === 'not_ready') {
+        const preconditionsMet = Array.isArray(huntReadiness.preconditions_met)
+          ? (huntReadiness.preconditions_met as string[]).join(', ') || 'none'
+          : 'unknown';
+        console.log(`[Alpha Coordinator] HUNT_READINESS_GATE: ${marketContext.symbol} (${tradeStyle}) skipped — not_ready. Phase: ${huntReadiness.phase_detected}. Preconditions: ${preconditionsMet}`);
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: marketContext.price,
+          stopLoss: marketContext.price,
+          takeProfit: marketContext.price,
+          confidence: 0,
+          reasoning: `HUNT_READINESS_NOT_MET: Pre-scan assessment found no readable phase and no structural setup material for ${tradeStyle} on ${marketContext.symbol}. Phase: ${huntReadiness.phase_detected ?? 'UNCLEAR'}. ${huntReadiness.hunt_summary ?? ''}`,
+          decision_origin: 'SYSTEM_DATA_MISSING' as const,
+        };
+      }
+    } catch {
+      // Hunt readiness unavailable — proceed with full scan (non-blocking)
+      console.warn(`[Alpha Coordinator] Hunt readiness gate unavailable for ${marketContext.symbol} — proceeding with full scan`);
+    }
+
     let longLiquidityZones: LiquidityZone[] = [];
     let shortLiquidityZones: LiquidityZone[] = [];
     let liquidityZones: LiquidityZone[] = [];
@@ -2616,6 +2660,74 @@ ${htfStructuralEvidenceBlock}
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // H4 BACKGROUND CONTEXT (INTRADAY ONLY — pure context, no gate)
+    // CCIP-2026-04-21: 4 H4 candles give Alpha awareness of whether the H1
+    // move it is entering has H4 structural tailwind or is counter-trend.
+    // A counter-H4 INTRADAY trade carries materially different risk than a
+    // H4-aligned one — Alpha should see this even though H4 never controls
+    // entry, never sets TP, and never gates execution.
+    // Non-blocking: if H4 data is unavailable, prompt block is omitted silently.
+    // ═══════════════════════════════════════════════════════════════════
+    let h4BackgroundPrompt = '';
+    if (tradeStyle === 'INTRADAY') {
+      try {
+        const mds = MarketDataService.getInstance();
+        const h4Candles = await mds.getCandles(marketContext.symbol, 'H4', 4);
+
+        if (h4Candles && h4Candles.length >= 2) {
+          const recentH4 = h4Candles.slice(0, 4).reverse();
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+          const h4Lines: string[] = recentH4.map((c, i) => {
+            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          });
+
+          const h4High = Math.max(...recentH4.map(c => c.high));
+          const h4Low = Math.min(...recentH4.map(c => c.low));
+          const h4Mid = (h4High + h4Low) / 2;
+          const currentPrice = marketContext.livePrice ?? marketContext.price;
+          const priceVsMid = currentPrice > h4Mid ? 'ABOVE H4 midpoint — upper half of 4-candle H4 range' : 'BELOW H4 midpoint — lower half of 4-candle H4 range';
+
+          const upCandles = recentH4.filter(c => c.close > c.open).length;
+          const downCandles = recentH4.filter(c => c.close < c.open).length;
+          const h4Bias = upCandles > downCandles ? 'BULLISH' : downCandles > upCandles ? 'BEARISH' : 'NEUTRAL';
+          const h4RangePips = (h4High - h4Low) / pipInfo.pipValue;
+
+          h4BackgroundPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+H4 BACKGROUND CONTEXT (${marketContext.symbol}) — DIRECTION AWARENESS ONLY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+H4 data is background awareness only. It does not gate my entry. It does not set my TP.
+It tells me whether my H1 directional read has H4 structural tailwind or is counter-trend at the H4 level.
+My exits are M15 exhaustion points regardless of what H4 shows. Alpha decides what the H4 alignment means for conviction.
+
+${h4Lines.join('\n')}
+
+H4 BACKGROUND SUMMARY:
+- H4 Range (last ${recentH4.length} candles): ${h4RangePips.toFixed(1)} pips (High: ${h4High.toFixed(pipInfo.decimalPlaces)}, Low: ${h4Low.toFixed(pipInfo.decimalPlaces)})
+- H4 Structural bias: ${h4Bias} (${upCandles} bull candles, ${downCandles} bear candles of ${recentH4.length})
+- Current price: ${priceVsMid}
+- H4 Key resistance: ${h4High.toFixed(pipInfo.decimalPlaces)} | H4 Key support: ${h4Low.toFixed(pipInfo.decimalPlaces)}
+
+H4 ALIGNMENT READ:
+${h4Bias === 'BULLISH' ? 'H4 structure is BULLISH. A BUY entry on H1 has H4 tailwind — structurally aligned. A SELL entry is counter-H4 and requires explicit H1-level reversal evidence in my reasoning.' : h4Bias === 'BEARISH' ? 'H4 structure is BEARISH. A SELL entry on H1 has H4 tailwind — structurally aligned. A BUY entry is counter-H4 and requires explicit H1-level reversal evidence in my reasoning.' : 'H4 structure is NEUTRAL/RANGING. Both directions are equally viable — structural edge is determined by H1 and M15 setup quality alone.'}
+I note the H4 alignment in my trader_statement when it is relevant to my conviction assessment. H4 does not change my entry or exit — it informs my honest read of the structural context.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] H4 Background (INTRADAY): ${recentH4.length} candles, bias ${h4Bias}, range ${h4RangePips.toFixed(1)} pips, price ${priceVsMid.split(' ')[0].toLowerCase()} midpoint`);
+        }
+      } catch (error) {
+        // Non-blocking — H4 context is advisory only, scan continues without it
+        console.warn(`[Alpha Coordinator] H4 background context unavailable for ${marketContext.symbol} (non-blocking):`, error instanceof Error ? error.message : 'Unknown');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // M5 SUB-CONFIRMATION CANDLES (MICRO_INTRADAY ONLY — advisory, non-blocking)
     //
     // SSOT: coordinator-alpha.ts is the single authority for LLM prompt assembly.
@@ -2627,7 +2739,7 @@ ${htfStructuralEvidenceBlock}
     // THREE-TIER ARCHITECTURE (post CCIP-2026-04-08 + CCIP-2026-04-21):
     //   SCALP:          M5 (primary entry) + M1 (timing refinement only) + M15/H1 (advisory)
     //   MICRO_INTRADAY: M5 (primary entry) + M15 (trend validation) + H1 (controlling)
-    //   INTRADAY:       M15 (primary entry) + H1 (trend validation) + H4 (controlling)
+    //   INTRADAY:       M15 (primary entry) + H1 (trend validation) + H4 (context only)
     // NOTE: Sub-confirmation blocks below fetch additional same-TF candles as advisory
     // supplementary data. All sub-confirmation is NON-BLOCKING — Alpha retains full authority.
     //
@@ -3825,6 +3937,7 @@ LAYER 4 — RAW CANDLE EVIDENCE (Interpret through macro lens above)
 ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
 ${htfCandlePrompt}
+${h4BackgroundPrompt}
 ${m5SubConfirmationPrompt}
 ${m15DirectionPromptMicro}
 ${m15ReferencePrompt}
