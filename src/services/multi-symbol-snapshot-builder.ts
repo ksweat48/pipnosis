@@ -98,13 +98,19 @@ class MultiSymbolSnapshotBuilder {
     console.log(`[Multi-Symbol] Building snapshots for ${symbols.length} symbols using cache... Style: ${canonicalStyle} -> TF: ${timeframe}`);
     const startTime = Date.now();
 
-    // Build snapshots in batches of 3 with a 300ms stagger between batches.
-    // Prevents a thundering herd of 9 simultaneous cold-start DB queries against
+    // Build snapshots in batches of 3 with a stagger between batches.
+    // Prevents a thundering herd of simultaneous cold-start DB queries against
     // the forex_candles_best view when the cache is empty (session start / hard refresh).
     // Warm cache hits are near-instant so the stagger adds negligible latency in
     // steady state.
+    //
+    // CCIP-2026-0424A: M1 (SCALP) sessions use a 700ms inter-batch delay instead of 300ms.
+    // M1 rows are dense and expensive; 3 simultaneous M1 queries at cold start were
+    // sufficient to trigger PostgreSQL statement timeouts (57014). The larger delay gives
+    // the DB time to drain the first batch before the next starts. Non-M1 timeframes
+    // retain the original 300ms delay (fast, warm-cache-friendly).
     const BATCH_SIZE = 3;
-    const BATCH_DELAY_MS = 300;
+    const BATCH_DELAY_MS = timeframe === 'M1' ? 700 : 300;
     const allResults: (SymbolSnapshot | null)[] = [];
 
     for (let i = 0; i < symbols.length; i += BATCH_SIZE) {

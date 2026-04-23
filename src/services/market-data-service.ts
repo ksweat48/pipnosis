@@ -123,69 +123,124 @@ export class MarketDataService {
    * candles, and prioritises by data_source quality rank. All other services in the
    * system already use this view — this was the sole divergence.
    *
+   * CCIP-2026-0424A: Added retry-with-backoff for PostgreSQL statement timeouts (error 57014).
+   * Root cause: SCALP sessions query M1 candles for 3 symbols in parallel. Under load,
+   * the forex_candles_best view can exceed the Supabase statement timeout, returning HTTP 500
+   * with PostgreSQL error code 57014. A single failure cascaded to "No candle data found"
+   * for the entire symbol. Retry pattern: 3 attempts, 600ms → 1200ms → 2400ms backoff.
+   * Applied universally to all timeframes (not just M1) — any timeout should be retried.
+   *
    * SSOT COMPLIANCE: Single authority for candle data retrieval via quality-filtered view.
    * CCIP COMPLIANCE: Comprehensive diagnostic logging.
    */
   async getCandles(symbol: string, timeframe: string, limit: number = 10): Promise<CandleData[]> {
-    try {
-      const normalizedTimeframe = normalizeTimeframeToDb(timeframe);
+    const normalizedTimeframe = normalizeTimeframeToDb(timeframe);
+    const MAX_ATTEMPTS = 3;
+    const BASE_BACKOFF_MS = 600;
 
-      logger.debug(`[MarketData] Fetching candles from forex_candles_best`, {
-        symbol,
-        requestedTimeframe: timeframe,
-        normalizedTimeframe,
-        limit,
-        table: 'forex_candles_best'
-      });
-
-      const { data, error } = await supabase
-        .from('forex_candles_best')
-        .select('open_time, open, high, low, close, volume, data_source, quality_score')
-        .eq('symbol', symbol)
-        .eq('timeframe', normalizedTimeframe)
-        .order('open_time', { ascending: false })
-        .limit(limit);
-
-      if (error) {
-        logger.error('[MarketData] Database error fetching candles', {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        logger.debug(`[MarketData] Fetching candles from forex_candles_best`, {
           symbol,
-          timeframe: normalizedTimeframe,
-          error: error.message,
-          errorCode: error.code,
-          errorDetails: error.details
+          requestedTimeframe: timeframe,
+          normalizedTimeframe,
+          limit,
+          attempt,
+          table: 'forex_candles_best'
         });
-        return [];
-      }
 
-      if (!data || data.length === 0) {
-        logger.warn(`[MarketData] No candle data found`, {
+        const { data, error } = await supabase
+          .from('forex_candles_best')
+          .select('open_time, open, high, low, close, volume, data_source, quality_score')
+          .eq('symbol', symbol)
+          .eq('timeframe', normalizedTimeframe)
+          .order('open_time', { ascending: false })
+          .limit(limit);
+
+        if (error) {
+          // PostgreSQL 57014 = statement timeout — retryable
+          const isTimeout = error.code === '57014' || (error.message && error.message.includes('statement timeout'));
+          if (isTimeout && attempt < MAX_ATTEMPTS) {
+            const delay = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
+            logger.warn(`[MarketData] Statement timeout fetching candles, retrying`, {
+              symbol,
+              timeframe: normalizedTimeframe,
+              attempt,
+              nextAttemptIn: `${delay}ms`,
+              errorCode: error.code
+            });
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+
+          logger.error('[MarketData] Database error fetching candles', {
+            symbol,
+            timeframe: normalizedTimeframe,
+            error: error.message,
+            errorCode: error.code,
+            errorDetails: error.details,
+            attempt
+          });
+          return [];
+        }
+
+        if (!data || data.length === 0) {
+          logger.warn(`[MarketData] No candle data found`, {
+            symbol,
+            timeframe: normalizedTimeframe,
+            requestedLimit: limit,
+            note: 'forex_candles_best returned empty. Market may be closed or data pipeline has not written candles for this symbol/timeframe.'
+          });
+          return [];
+        }
+
+        logger.debug(`[MarketData] Candles fetched successfully`, {
           symbol,
           timeframe: normalizedTimeframe,
+          candlesReturned: data.length,
           requestedLimit: limit,
-          note: 'forex_candles_best returned empty. Market may be closed or data pipeline has not written candles for this symbol/timeframe.'
+          attempt,
+          oldestCandle: data[data.length - 1]?.open_time,
+          newestCandle: data[0]?.open_time
+        });
+
+        return data as CandleData[];
+
+      } catch (error) {
+        const isTimeout = error instanceof Error && (
+          error.message.includes('statement timeout') ||
+          error.message.includes('57014')
+        );
+        if (isTimeout && attempt < MAX_ATTEMPTS) {
+          const delay = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
+          logger.warn(`[MarketData] Caught timeout exception fetching candles, retrying`, {
+            symbol,
+            timeframe: normalizedTimeframe,
+            attempt,
+            nextAttemptIn: `${delay}ms`
+          });
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        logger.error('[MarketData] Unexpected error fetching candles:', {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          symbol,
+          timeframe,
+          attempt
         });
         return [];
       }
-
-      logger.debug(`[MarketData] Candles fetched successfully`, {
-        symbol,
-        timeframe: normalizedTimeframe,
-        candlesReturned: data.length,
-        requestedLimit: limit,
-        oldestCandle: data[data.length - 1]?.open_time,
-        newestCandle: data[0]?.open_time
-      });
-
-      return data as CandleData[];
-    } catch (error) {
-      logger.error('[MarketData] Unexpected error fetching candles:', {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        symbol,
-        timeframe
-      });
-      return [];
     }
+
+    // All attempts exhausted
+    logger.error('[MarketData] All retry attempts exhausted fetching candles', {
+      symbol,
+      timeframe: normalizedTimeframe,
+      attempts: MAX_ATTEMPTS
+    });
+    return [];
   }
 
   /**

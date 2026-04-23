@@ -189,18 +189,23 @@ class MarketSnapshotCache {
 
     const candles = await this.fetchCandles(symbol, timeframe);
 
+    // CCIP-2026-0424A: Use timeframe-aware minimum threshold
+    const tfKeyMin = (timeframe as string).toUpperCase();
+    const minByTf = TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_BY_TF;
+    const minCandles = (tfKeyMin in minByTf ? minByTf[tfKeyMin] : minByTf['DEFAULT']) as number;
+
     logger.debug('[SnapshotCache] Candle fetch result', {
       symbol,
       timeframe,
       candlesReturned: candles.length,
-      requiredMinimum: TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_REQUIRED,
+      requiredMinimum: minCandles,
       oldestCandle: candles.length > 0 ? candles[0].open_time : null,
       newestCandle: candles.length > 0 ? candles[candles.length - 1].open_time : null
     });
 
-    if (candles.length < TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_REQUIRED) {
-      const errorMsg = `Insufficient candle data for ${symbol}@${timeframe}: Found ${candles.length} candles, need at least ${TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_REQUIRED}.`;
-      logger.error('[SnapshotCache] Insufficient candles', { symbol, timeframe, found: candles.length, required: TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_REQUIRED });
+    if (candles.length < minCandles) {
+      const errorMsg = `Insufficient candle data for ${symbol}@${timeframe}: Found ${candles.length} candles, need at least ${minCandles}.`;
+      logger.error('[SnapshotCache] Insufficient candles', { symbol, timeframe, found: candles.length, required: minCandles });
       throw new Error(errorMsg);
     }
 
@@ -361,16 +366,23 @@ class MarketSnapshotCache {
    * Fetch candles from database
    * ✅ SSOT: Uses MarketDataService
    * CCIP COMPLIANCE: Structured logging for governance
+   *
+   * CCIP-2026-0424A: Uses timeframe-aware fetch limit to reduce M1 query payload.
+   * M1 limit = 100 (down from 300), preventing statement timeout (57014) on SCALP sessions.
    */
   private async fetchCandles(symbol: string, timeframe: Timeframe): Promise<Candle[]> {
+    const tfKey = (timeframe as string).toUpperCase();
+    const limitByTf = TIME_MS.CACHE.SNAPSHOT_CANDLE_FETCH_LIMIT_BY_TF;
+    const fetchLimit = (tfKey in limitByTf ? limitByTf[tfKey] : limitByTf['DEFAULT']) as number;
+
     logger.debug('[SnapshotCache] Fetching candles', {
       symbol,
       timeframe,
-      requestedLimit: TIME_MS.CACHE.SNAPSHOT_CANDLE_FETCH_LIMIT,
+      requestedLimit: fetchLimit,
       source: 'marketDataService.getCandles'
     });
 
-    const candles = await marketDataService.getCandles(symbol, timeframe, TIME_MS.CACHE.SNAPSHOT_CANDLE_FETCH_LIMIT);
+    const candles = await marketDataService.getCandles(symbol, timeframe, fetchLimit);
 
     logger.debug('[SnapshotCache] MarketDataService returned', {
       symbol,

@@ -196,9 +196,50 @@ export const TIME_MS = {
 
     // CCIP-SNAPSHOT-TTL-SSOT-2026-03-03: Minimum candle counts required in snapshot building.
     // Previously magic numbers inside market-snapshot-cache.ts.
-    SNAPSHOT_MIN_CANDLES_REQUIRED: 50,  // Hard minimum to build any snapshot
+    SNAPSHOT_MIN_CANDLES_REQUIRED: 50,  // Hard minimum to build any snapshot (legacy — use SNAPSHOT_MIN_CANDLES_BY_TF below)
     SNAPSHOT_MIN_CANDLES_ATR: 10,       // Minimum non-zero ranges for valid ATR
-    SNAPSHOT_CANDLE_FETCH_LIMIT: 300,   // How many candles to request from DB
+    SNAPSHOT_CANDLE_FETCH_LIMIT: 300,   // Legacy flat limit — use SNAPSHOT_CANDLE_FETCH_LIMIT_BY_TF below
+
+    // CCIP-2026-0424A: Timeframe-aware candle fetch limits.
+    // Root cause of M1 statement timeouts (PostgreSQL 57014): SCALP sessions query
+    // 3 symbols simultaneously at limit=300 for M1 candles. M1 rows are dense
+    // (1-minute bars) — 300 rows is disproportionately expensive vs. the indicator
+    // needs. MACD (slowest indicator) requires ~35 bars minimum; 100 gives safe headroom.
+    // H1+ reduces are safe because those timeframes have far fewer rows in the view.
+    //
+    // Fetch limit contract:
+    //   M1:          100  — SCALP primary TF; reduces per-query payload by 67%
+    //   M5, M15:     150  — intraday/micro-intraday; moderate reduction
+    //   H1, H4, D:   300  — slow timeframes; DB load per query is low, unchanged
+    //   DEFAULT:     200  — safe fallback for any unlisted timeframe
+    SNAPSHOT_CANDLE_FETCH_LIMIT_BY_TF: {
+      M1: 100,
+      M5: 150,
+      M15: 150,
+      H1: 300,
+      H4: 300,
+      D: 300,
+      DEFAULT: 200,
+    } as Record<string, number>,
+
+    // CCIP-2026-0424A: Timeframe-aware minimum candle thresholds.
+    // Scales proportionally with the fetch limit above so the "insufficient data"
+    // check never rejects a healthy reduced-limit response.
+    //
+    // Minimum contract (all well above indicator minimums — MACD needs ~35 bars):
+    //   M1:       30  — 30% of 100-candle fetch
+    //   M5, M15:  50  — 33% of 150-candle fetch
+    //   H1+:      80  — 27% of 300-candle fetch (unchanged from old flat threshold of 50)
+    //   DEFAULT:  50  — safe fallback
+    SNAPSHOT_MIN_CANDLES_BY_TF: {
+      M1: 30,
+      M5: 50,
+      M15: 50,
+      H1: 80,
+      H4: 80,
+      D: 80,
+      DEFAULT: 50,
+    } as Record<string, number>,
   },
 
   // BROKER CLOCK DOMAIN — Single Source of Truth
