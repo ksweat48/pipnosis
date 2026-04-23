@@ -1438,6 +1438,11 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
     // It only prevents scans where the pre-computed structural assessment
     // has already determined there is no phase, no setup, and no structural room.
     // ═══════════════════════════════════════════════════════════════════
+    // CCIP-2026-0424B: Capture preconditions from 'ready' state to inject into Alpha's
+    // prompt as a readiness signal. This tells Alpha which structural preconditions the
+    // readiness scanner already qualified — closing the gap where Alpha would output
+    // NO_TRADE despite naming a trigger zone.
+    let huntContextForPrompt: { preconditionsMet: string[]; phase: string | null } | undefined;
     try {
       const { data: huntReadiness } = await supabase
         .from('alpha_hunt_readiness')
@@ -1461,6 +1466,13 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
           confidence: 0,
           reasoning: `HUNT_READINESS_NOT_MET: Pre-scan assessment found no readable phase and no structural setup material for ${tradeStyle} on ${marketContext.symbol}. Phase: ${huntReadiness.phase_detected ?? 'UNCLEAR'}. ${huntReadiness.hunt_summary ?? ''}`,
           decision_origin: 'SYSTEM_PAIR_NOT_READY' as const,
+        };
+      }
+
+      if (huntReadiness && Array.isArray(huntReadiness.preconditions_met) && huntReadiness.preconditions_met.length > 0) {
+        huntContextForPrompt = {
+          preconditionsMet: huntReadiness.preconditions_met as string[],
+          phase: huntReadiness.phase_detected ?? null,
         };
       }
     } catch {
@@ -4070,7 +4082,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       return [
         {
           role: 'system' as const,
-          content: `${systemFingerprint}\n\n${getAlphaSystemPromptForStyle(styleName)}`
+          content: `${systemFingerprint}\n\n${getAlphaSystemPromptForStyle(styleName, huntContextForPrompt)}`
         },
         {
           role: 'user' as const,
