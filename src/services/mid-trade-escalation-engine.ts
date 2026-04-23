@@ -123,12 +123,19 @@ class MidTradeEscalationEngine {
   }
 
   private async fetchOpenTrades(): Promise<OpenTrade[]> {
-    const { data, error } = await supabase.rpc('get_open_trades_needing_escalation');
-    if (error) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const { data, error } = await supabase.rpc('get_open_trades_needing_escalation');
+      if (!error) return (data || []) as OpenTrade[];
+
+      const isNetworkDrop = !error.code || error.message?.includes('Failed to fetch') || error.message?.includes('ERR_CONNECTION');
+      if (isNetworkDrop && attempt < 3) {
+        await new Promise(r => setTimeout(r, attempt * 2000));
+        continue;
+      }
       logger.error(LogCategory.TRADE_EXECUTION, '[EscalationEngine] Failed to fetch trades:', error);
       return [];
     }
-    return (data || []) as OpenTrade[];
+    return [];
   }
 
   private async fetchPrices(symbols: string[]): Promise<Map<string, { bid: number; ask: number }>> {
