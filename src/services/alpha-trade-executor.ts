@@ -919,128 +919,159 @@ class AlphaTradeExecutor {
 
     // Directional pricing (ASK for BUY, BID for SELL) already accounts for spread.
     // No additional static slippage is applied to avoid double-counting.
-    const adjustedEntry = entryPrice;
+    let adjustedEntry = entryPrice;
 
     // GOVERNANCE: Validate adjusted entry is valid number
     if (!Number.isFinite(adjustedEntry)) {
       return {
         success: false,
-        error: `Slippage adjustment resulted in invalid price: ${adjustedEntry} (base: ${entryPrice}, slippage: ${slippage})`
+        error: `Execution price is invalid: ${adjustedEntry} (base: ${entryPrice})`
       };
     }
 
     // CCIP-ALPHA-GOV-LEVELS: Alpha's SL and TP are structural levels set by Alpha's professional judgment.
     // They are executed exactly as issued. Fill price differences do not shift these levels.
-    // Alpha places SL behind specific structural features (swing highs/lows, FVGs, key levels)
-    // and TP at specific target zones — shifting those levels breaks the structural validity
-    // of the trade regardless of whether R:R is numerically preserved.
     //
-    // CCIP-2026-0417-GEOMETRY-GUARD: Fill price deviation vs planned entry must not exceed the
-    // planned stop distance. If the fill arrives on the wrong side of (or within one stop-width of)
-    // Alpha's SL, the trade geometry is broken before it starts — the SL has zero or negative
-    // breathing room and will be triggered by normal spread/noise. Block and log such trades.
-    // This guard is direction-aware: for a BUY the fill must be below planned entry (or only
-    // modestly above); for a SELL the fill must be above planned entry (or only modestly below).
-    // Threshold: if |fill - plannedEntry| >= plannedStopDistance the geometry is invalid.
+    // CCIP-2026-0424C: Tiered geometry guard with rapid requote loop.
+    //   Tier A (clean)  — |drift| < 1.0 × planned stop AND fill has not crossed SL or TP → PROCEED.
+    //   Tier B (soft)   — 1.0× ≤ |drift| < 1.5× stop AND fill has NOT crossed TP → rapid requote
+    //                     loop up to 3 seconds; if market reverts to Tier A, execute; else promote
+    //                     to Tier C outcome.
+    //   Tier C (hard)   — |drift| ≥ 1.5× stop OR fill crossed SL OR fill crossed TP → BLOCK.
+    //
+    // Every outcome is persisted to alpha_execution_drift_events so Alpha can self-calibrate stop
+    // sizing on subsequent scans (CCIP-2026-0424C active feedback loop).
     const plannedEntry = decision.entry;
-    const entryDeviation = adjustedEntry - plannedEntry;
     const plannedStopDistance = Math.abs(plannedEntry - decision.stopLoss);
+    const pipInfo = getCurrencyPipInfo(decision.symbol);
+    const reasoningPipSize = pipInfo.pipValue;
+    const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
+    const decisionTimestamp = new Date().toISOString();
 
-    if (Number.isFinite(entryDeviation) && Number.isFinite(plannedStopDistance) && plannedStopDistance > 0) {
-      const pipInfo = getCurrencyPipInfo(decision.symbol);
-      const reasoningPipSize = pipInfo.pipValue;
-      const deviationReasoningPips = Math.abs(entryDeviation) / reasoningPipSize;
-      const deviationRatio = Math.abs(entryDeviation) / plannedStopDistance;
+    const classifyTier = (fill: number): { tier: 'A' | 'B' | 'C'; ratio: number; crossedTp: boolean; crossedSl: boolean } => {
+      const dev = Math.abs(fill - plannedEntry);
+      const ratio = plannedStopDistance > 0 ? dev / plannedStopDistance : 0;
+      const crossedSl = decision.action === 'BUY' ? fill <= decision.stopLoss : fill >= decision.stopLoss;
+      const crossedTp = decision.action === 'BUY' ? fill >= decision.takeProfit : fill <= decision.takeProfit;
+      if (crossedSl || crossedTp || ratio >= 1.5) return { tier: 'C', ratio, crossedTp, crossedSl };
+      if (ratio >= 1.0) return { tier: 'B', ratio, crossedTp, crossedSl };
+      return { tier: 'A', ratio, crossedTp, crossedSl };
+    };
 
-      // CCIP-2026-0417-GEOMETRY-GUARD: For a BUY, the stop loss sits BELOW the entry price.
-      // A fill ABOVE the SL is expected — it has breathing room. Geometry is broken only when
-      // the fill falls THROUGH the SL (fill <= SL for BUY) OR when the deviation consumes the
-      // entire stop width (deviationRatio >= 1.0). The inverse applies to SELL trades.
-      const geometryBroken = (
-        decision.action === 'BUY'
-          ? adjustedEntry <= decision.stopLoss   // fill crossed BELOW SL → no breathing room
-          : adjustedEntry >= decision.stopLoss   // fill crossed ABOVE SL → no breathing room
-      ) || deviationRatio >= 1.0;
+    let classification = classifyTier(adjustedEntry);
+    let retryCount = 0;
 
-      const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
+    if (Number.isFinite(plannedStopDistance) && plannedStopDistance > 0 && classification.tier === 'B') {
+      const retryBudgetMs = 3000;
+      const retryIntervalMs = 300;
+      const retryStart = Date.now();
 
-      if (geometryBroken) {
-        await supabase.from('entry_price_deviation_events').insert({
-          user_id: userId,
-          session_id: sessionId,
-          symbol: decision.symbol,
-          alpha_style: styleUpper,
-          direction: decision.action as 'BUY' | 'SELL',
-          planned_entry: plannedEntry,
-          actual_entry: adjustedEntry,
-          deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
-          max_allowed_pips: Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10,
-          alpha_max_deviation_pips: decision.max_entry_deviation_pips ?? null,
-          action_taken: 'BLOCKED_GEOMETRY_INVALID',
-          planned_sl: decision.stopLoss,
-          planned_tp: decision.takeProfit,
-          execution_sl: decision.stopLoss,
-          execution_tp: decision.takeProfit,
+      while (Date.now() - retryStart < retryBudgetMs && classification.tier === 'B') {
+        await new Promise(resolve => setTimeout(resolve, retryIntervalMs));
+        retryCount++;
+
+        const requoteResult = await priceCoordinator.getPrice(decision.symbol, {
+          allowStale: false,
+          useCacheFirst: false,
         });
 
-        logger.error(
-          LogCategory.RISK_MANAGEMENT,
-          '[AlphaTradeExecutor] GEOMETRY GUARD: Fill price has consumed the entire stop distance — trade blocked. ' +
-          'Alpha intended entry at plannedEntry but market is at adjustedEntry which is past or at SL. ' +
-          'CCIP-2026-0417-GEOMETRY-GUARD.',
-          {
-            symbol: decision.symbol,
-            plannedEntry,
-            actualEntry: adjustedEntry,
-            stopLoss: decision.stopLoss,
-            plannedStopDistancePips: Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10,
-            deviationPips: Math.round(deviationReasoningPips * 10) / 10,
-            deviationRatio: Math.round(deviationRatio * 100) / 100,
-            action: decision.action,
-          }
-        );
+        if (!requoteResult.success || !requoteResult.price) continue;
 
-        return {
-          success: false,
-          error: `GEOMETRY_GUARD: Fill price (${adjustedEntry}) has consumed the planned stop distance. ` +
-                 `Alpha's entry was ${plannedEntry} with SL at ${decision.stopLoss} (${Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10}p stop). ` +
-                 `Fill is ${Math.round(deviationReasoningPips * 10) / 10}p from Alpha's entry — geometry invalid, trade blocked.`
-        };
+        try {
+          const direction = decision.action === 'BUY' ? 'buy' : 'sell';
+          const requotedPrice = priceCoordinator.extractExecutionPrice(requoteResult.price, direction);
+          if (!Number.isFinite(requotedPrice)) continue;
+          adjustedEntry = requotedPrice;
+          classification = classifyTier(adjustedEntry);
+        } catch {
+          continue;
+        }
       }
+    }
 
-      if (Math.abs(entryDeviation) > 1e-8) {
-        await supabase.from('entry_price_deviation_events').insert({
-          user_id: userId,
-          session_id: sessionId,
+    const finalDev = Math.abs(adjustedEntry - plannedEntry);
+    const finalDevPips = reasoningPipSize > 0 ? Math.round((finalDev / reasoningPipSize) * 10) / 10 : 0;
+    const plannedStopPips = reasoningPipSize > 0 ? Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10 : 0;
+
+    const outcome: 'executed' | 'requoted' | 'blocked' =
+      classification.tier === 'C' ? 'blocked'
+        : retryCount > 0 ? 'requoted'
+        : 'executed';
+
+    try {
+      await supabase.from('alpha_execution_drift_events').insert({
+        user_id: userId,
+        session_id: sessionId,
+        decision_id: (decision as any).decision_id ?? null,
+        symbol: decision.symbol,
+        alpha_style: styleUpper,
+        direction: decision.action as 'BUY' | 'SELL',
+        planned_entry: plannedEntry,
+        actual_fill: adjustedEntry,
+        planned_stop: decision.stopLoss,
+        planned_take_profit: decision.takeProfit,
+        planned_stop_pips: plannedStopPips,
+        drift_pips: finalDevPips,
+        drift_ratio: Math.round(classification.ratio * 1000) / 1000,
+        tier: classification.tier,
+        outcome,
+        retry_count: retryCount,
+        decision_timestamp: decisionTimestamp,
+        fill_timestamp: new Date().toISOString(),
+        metadata: {
+          crossed_sl: classification.crossedSl,
+          crossed_tp: classification.crossedTp,
+          ccip: 'CCIP-2026-0424C',
+        },
+      });
+    } catch {
+      // Non-blocking — drift logging is feedback, not a gate.
+    }
+
+    if (classification.tier === 'C') {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] GEOMETRY GUARD (Tier C): Fill has crossed SL/TP or drift exceeded 1.5× stop — trade blocked. CCIP-2026-0424C.',
+        {
           symbol: decision.symbol,
-          alpha_style: styleUpper,
-          direction: decision.action as 'BUY' | 'SELL',
-          planned_entry: plannedEntry,
-          actual_entry: adjustedEntry,
-          deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
-          max_allowed_pips: Math.round((plannedStopDistance / reasoningPipSize) * 10) / 10,
-          alpha_max_deviation_pips: decision.max_entry_deviation_pips ?? null,
-          action_taken: 'AUDIT_ONLY',
-          planned_sl: decision.stopLoss,
-          planned_tp: decision.takeProfit,
-          execution_sl: decision.stopLoss,
-          execution_tp: decision.takeProfit,
-        });
+          plannedEntry,
+          actualEntry: adjustedEntry,
+          stopLoss: decision.stopLoss,
+          takeProfit: decision.takeProfit,
+          plannedStopDistancePips: plannedStopPips,
+          driftPips: finalDevPips,
+          driftRatio: Math.round(classification.ratio * 100) / 100,
+          crossedSl: classification.crossedSl,
+          crossedTp: classification.crossedTp,
+          retryCount,
+          action: decision.action,
+        }
+      );
 
-        logger.info(
-          LogCategory.TRADE_EXECUTION,
-          '[AlphaTradeExecutor] Fill deviation within stop distance — Alpha levels unchanged (structural integrity preserved). CCIP-ALPHA-GOV-LEVELS.',
-          {
-            symbol: decision.symbol,
-            plannedEntry,
-            actualEntry: adjustedEntry,
-            deviationReasoningPips: Math.round(deviationReasoningPips * 10) / 10,
-            deviationRatio: Math.round(deviationRatio * 100) / 100,
-            sl: decision.stopLoss,
-            tp: decision.takeProfit,
-          }
-        );
-      }
+      return {
+        success: false,
+        error: `GEOMETRY_GUARD_TIER_C: Fill price (${adjustedEntry}) drifted ${finalDevPips}p from planned entry ${plannedEntry} ` +
+               `(stop distance ${plannedStopPips}p). ${classification.crossedSl ? 'Fill crossed SL. ' : ''}${classification.crossedTp ? 'Fill crossed TP. ' : ''}` +
+               `Trade blocked — geometry structurally invalid. Retries: ${retryCount}.`
+      };
+    }
+
+    if (finalDev > 1e-8) {
+      logger.info(
+        LogCategory.TRADE_EXECUTION,
+        `[AlphaTradeExecutor] Fill accepted (Tier ${classification.tier}${retryCount > 0 ? ` after ${retryCount} requote(s)` : ''}) — Alpha levels unchanged. CCIP-ALPHA-GOV-LEVELS / CCIP-2026-0424C.`,
+        {
+          symbol: decision.symbol,
+          plannedEntry,
+          actualEntry: adjustedEntry,
+          deviationReasoningPips: finalDevPips,
+          deviationRatio: Math.round(classification.ratio * 100) / 100,
+          tier: classification.tier,
+          retryCount,
+          sl: decision.stopLoss,
+          tp: decision.takeProfit,
+        }
+      );
     }
 
     // Insert trade

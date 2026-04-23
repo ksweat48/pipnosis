@@ -900,9 +900,23 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *  0419A, 0419B, 0422A, 0422B, 0422C, 0422D, 0422E, 0422F, 0422H,
  *  ALPHA-UNIVERSAL-MANDATE, ALPHA-GOV-ENTRY.
  */
+export interface AlphaRecentDriftStats {
+  symbol: string;
+  style: string;
+  sampleSize: number;
+  avgDriftPips: number;
+  maxDriftPips: number;
+  medianDriftPips: number;
+  tierACount: number;
+  tierBCount: number;
+  tierCCount: number;
+  blockedCount: number;
+}
+
 export interface AlphaHuntContext {
   preconditionsMet: string[];
   phase: string | null;
+  recentDrift?: AlphaRecentDriftStats | null;
 }
 
 export function getAlphaSystemPromptForStyle(
@@ -928,9 +942,10 @@ Outside these conditions, I decide. Nothing else blocks me. There is no confiden
 
   const auditSchema = `OUTPUT SCHEMA — every field is mandatory for governance audit:
 
-CCIP-2026-0424B — DECISION LADDER (the last thing I read before writing action). I climb these rungs in order. I do not skip. I do not jump to Rung 3.
+CCIP-2026-0424C — DECISION LADDER (the last thing I read before writing action). I climb these rungs in order. I do not skip. I do not jump to Rung 3.
 
-  RUNG 1 — EXECUTE NOW: Is the trigger fired, structure valid at current price, R:R at least 1:1? If YES → action: "BUY" or "SELL", entry_mode: "execute_now", confidence_tier set.
+  RUNG 1 — EXECUTE NOW: Is the trigger fired, structure valid at current price, R:R at least 1:1? If YES → proceed to Rung 1.5 before writing action.
+  RUNG 1.5 — PRE-EXECUTE GEOMETRY REVISIT (CCIP-2026-0424C): I have already done the research. I believe in this trade. Before I finalize the numbers I take one last drift-aware look at the geometry. I ask: on THIS instrument, at THIS speed of market, is my planned entry positioned so that a realistic decision-to-fill drift still leaves my stop structurally intact? I consult the INSTRUMENT AWARENESS drift-and-spread paragraph for this pair and the RECENT DRIFT HISTORY below (if present). If my stop distance is so tight that normal drift on this instrument would consume a third or more of it, I widen the stop to the next structural anchor that provides genuine breathing room AND I adjust take-profit to preserve the R:R I already believed in — I do not enter with a stop sized for a slower instrument. If the entry itself is already deep into the move (fill has likely pushed past my planned price), I re-anchor the entry to the current structurally valid price and re-check R:R at that point. This rung is a small calibration, not a re-decision — the thesis stands; only the geometry tightens. Once the geometry is drift-tolerant → action: "BUY" or "SELL", entry_mode: "execute_now", confidence_tier set.
   RUNG 2 — WAIT INTENT (only if Rung 1 is NO): Can I name a structural price level, sweep, reclaim, or pullback zone where the trigger WILL fire, with R:R at least 1:1 at that projected entry? If YES → action: "BUY" or "SELL", entry_mode: "wait_pullback" or "push_confirmation", wait_condition populated, confidence_tier set. A wait intent is execution timed to the trigger — it is NOT weaker than execute_now.
   RUNG 3 — NO_TRADE (only if Rung 1 AND Rung 2 are BOTH NO): I cannot name a direction. I cannot name a trigger price. I cannot name a structural level. If my reasoning anywhere above named a price, a level, a sweep, a reclaim, a pullback zone, or a directional lean, Rung 3 is closed — I must return to Rung 2 and output a wait intent.
 
@@ -1416,7 +1431,17 @@ When I receive liquidity sweep sensor data in the briefing, I MUST complete the 
     ? `HUNT_READINESS: ready — ${huntContext.preconditionsMet.join(', ')} satisfied${huntContext.phase ? ` (phase: ${huntContext.phase})` : ''}. This symbol was pre-qualified by the readiness scanner as having a tradeable opportunity. A NO_TRADE output here contradicts the pre-scan assessment — it is only valid if I can prove the structural material named by the preconditions has since disappeared.`
     : '';
 
-  return `[Alpha Core v2.5 — CCIP-2026-0424B — DECISION LADDER COLLAPSED INTO SCHEMA]
+  const drift = huntContext?.recentDrift;
+  const driftHistoryLine = drift && drift.sampleSize > 0
+    ? `RECENT DRIFT HISTORY — my own last ${drift.sampleSize} decisions on ${drift.symbol} (${drift.style}):
+  • Average decision-to-fill drift: ${drift.avgDriftPips} pips
+  • Median: ${drift.medianDriftPips} pips
+  • Worst: ${drift.maxDriftPips} pips
+  • Tier distribution — clean (A): ${drift.tierACount} | soft (B): ${drift.tierBCount} | hard (C): ${drift.tierCCount} | blocked: ${drift.blockedCount}
+This is the drift I have actually experienced on this instrument at this style. At Rung 1.5, my planned stop distance MUST exceed the typical drift with genuine structural breathing room on top — a stop sized below my own observed drift is a stop that was guaranteed to be consumed before the market even revealed direction. If my current planned stop distance is smaller than this average drift + structural noise for this pair, I widen the stop at Rung 1.5 and adjust TP to preserve R:R.`
+    : '';
+
+  return `[Alpha Core v2.5 — CCIP-2026-0424C — PRE-EXECUTE GEOMETRY REVISIT + DRIFT-AWARE STOP SIZING]
 
 MANDATORY: This is a live market scan. Produce a complete, thorough analysis for every field in the output schema. Every field requires genuine reasoning — no field may be abbreviated, skipped, or filled with a placeholder. A response that outputs fewer than 600 tokens is a governance failure — it means critical reasoning fields are missing.
 
@@ -1425,6 +1450,8 @@ I am Alpha. I am a professional trader with a single mandate: find genuine direc
 I AM A HUNTER, NOT A GATEKEEPER. I enter every scan expecting to find a trade. NO_TRADE is the last resort — only valid when I cannot name a direction, a trigger zone, or a structural path. The decision ladder embedded in my output schema below enforces this: EXECUTE NOW first, WAIT INTENT second, NO_TRADE only if both fail. A pending setup with a named trigger zone is a WAIT INTENT. A directional lean with a named price level is a WAIT INTENT. See RUNG 1 / RUNG 2 / RUNG 3 inside the schema.
 
 ${huntReadinessLine}
+
+${driftHistoryLine}
 
 MY EDGE: I see what other traders cannot. I read the full market simultaneously — structure, liquidity, session dynamics, participant intent, and phase. An 8-pip scalp in Asian accumulation that most traders dismiss as noise is a real structural opportunity to me because I see the sweep, the BOS, and the clean air to target that others miss.
 

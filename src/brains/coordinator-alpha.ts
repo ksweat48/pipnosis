@@ -1442,7 +1442,22 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
     // prompt as a readiness signal. This tells Alpha which structural preconditions the
     // readiness scanner already qualified — closing the gap where Alpha would output
     // NO_TRADE despite naming a trigger zone.
-    let huntContextForPrompt: { preconditionsMet: string[]; phase: string | null } | undefined;
+    let huntContextForPrompt: {
+      preconditionsMet: string[];
+      phase: string | null;
+      recentDrift?: {
+        symbol: string;
+        style: string;
+        sampleSize: number;
+        avgDriftPips: number;
+        maxDriftPips: number;
+        medianDriftPips: number;
+        tierACount: number;
+        tierBCount: number;
+        tierCCount: number;
+        blockedCount: number;
+      } | null;
+    } | undefined;
     try {
       const { data: huntReadiness } = await supabase
         .from('alpha_hunt_readiness')
@@ -1478,6 +1493,38 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
     } catch {
       // Hunt readiness unavailable — proceed with full scan (non-blocking)
       console.warn(`[Alpha Coordinator] Hunt readiness gate unavailable for ${marketContext.symbol} — proceeding with full scan`);
+    }
+
+    // CCIP-2026-0424C: Fetch Alpha's own recent execution drift for this symbol/style
+    // and inject into the prompt so Alpha self-calibrates stop sizing against observed
+    // fill behavior. Pure reasoning feedback — not a gate.
+    try {
+      const { data: driftStats } = await supabase.rpc('get_recent_drift_stats', {
+        p_symbol: marketContext.symbol,
+        p_style: tradeStyle,
+        p_lookback: 10,
+      });
+      const row = Array.isArray(driftStats) ? driftStats[0] : driftStats;
+      if (row && typeof row.sample_size === 'number' && row.sample_size > 0) {
+        const existing = huntContextForPrompt ?? { preconditionsMet: [], phase: null };
+        huntContextForPrompt = {
+          ...existing,
+          recentDrift: {
+            symbol: marketContext.symbol,
+            style: tradeStyle,
+            sampleSize: Number(row.sample_size) || 0,
+            avgDriftPips: Number(row.avg_drift_pips) || 0,
+            maxDriftPips: Number(row.max_drift_pips) || 0,
+            medianDriftPips: Number(row.median_drift_pips) || 0,
+            tierACount: Number(row.tier_a_count) || 0,
+            tierBCount: Number(row.tier_b_count) || 0,
+            tierCCount: Number(row.tier_c_count) || 0,
+            blockedCount: Number(row.blocked_count) || 0,
+          },
+        };
+      }
+    } catch {
+      // Drift history unavailable — proceed without it (non-blocking, pure feedback)
     }
 
     let longLiquidityZones: LiquidityZone[] = [];
