@@ -56,7 +56,8 @@ interface IntentForMonitoring {
   edge_loss_modal_triggered_at: string | null;
   edge_loss_modal_response: string | null;
   edge_loss_modal_response_at: string | null;
-  intent_mode: 'pullback_to_zone' | 'push_confirmation_zone' | null;
+  intent_mode: 'pullback_to_zone' | 'push_confirmation_zone' | 'pending_zone_entry_zone' | null;
+  trigger_event: string | null;
   session_status: string | null;
 }
 
@@ -329,7 +330,9 @@ export const handler: Handler = async (event, context) => {
 
             const abandonMsg = intent.intent_mode === 'push_confirmation_zone'
               ? `${intent.symbol} push confirmation timed out after ${minutesElapsed.toFixed(0)}min — price never pushed into the confirmation zone. Rescanning automatically.`
-              : `${intent.symbol} entry timed out after ${minutesElapsed.toFixed(0)}min — price never reached the entry zone. Rescanning automatically.`;
+              : intent.intent_mode === 'pending_zone_entry_zone'
+                ? `${intent.symbol} pending zone entry timed out after ${minutesElapsed.toFixed(0)}min — armed trigger${intent.trigger_event ? ` (${intent.trigger_event})` : ''} never fired. Rescanning automatically.`
+                : `${intent.symbol} entry timed out after ${minutesElapsed.toFixed(0)}min — price never reached the entry zone. Rescanning automatically.`;
 
             // Step 3a: In-app notification
             await supabase.from('goal_notifications').insert({

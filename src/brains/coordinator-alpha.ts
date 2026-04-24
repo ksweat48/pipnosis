@@ -281,7 +281,7 @@ export interface AlphaDecision {
   regime_advisory?: RegimeSnapshot;
   conflictInfo?: ConflictInfo; // CCIP 2026-02-14: Omega conflict detection data from orchestrator
   entry_spec?: EntrySpec; // NEW: Alpha's explicit entry specification
-  entry_mode?: 'execute_now' | 'wait_pullback' | 'push_confirmation'; // Promoted from entry_spec for execution routing — SSOT: EntryMode from alpha-identity.ts
+  entry_mode?: 'execute_now' | 'wait_pullback' | 'push_confirmation' | 'pending_zone_entry'; // CCIP-2026-0426A: pending_zone_entry is the fourth decision mode — SSOT: EntryMode from alpha-identity.ts
   thesis?: string; // Trade thesis type (momentum_scalp, liquidity_sweep_reversal, etc.)
   style_intent?: string; // Style intent (SCALP, MICRO_INTRADAY, INTRADAY)
   execution_preference?: string; // Execution preference (IMMEDIATE, WAIT_PULLBACK, WAIT_CONFIRMATION)
@@ -299,7 +299,9 @@ export interface AlphaDecision {
     invalidation_price: number;
     wait_reasoning: string;
     expected_wait_minutes?: number;
-    intent_mode?: 'pullback_to_zone' | 'push_confirmation_zone';
+    intent_mode?: 'pullback_to_zone' | 'push_confirmation_zone' | 'pending_zone_entry_zone';
+    trigger_event?: 'reclaim_close' | 'sweep_and_reclaim' | 'bos_confirmation' | 'range_boundary_touch' | 'equal_level_touch';
+    ttl_minutes?: number;
   };
   confidenceAdjustments?: Array<{
     source: string;

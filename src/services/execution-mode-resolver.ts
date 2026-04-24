@@ -34,7 +34,8 @@ export async function resolveExecutionMode(
 
   const alphaWantsToWait =
     alphaDecision.entry_mode === 'wait_pullback'
-    || alphaDecision.entry_mode === 'push_confirmation';
+    || alphaDecision.entry_mode === 'push_confirmation'
+    || alphaDecision.entry_mode === 'pending_zone_entry';
 
   if (!alphaWantsToWait) {
     return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };

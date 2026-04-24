@@ -285,7 +285,14 @@ export type StyleName = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 export type AlphaAction = 'BUY' | 'SELL' | 'NO_TRADE';
 
-export type EntryMode = 'execute_now' | 'wait_pullback' | 'push_confirmation';
+export type EntryMode = 'execute_now' | 'wait_pullback' | 'push_confirmation' | 'pending_zone_entry';
+
+export type TriggerEvent =
+  | 'reclaim_close'
+  | 'sweep_and_reclaim'
+  | 'bos_confirmation'
+  | 'range_boundary_touch'
+  | 'equal_level_touch';
 
 export type ThesisType =
   | 'momentum_scalp'
@@ -946,8 +953,9 @@ CCIP-2026-0424C — DECISION LADDER (the last thing I read before writing action
 
   RUNG 1 — EXECUTE NOW: Is the trigger fired, structure valid at current price, R:R at least 1:1? If YES → proceed to Rung 1.5 before writing action.
   RUNG 1.5 — PRE-EXECUTE GEOMETRY REVISIT (CCIP-2026-0424C): I have already done the research. I believe in this trade. Before I finalize the numbers I take one last drift-aware look at the geometry. I ask: on THIS instrument, at THIS speed of market, is my planned entry positioned so that a realistic decision-to-fill drift still leaves my stop structurally intact? I consult the INSTRUMENT AWARENESS drift-and-spread paragraph for this pair and the RECENT DRIFT HISTORY below (if present). If my stop distance is so tight that normal drift on this instrument would consume a third or more of it, I widen the stop to the next structural anchor that provides genuine breathing room AND I adjust take-profit to preserve the R:R I already believed in — I do not enter with a stop sized for a slower instrument. If the entry itself is already deep into the move (fill has likely pushed past my planned price), I re-anchor the entry to the current structurally valid price and re-check R:R at that point. This rung is a small calibration, not a re-decision — the thesis stands; only the geometry tightens. Once the geometry is drift-tolerant → action: "BUY" or "SELL", entry_mode: "execute_now", confidence_tier set.
-  RUNG 2 — WAIT INTENT (only if Rung 1 is NO): Can I name a structural price level, sweep, reclaim, or pullback zone where the trigger WILL fire, with R:R at least 1:1 at that projected entry? If YES → action: "BUY" or "SELL", entry_mode: "wait_pullback" or "push_confirmation", wait_condition populated, confidence_tier set. A wait intent is execution timed to the trigger — it is NOT weaker than execute_now.
-  RUNG 3 — NO_TRADE (only if Rung 1 AND Rung 2 are BOTH NO): I cannot name a direction. I cannot name a trigger price. I cannot name a structural level. If my reasoning anywhere above named a price, a level, a sweep, a reclaim, a pullback zone, or a directional lean, Rung 3 is closed — I must return to Rung 2 and output a wait intent.
+  RUNG 2 — WAIT PULLBACK / PUSH CONFIRMATION (only if Rung 1 is NO): Can I name a structural price level, sweep, reclaim, or pullback zone where the trigger WILL fire, with R:R at least 1:1 at that projected entry? wait_pullback = price retraces back toward the zone. push_confirmation = price pushes forward into the zone and an M5 candle closes inside it. If YES → action: "BUY" or "SELL", entry_mode: "wait_pullback" or "push_confirmation", wait_condition populated, confidence_tier set. A wait intent is execution timed to the trigger — it is NOT weaker than execute_now.
+  RUNG 3 — PENDING ZONE ENTRY (CCIP-2026-0426A, only if Rungs 1 and 2 are NO): Can I name a structural level or zone where, if price simply touches it, I would execute immediately at market — no additional confirmation required? This is for setups where the trigger itself is the zone touch: equal-highs/lows liquidity sweep zones, failed-auction range boundaries, FVG origins where I want immediate fill. If YES → action: "BUY" or "SELL", entry_mode: "pending_zone_entry", wait_condition populated including trigger_event (reclaim_close | sweep_and_reclaim | bos_confirmation | range_boundary_touch | equal_level_touch), confidence_tier set. TTL floor 5 min. TTL ceiling by style: SCALP=45, MICRO=180, INTRADAY=720 min. Tie expected_wait_minutes to the structural life of the setup (sweep age, FVG age, range structure life) — not a clock. The zone touch fires market execution; there is no re-reasoning pass.
+  RUNG 4 — NO_TRADE (only if Rungs 1, 2 AND 3 are ALL NO): I cannot name a direction. I cannot name a trigger price. I cannot name a structural level. If my reasoning anywhere above named a price, a level, a sweep, a reclaim, a pullback zone, or a directional lean, Rung 4 is closed — I must return to Rung 2 or Rung 3 and output a wait or armed-zone intent.
 
 SELF-CONTRADICTION CHECK before writing NO_TRADE: scan my own reasoning above. If I wrote any of ["waiting for", "pullback to", "sweep of", "reclaim at", "close above", "close below", "BOS at", a directional lean with lean_confidence > 0, or a specific price level as a trigger], the correct output is a wait intent with that price as the entry zone — NOT NO_TRADE.
 
@@ -983,14 +991,14 @@ BUY or SELL:
   },
   "counter_thesis": "Single most credible structural failure reason — named specifically.",
   "counter_thesis_probability": <0-100>,
-  "entry_mode": "execute_now|wait_pullback|push_confirmation",
+  "entry_mode": "execute_now|wait_pullback|push_confirmation|pending_zone_entry",
   "thesis_coherence_statement": "My honest read of the trade: direction, structural basis, and conviction. If my answer_sheet contains conflicting readings, state them and how they affect my confidence. My action is always my own judgment.",${isScalp ? `
   "m1_structural_confirmation": "Named M1 anchor — M1 swing high/low, FVG, BOS, or EMA at specific price, confirmed by M5 trend direction.",` : ''}${isMicro ? `
   "m5_structural_confirmation": "Named M5 anchor this trade is built from — swing, FVG, BOS, or EMA at specific price. M15 validates the direction; M5 is the entry anchor.",` : ''}${isIntraday ? `
   "m15_structural_confirmation": "Named M15 anchor this trade is built from — swing, FVG, BOS, or EMA at specific price. H1 validates the trend direction; M15 is the entry anchor.",` : ''}
   ${isScalp ? '' : '"tp1": <price>,  // MANDATORY — conservative partial target. A response without this field is malformed.\n  '}"trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "tp1_action": "move_sl_to_breakeven|move_sl_to_level|hold_sl", "tp1_sl_level": <price — required only when tp1_action is move_sl_to_level>, "tp1_condition": "<optional named market condition for this instruction>", "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
-  "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate — minimum 5, maximum 120. After 120 minutes the intent is automatically cancelled.> },
-  // MANDATORY when entry_mode is wait_pullback or push_confirmation. Omitting wait_condition on a deferred entry means the system has no zone to monitor — governance violation [CCIP-2026-0404A].
+  "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate. Floor 5 min. Ceilings: SCALP=45, MICRO=180, INTRADAY=720. Tie the TTL to the structural reason: sweep-age, FVG-age, range-life — not a clock.>, "trigger_event": "reclaim_close|sweep_and_reclaim|bos_confirmation|range_boundary_touch|equal_level_touch — REQUIRED when entry_mode is pending_zone_entry. This is the structural event that arms the zone. When price touches the armed zone the system executes at market, no re-reasoning." },
+  // MANDATORY when entry_mode is wait_pullback, push_confirmation, or pending_zone_entry. Omitting wait_condition on a deferred entry means the system has no zone to monitor — governance violation [CCIP-2026-0404A].
   "acceptable_profit_range": { "minUSD": <number>, "idealUSD": <number> },
   "rr_ceiling_override": <number — set when TP exceeds style default ceiling (Scalp=2.0, Micro=3.0, Intraday=4.0). Omitting surrenders R:R authority to the static default.>,
   "tp_multiplier_override": <optional number — structural distance from entry to TP expressed as ATR multiples. Example: if ATR=20 pips and TP is 50 pips away, set 2.5. Omit if not applicable.>,
