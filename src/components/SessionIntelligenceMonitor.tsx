@@ -67,6 +67,8 @@ interface HuntReadinessRow {
   hunt_summary: string;
   last_scanned_at: string;
   expires_at: string;
+  session_minutes_remaining: number | null;
+  estimated_feasible_pips: number | null;
 }
 
 interface StructuralAlertRow {
@@ -253,6 +255,22 @@ function HuntReadinessCard({ row }: { row: HuntReadinessRow }) {
               <p className="text-[11px] text-slate-400 mt-0.5 leading-snug line-clamp-1">
                 {row.hunt_summary}
               </p>
+              {/* Session runway — informational context only, never a gate */}
+              {row.session_minutes_remaining !== null && row.session_minutes_remaining > 0 && (
+                <div className="flex items-center gap-1 mt-1">
+                  <Clock className="w-2.5 h-2.5 text-slate-600 flex-shrink-0" />
+                  <span className={`text-[10px] font-medium tabular-nums ${
+                    row.session_minutes_remaining < 20
+                      ? 'text-amber-500/80'
+                      : 'text-slate-500'
+                  }`}>
+                    {row.session_minutes_remaining}m session left
+                    {row.estimated_feasible_pips !== null && row.estimated_feasible_pips > 0 && (
+                      <span className="text-slate-600"> · ~{row.estimated_feasible_pips}p runway</span>
+                    )}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

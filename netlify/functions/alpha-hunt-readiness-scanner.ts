@@ -74,18 +74,30 @@ const EXPIRE_MINUTES: Record<TradingStyle, number> = {
   INTRADAY: 12,
 };
 
-// Minimum pip size per instrument for structural room measurement
+// Pip size per instrument — used only for converting ATR to pip-display values
 const PIP_SIZE: Record<string, number> = {
   EURUSD: 0.0001, GBPUSD: 0.0001, USDJPY: 0.01,
   XAUUSD: 0.1,   US30: 1.0,      NAS100: 1.0,  SPX500: 0.1,
   BTCUSD: 1.0,   ETHUSD: 0.1,
 };
 
-// Minimum structural room (pips) to qualify as PC3 — enough for a valid 1:1 trade
-const MIN_STRUCTURAL_ROOM: Record<TradingStyle, number> = {
-  SCALP: 10,
-  MICRO_INTRADAY: 20,
-  INTRADAY: 35,
+// ATR-native room thresholds — structural room must be at least N× the current ATR.
+// This self-calibrates across all instruments regardless of pip size.
+// Previously this was a flat pip count (INTRADAY: 35 pips), which caused SPX500
+// (pip_size=0.1) to trivially exceed the threshold since 3.5 index points = 35 pips.
+// CCIP-2026-0425A replaces the pip approach with a self-calibrating ATR multiple.
+const MIN_ATR_ROOM: Record<TradingStyle, number> = {
+  SCALP: 0.8,
+  MICRO_INTRADAY: 1.2,
+  INTRADAY: 1.5,
+};
+
+// Primary timeframe minutes — used to compute estimated feasible pip travel
+// before the session ends. Purely informational display context (no gate).
+const STYLE_TF_MINUTES: Record<TradingStyle, number> = {
+  SCALP: 1,
+  MICRO_INTRADAY: 5,
+  INTRADAY: 15,
 };
 
 // Minimum quality score (0-100) to surface as ready/live.
@@ -118,6 +130,8 @@ interface HuntAssessment {
   hunt_summary: string;
   last_scanned_at: string;
   expires_at: string;
+  session_minutes_remaining: number | null;
+  estimated_feasible_pips: number | null;
 }
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
@@ -174,9 +188,9 @@ function calcRSI(closes: number[], period = 14): number {
 function detectPhase(
   candles: CandleRow[],
   symbol: string
-): { phase: PhaseLabel; evidence: string; directionLean: DirectionLean } {
+): { phase: PhaseLabel; evidence: string; directionLean: DirectionLean; atr: number } {
   if (candles.length < 20) {
-    return { phase: 'UNCLEAR', evidence: 'Insufficient candle history', directionLean: 'NEUTRAL' };
+    return { phase: 'UNCLEAR', evidence: 'Insufficient candle history', directionLean: 'NEUTRAL', atr: 0 };
   }
 
   const closes = candles.map(c => c.close);
@@ -239,6 +253,7 @@ function detectPhase(
         phase: 'REVERSAL',
         evidence: `EMA20 crossed bearish at ${currentEMA20.toFixed(symbol.includes('JPY') ? 3 : 5)}, RSI ${rsi.toFixed(0)} — downside reversal structure`,
         directionLean: 'SELL',
+        atr,
       };
     }
     if (was_below && crossed_above && !trendingUp && rsi > 55) {
@@ -246,6 +261,7 @@ function detectPhase(
         phase: 'REVERSAL',
         evidence: `EMA20 crossed bullish at ${currentEMA20.toFixed(symbol.includes('JPY') ? 3 : 5)}, RSI ${rsi.toFixed(0)} — upside reversal structure`,
         directionLean: 'BUY',
+        atr,
       };
     }
   }
@@ -258,6 +274,7 @@ function detectPhase(
       phase: 'EXPANSION',
       evidence: `${higherHighCount > lowerLowCount ? higherHighCount : lowerLowCount}/4 directional closes, range ${(rangeRatio * 100).toFixed(0)}% of baseline — ${dirLabel} expansion active`,
       directionLean: dir,
+      atr,
     };
   }
 
@@ -267,6 +284,7 @@ function detectPhase(
       phase: 'RETRACEMENT',
       evidence: `Pullback to EMA20 (${currentEMA20.toFixed(symbol.includes('JPY') ? 3 : 5)}) in uptrend — wait_pullback zone active`,
       directionLean: 'BUY',
+      atr,
     };
   }
   if (trendingDown && aboveEMA20 && !aboveEMA50 && rsi > 35 && rsi < 60) {
@@ -274,6 +292,7 @@ function detectPhase(
       phase: 'RETRACEMENT',
       evidence: `Pullback to EMA20 (${currentEMA20.toFixed(symbol.includes('JPY') ? 3 : 5)}) in downtrend — wait_pullback zone active`,
       directionLean: 'SELL',
+      atr,
     };
   }
 
@@ -283,6 +302,7 @@ function detectPhase(
       phase: 'DISTRIBUTION',
       evidence: `RSI ${rsi.toFixed(0)} above 68 with range compression — potential distribution at highs`,
       directionLean: 'SELL',
+      atr,
     };
   }
   if (!aboveEMA20 && !aboveEMA50 && rsi < 32 && !rangeExpanding) {
@@ -290,12 +310,12 @@ function detectPhase(
       phase: 'DISTRIBUTION',
       evidence: `RSI ${rsi.toFixed(0)} below 32 with range compression — potential distribution at lows`,
       directionLean: 'BUY',
+      atr,
     };
   }
 
   // ── ACCUMULATION: range-bound, compressing, near extremes
   if (rangeRatio < 0.75) {
-    // Determine where price is within the recent range
     const rangeSpan = swingHigh - swingLow;
     const pricePosition = rangeSpan > 0 ? (last.close - swingLow) / rangeSpan : 0.5;
     const nearBottom = pricePosition < 0.3;
@@ -305,6 +325,7 @@ function detectPhase(
       phase: 'ACCUMULATION',
       evidence: `Range ${(rangeRatio * 100).toFixed(0)}% of baseline — compression forming, price at ${(pricePosition * 100).toFixed(0)}% of recent range`,
       directionLean: dirLean,
+      atr,
     };
   }
 
@@ -314,6 +335,7 @@ function detectPhase(
       phase: 'EXPANSION',
       evidence: `${higherHighCount}/4 higher closes — slow bullish expansion, EMA20 ${ema20Rising ? 'rising' : 'flat'}`,
       directionLean: 'BUY',
+      atr,
     };
   }
   if (trendingDown) {
@@ -321,45 +343,61 @@ function detectPhase(
       phase: 'EXPANSION',
       evidence: `${lowerLowCount}/4 lower closes — slow bearish expansion, EMA20 ${!ema20Rising ? 'declining' : 'flat'}`,
       directionLean: 'SELL',
+      atr,
     };
   }
 
-  return { phase: 'UNCLEAR', evidence: 'No dominant phase signal detected', directionLean: 'NEUTRAL' };
+  return { phase: 'UNCLEAR', evidence: 'No dominant phase signal detected', directionLean: 'NEUTRAL', atr };
 }
 
 // ─── Structural Room Measurement (PC3) ───────────────────────────────────────
-// Measures how much clear distance exists from current price to the nearest wall.
-// Returns pips in the direction with most room.
+// Measures structural room as a multiple of ATR (instrument-agnostic).
+//
+// CCIP-2026-0425A: Replaced flat pip threshold with ATR-native room measurement.
+// Root cause: SPX500 pip_size=0.1 meant 3.5 index points = 35 pips, trivially
+// exceeding the INTRADAY 35-pip minimum. Same problem existed for ETHUSD and BTCUSD
+// in reverse for US30/NAS100 (pip_size=1.0 deflated pip room scores).
+//
+// ATR-native approach: roomInATR = rawDistance / ATR
+//   - Self-calibrates per instrument and per market regime
+//   - SPX500 needs 1.5× its own ATR to qualify (not a fixed pip count)
+//   - Returns pips too (for display), but decision uses roomInATR vs MIN_ATR_ROOM
 
 function measureStructuralRoom(
   candles: CandleRow[],
   controlCandles: CandleRow[],
   symbol: string,
-  directionLean: DirectionLean
-): { pips: number; direction: DirectionLean } {
-  if (candles.length < 10) return { pips: 0, direction: 'NEUTRAL' };
+  directionLean: DirectionLean,
+  atr: number
+): { pips: number; roomInATR: number; direction: DirectionLean } {
+  if (candles.length < 10) return { pips: 0, roomInATR: 0, direction: 'NEUTRAL' };
 
   const last = candles[candles.length - 1];
   const allCandles = [...controlCandles, ...candles].slice(-40);
 
-  // Identify structural walls: swing highs and lows in lookback
   const lookback = allCandles.slice(-30, -3);
-  if (lookback.length === 0) return { pips: 0, direction: 'NEUTRAL' };
+  if (lookback.length === 0) return { pips: 0, roomInATR: 0, direction: 'NEUTRAL' };
 
   const structuralHigh = Math.max(...lookback.map(c => c.high));
   const structuralLow = Math.min(...lookback.map(c => c.low));
 
-  const roomUp = toPips(structuralHigh - last.close, symbol);
-  const roomDown = toPips(last.close - structuralLow, symbol);
+  const rawRoomUp = Math.max(structuralHigh - last.close, 0);
+  const rawRoomDown = Math.max(last.close - structuralLow, 0);
 
-  // Prefer the direction Alpha is leaning
-  if (directionLean === 'BUY') return { pips: Math.max(roomUp, 0), direction: 'BUY' };
-  if (directionLean === 'SELL') return { pips: Math.max(roomDown, 0), direction: 'SELL' };
+  const pipsUp = toPips(rawRoomUp, symbol);
+  const pipsDown = toPips(rawRoomDown, symbol);
 
-  // NEUTRAL: return the direction with more room
-  if (roomUp > roomDown) return { pips: roomUp, direction: 'BUY' };
-  if (roomDown > roomUp) return { pips: roomDown, direction: 'SELL' };
-  return { pips: Math.max(roomUp, roomDown), direction: 'NEUTRAL' };
+  // ATR-native room: raw price distance / ATR (safeguard against zero ATR)
+  const safeATR = atr > 0 ? atr : 1;
+  const atrRoomUp = rawRoomUp / safeATR;
+  const atrRoomDown = rawRoomDown / safeATR;
+
+  if (directionLean === 'BUY') return { pips: pipsUp, roomInATR: atrRoomUp, direction: 'BUY' };
+  if (directionLean === 'SELL') return { pips: pipsDown, roomInATR: atrRoomDown, direction: 'SELL' };
+
+  if (atrRoomUp > atrRoomDown) return { pips: pipsUp, roomInATR: atrRoomUp, direction: 'BUY' };
+  if (atrRoomDown > atrRoomUp) return { pips: pipsDown, roomInATR: atrRoomDown, direction: 'SELL' };
+  return { pips: Math.max(pipsUp, pipsDown), roomInATR: Math.max(atrRoomUp, atrRoomDown), direction: 'NEUTRAL' };
 }
 
 // ─── Phase-Native Trade Type Check (PC2) ─────────────────────────────────────
@@ -544,17 +582,18 @@ function scoreSetupQuality(
   phase: PhaseLabel,
   directionLean: DirectionLean,
   triggerState: TriggerState,
-  structuralRoomPips: number,
-  minRoom: number,
+  roomInATR: number,
+  minATRRoom: number,
   candles: CandleRow[],
   symbol: string
 ): number {
   let score = 0;
 
   // ── Structural room depth (0–30) ────────────────────────────────────────────
-  // Room at exactly the minimum scores 0. Room at 3× the minimum scores the full 30.
-  if (minRoom > 0) {
-    const roomMultiple = structuralRoomPips / minRoom;
+  // Room at exactly the ATR minimum scores 0. Room at 3× minimum scores full 30.
+  // Uses ATR-native ratio so scoring is identical across all instruments.
+  if (minATRRoom > 0) {
+    const roomMultiple = roomInATR / minATRRoom;
     const roomScore = Math.min(30, Math.floor((roomMultiple - 1) * 15));
     score += Math.max(0, roomScore);
   }
@@ -612,7 +651,10 @@ function scoreSetupQuality(
   return Math.min(100, score);
 }
 
-// ─── Session Detection ────────────────────────────────────────────────────────
+// ─── Session Detection + Context ─────────────────────────────────────────────
+// CCIP-2026-0425A: Session time is INFORMATIONAL ONLY — never a gate.
+// Displayed so traders understand runway context when readiness fires near
+// session end. Alpha already receives session name in its prompt.
 
 function detectSession(): string {
   const hour = new Date().getUTCHours();
@@ -622,6 +664,39 @@ function detectSession(): string {
   if (hour >= 12 && hour < 17) return 'overlap';
   if (hour >= 17 && hour < 22) return 'ny';
   return 'dead';
+}
+
+function getSessionMinutesRemaining(): number | null {
+  const now = new Date();
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  // Sydney: 22:00–01:00 UTC
+  if (utcMinutes >= 22 * 60) return 24 * 60 - utcMinutes;
+  if (utcMinutes < 1 * 60) return 1 * 60 - utcMinutes;
+  // Asian: 01:00–08:00 UTC
+  if (utcMinutes >= 1 * 60 && utcMinutes < 8 * 60) return 8 * 60 - utcMinutes;
+  // London: 08:00–17:00 UTC
+  if (utcMinutes >= 8 * 60 && utcMinutes < 17 * 60) return 17 * 60 - utcMinutes;
+  // NY: 17:00–22:00 UTC
+  if (utcMinutes >= 17 * 60 && utcMinutes < 22 * 60) return 22 * 60 - utcMinutes;
+  return null;
+}
+
+function computeEstimatedFeasiblePips(
+  atr: number,
+  symbol: string,
+  style: TradingStyle,
+  sessionMinutesRemaining: number | null
+): number | null {
+  if (sessionMinutesRemaining === null || atr <= 0) return null;
+  const tfMinutes = STYLE_TF_MINUTES[style];
+  if (tfMinutes <= 0) return null;
+  // How many primary-timeframe candles can still close before session ends?
+  // Each candle typically moves ~ATR/4 on average (empirical approximation).
+  // Multiply by pips per ATR to get display-friendly pip estimate.
+  const candlesRemaining = sessionMinutesRemaining / tfMinutes;
+  const atrInPips = toPips(atr, symbol);
+  return Math.round(candlesRemaining * (atrInPips / 4));
 }
 
 // ─── Hunt Summary Builder ─────────────────────────────────────────────────────
@@ -659,13 +734,14 @@ function buildHuntSummary(
 async function assessHuntReadiness(
   symbol: string,
   style: TradingStyle,
-  session: string
+  session: string,
+  sessionMinutesRemaining: number | null
 ): Promise<HuntAssessment> {
   const primaryTF = STYLE_PRIMARY_TF[style];
   const controlTF = STYLE_CONTROL_TF[style];
   const now = new Date();
   const expiresAt = new Date(now.getTime() + EXPIRE_MINUTES[style] * 60 * 1000);
-  const minRoom = MIN_STRUCTURAL_ROOM[style];
+  const minATRRoom = MIN_ATR_ROOM[style];
 
   const notReady = (reason: string, qualityScore = 0): HuntAssessment => ({
     symbol, style, session,
@@ -682,6 +758,8 @@ async function assessHuntReadiness(
     hunt_summary: `No structural material detected — Alpha will likely NO_TRADE.`,
     last_scanned_at: now.toISOString(),
     expires_at: expiresAt.toISOString(),
+    session_minutes_remaining: sessionMinutesRemaining,
+    estimated_feasible_pips: null,
   });
 
   // Fetch primary timeframe candles
@@ -712,7 +790,7 @@ async function assessHuntReadiness(
   const preconditionsMet: string[] = [];
 
   // ── PC1: Phase Detection ────────────────────────────────────────────────────
-  const { phase, evidence: phaseEvidence, directionLean } = detectPhase(primary, symbol);
+  const { phase, evidence: phaseEvidence, directionLean, atr } = detectPhase(primary, symbol);
   if (phase === 'UNCLEAR') {
     return notReady('Market phase unreadable — no structural identity established');
   }
@@ -736,15 +814,19 @@ async function assessHuntReadiness(
       hunt_summary: `${phase} phase detected but no phase-native setup material — ${pc2Evidence}`,
       last_scanned_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
+      session_minutes_remaining: sessionMinutesRemaining,
+      estimated_feasible_pips: null,
     };
   }
   preconditionsMet.push('PC2_SETUP_MATERIAL');
 
-  // ── PC3: Structural Room Measurement ───────────────────────────────────────
-  const { pips: structuralRoomPips, direction: roomDirection } = measureStructuralRoom(
-    primary, control, symbol, directionLean
+  // ── PC3: Structural Room Measurement (ATR-native) ───────────────────────────
+  // CCIP-2026-0425A: Uses ATR multiple, not flat pip count.
+  // Fixes SPX500/ETHUSD/BTCUSD calibration bugs.
+  const { pips: structuralRoomPips, roomInATR, direction: roomDirection } = measureStructuralRoom(
+    primary, control, symbol, directionLean, atr
   );
-  if (structuralRoomPips < minRoom) {
+  if (roomInATR < minATRRoom) {
     return {
       symbol, style, session,
       hunt_state: 'not_ready',
@@ -757,9 +839,11 @@ async function assessHuntReadiness(
       trigger_evidence: '',
       direction_lean: directionLean,
       quality_score: 0,
-      hunt_summary: `${phase} phase but only ${structuralRoomPips.toFixed(0)} pips structural room (need ${minRoom}) — geometry too tight for ${style}`,
+      hunt_summary: `${phase} phase but only ${roomInATR.toFixed(2)}× ATR structural room (need ${minATRRoom}×) — geometry too tight for ${style}`,
       last_scanned_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
+      session_minutes_remaining: sessionMinutesRemaining,
+      estimated_feasible_pips: null,
     };
   }
   preconditionsMet.push('PC3_STRUCTURAL_ROOM');
@@ -771,11 +855,12 @@ async function assessHuntReadiness(
   }
 
   // ── PC5: Quality Score Gate ─────────────────────────────────────────────────
-  // Only surface setups that score high enough to indicate Alpha will likely
-  // reach confident tier or above. Setups below the threshold are suppressed.
   const qualityScore = scoreSetupQuality(
-    phase, directionLean, triggerState, structuralRoomPips, minRoom, primary, symbol
+    phase, directionLean, triggerState, roomInATR, minATRRoom, primary, symbol
   );
+
+  // Compute session context display fields (informational only — not a gate)
+  const estimatedFeasiblePips = computeEstimatedFeasiblePips(atr, symbol, style, sessionMinutesRemaining);
 
   if (qualityScore < MIN_QUALITY_SCORE) {
     return {
@@ -793,6 +878,8 @@ async function assessHuntReadiness(
       hunt_summary: `${phase} phase — structural material present but setup quality ${qualityScore}/100 below confident threshold (${MIN_QUALITY_SCORE}) — not surfaced`,
       last_scanned_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
+      session_minutes_remaining: sessionMinutesRemaining,
+      estimated_feasible_pips: estimatedFeasiblePips,
     };
   }
   preconditionsMet.push('PC5_QUALITY');
@@ -820,6 +907,8 @@ async function assessHuntReadiness(
     hunt_summary: huntSummary,
     last_scanned_at: now.toISOString(),
     expires_at: expiresAt.toISOString(),
+    session_minutes_remaining: sessionMinutesRemaining,
+    estimated_feasible_pips: estimatedFeasiblePips,
   };
 }
 
@@ -828,12 +917,13 @@ async function assessHuntReadiness(
 export const handler: Handler = async () => {
   const styles: TradingStyle[] = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
   const session = detectSession();
+  const sessionMinutesRemaining = getSessionMinutesRemaining();
   const results: HuntAssessment[] = [];
 
   for (const symbol of SYMBOLS) {
     for (const style of styles) {
       try {
-        const assessment = await assessHuntReadiness(symbol, style, session);
+        const assessment = await assessHuntReadiness(symbol, style, session, sessionMinutesRemaining);
         results.push(assessment);
       } catch (err) {
         console.error(`[HuntReadiness] Failed ${symbol} ${style}:`, err);
@@ -852,6 +942,8 @@ export const handler: Handler = async () => {
           hunt_summary: 'Scanner error — treating as not ready',
           last_scanned_at: new Date().toISOString(),
           expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          session_minutes_remaining: sessionMinutesRemaining,
+          estimated_feasible_pips: null,
         });
       }
     }
