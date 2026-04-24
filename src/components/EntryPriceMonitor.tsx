@@ -466,6 +466,7 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
           alphaConfidence={alphaConfidence}
           pipsAway={pipsAway}
           formatPrice={formatPrice}
+          timeoutAt={intent.timeout_at ?? null}
         />
       )}
 
@@ -561,6 +562,35 @@ interface PullbackExpectedBannerProps {
   alphaConfidence: number | null;
   pipsAway: number | null;
   formatPrice: (price: number) => string;
+  timeoutAt: string | null;
+}
+
+function useCountdown(timeoutAt: string | null) {
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!timeoutAt) { setSecondsLeft(null); return; }
+    const target = new Date(timeoutAt).getTime();
+    const tick = () => {
+      const remaining = Math.max(0, Math.floor((target - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [timeoutAt]);
+
+  return secondsLeft;
+}
+
+function formatCountdown(seconds: number): string {
+  if (seconds <= 0) return 'Expired';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
 }
 
 const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
@@ -571,9 +601,21 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
   alphaEntry,
   currentPrice,
   pipsAway,
-  formatPrice
+  formatPrice,
+  timeoutAt
 }) => {
   const isApproaching = pullbackState === 'APPROACHING';
+  const secondsLeft = useCountdown(timeoutAt);
+
+  const timerColor = secondsLeft === null
+    ? 'text-gray-500'
+    : secondsLeft <= 0
+      ? 'text-red-400'
+      : secondsLeft <= 120
+        ? 'text-red-400 animate-pulse'
+        : secondsLeft <= 300
+          ? 'text-amber-400'
+          : 'text-gray-400';
 
   const progress = useMemo(() => {
     if (!currentPrice || !alphaEntry || !pullbackZoneMin || !pullbackZoneMax) return 0;
@@ -620,7 +662,7 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
       </div>
 
       {targetPrice && (
-        <div className="px-3 pb-2.5 flex items-center gap-2">
+        <div className="px-3 pb-1.5 flex items-center gap-2">
           <MapPin className="w-3 h-3 text-gray-500 flex-shrink-0" />
           <span className="text-xs text-gray-400">Potential better entry at</span>
           <span className={`text-sm font-bold font-mono ml-auto ${
@@ -630,6 +672,14 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
           </span>
         </div>
       )}
+
+      <div className="px-3 pb-2.5 flex items-center gap-2">
+        <Clock className="w-3 h-3 text-gray-500 flex-shrink-0" />
+        <span className="text-xs text-gray-400">Auto-cancels in</span>
+        <span className={`text-xs font-mono font-bold ml-auto ${timerColor}`}>
+          {secondsLeft === null ? 'No timeout' : formatCountdown(secondsLeft)}
+        </span>
+      </div>
 
       {pullbackZoneMin && pullbackZoneMax && (
         <div className="h-1 w-full rounded-b-lg overflow-hidden bg-gray-700/40">

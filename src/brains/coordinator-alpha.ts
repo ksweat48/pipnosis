@@ -302,6 +302,7 @@ export interface AlphaDecision {
     intent_mode?: 'pullback_to_zone' | 'push_confirmation_zone' | 'pending_zone_entry_zone';
     trigger_event?: 'reclaim_close' | 'sweep_and_reclaim' | 'bos_confirmation' | 'range_boundary_touch' | 'equal_level_touch';
     ttl_minutes?: number;
+    runaway_threshold_pips?: number;
   };
   confidenceAdjustments?: Array<{
     source: string;

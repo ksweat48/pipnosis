@@ -1933,6 +1933,9 @@ class AlphaTradeExecutor {
         trigger_event: isPendingZoneEntryMode
           ? (decision.wait_condition?.trigger_event ?? null)
           : null,
+        // CCIP-2026-0426D: runaway threshold — pips/points past far zone edge toward TP
+        // at which the move is considered done without entry. Alpha owns this value.
+        runaway_threshold_pips: decision.wait_condition?.runaway_threshold_pips ?? null,
         // CCIP-2026-0319B: Alpha SL/TP authority — SSOT write point.
         // These are Alpha's exact decided values. No system downstream may modify
         // or substitute them. The entry monitor reads these columns directly.

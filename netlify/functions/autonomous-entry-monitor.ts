@@ -248,6 +248,41 @@ export const handler: Handler = async (event, context) => {
           }
         }
 
+        // CCIP-2026-0426D: Runaway detection — cancel if price has traveled past far zone
+        // edge toward TP by more than Alpha's stated runaway_threshold_pips.
+        // Direction: for SHORT, far edge is entry_zone_min (price below = toward TP).
+        //            for LONG,  far edge is entry_zone_max (price above = toward TP).
+        if (intent.current_price != null) {
+          const pipInfoRunaway = getCurrencyPipInfo(intent.symbol);
+          const RUNAWAY_DEFAULTS: Record<string, number> = {
+            NAS100: 40, US30: 50, SPX500: 30, DAX: 40,
+            XAUUSD: 3.0, XAGUSD: 0.3,
+            BTCUSD: 400, ETHUSD: 30,
+          };
+          const defaultRunaway = RUNAWAY_DEFAULTS[intent.symbol] ?? 25;
+          const runawayCap: number = (intent as any).runaway_threshold_pips ?? defaultRunaway;
+          const runawayPriceDelta = runawayCap * pipInfoRunaway.pipValue;
+
+          const distancePastZone = intent.direction === 'short'
+            ? Math.max(0, intent.entry_zone_min - intent.current_price)  // below zone_min = toward TP
+            : Math.max(0, intent.current_price - intent.entry_zone_max); // above zone_max = toward TP
+
+          if (distancePastZone > runawayPriceDelta) {
+            const pipsGone = (distancePastZone / pipInfoRunaway.pipValue).toFixed(1);
+            console.log(`[Entry Monitor] 🏃 RUNAWAY ${intent.symbol} intent ${intent.intent_id.substring(0, 8)}: ${pipsGone} pips past far zone edge toward TP (threshold: ${runawayCap})`);
+            await abandonIntent(intent.intent_id, `Runaway detected — price traveled ${pipsGone} pips past zone far edge toward TP (threshold ${runawayCap})`);
+            abandonedCount++;
+            successCount++;
+            results.push({
+              intentId: intent.intent_id,
+              symbol: intent.symbol,
+              success: true,
+              action: 'runaway_cancelled'
+            });
+            continue;
+          }
+        }
+
         // Calculate time-based urgency and EQS threshold using SSOT database function
         const createdAt = new Date(intent.created_at);
         const minutesElapsed = (Date.now() - createdAt.getTime()) / 60000;
