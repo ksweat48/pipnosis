@@ -848,8 +848,7 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
 
     const riskDollars = session?.dollar_risk ?? marketContext?.risk_dollars ?? 50;
 
-    // Calculate expected profit using proper pip conversion
-    const dollarPerPip = calculateDollarPerPip(intent.symbol, pipInfo);
+    // Calculate expected profit
     const slPips = Math.abs(entryPrice - adjustedStopLoss) / pipInfo.pipValue;
     const tpPips = Math.abs(adjustedTakeProfit - entryPrice) / pipInfo.pipValue;
     const riskReward = tpPips / (slPips || 1);
