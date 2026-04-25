@@ -1773,17 +1773,10 @@ class AlphaTradeExecutor {
       }
     );
 
-    // CCIP-2026-0426A: fourth decision mode — pending_zone_entry — routes to
-    // pending_zone_entry_zone intentMode so the server monitor fires the trade
-    // when the named trigger_event occurs inside the armed zone.
     const isPushConfirmMode = decision.entry_mode === 'push_confirmation';
-    const isPendingZoneEntryMode = decision.entry_mode === 'pending_zone_entry';
-    const resolvedIntentMode: 'pullback_to_zone' | 'push_confirmation_zone' | 'pending_zone_entry_zone' =
-      isPendingZoneEntryMode
-        ? 'pending_zone_entry_zone'
-        : isPushConfirmMode
-          ? 'push_confirmation_zone'
-          : 'pullback_to_zone';
+    const resolvedIntentMode: 'pullback_to_zone' | 'push_confirmation_zone' = isPushConfirmMode
+      ? 'push_confirmation_zone'
+      : 'pullback_to_zone';
 
     // CCIP-2026-0319B: Alpha SL/TP Authority Guard — SSOT enforcement
     // Alpha is the sole authority for stopLoss and takeProfit. No other system
@@ -1928,14 +1921,6 @@ class AlphaTradeExecutor {
         intent_mode: resolvedIntentMode,
         wait_reasoning: decision.wait_condition?.wait_reasoning ?? null,
         expected_wait_minutes: decision.wait_condition?.expected_wait_minutes ?? null,
-        // CCIP-2026-0426A: structural trigger event for pending_zone_entry intents.
-        // Null for immediate / wait_pullback / push_confirmation routes.
-        trigger_event: isPendingZoneEntryMode
-          ? (decision.wait_condition?.trigger_event ?? null)
-          : null,
-        // CCIP-2026-0426D: runaway threshold — pips/points past far zone edge toward TP
-        // at which the move is considered done without entry. Alpha owns this value.
-        runaway_threshold_pips: decision.wait_condition?.runaway_threshold_pips ?? null,
         // CCIP-2026-0319B: Alpha SL/TP authority — SSOT write point.
         // These are Alpha's exact decided values. No system downstream may modify
         // or substitute them. The entry monitor reads these columns directly.
@@ -2763,19 +2748,17 @@ class AlphaTradeExecutor {
    * MUST pass through this method to prevent constraint violations.
    *
    * Translation map (SSOT — do not duplicate elsewhere):
-   *   Alpha 'execute_now'          -> DB 'immediate'
-   *   Alpha 'wait_pullback'        -> DB 'wait_pullback'
-   *   Alpha 'push_confirmation'    -> DB 'wait_confirmation'
-   *   Alpha 'pending_zone_entry'   -> DB 'pending_zone_entry'  (CCIP-2026-0426A)
+   *   Alpha 'execute_now'       -> DB 'immediate'
+   *   Alpha 'wait_pullback'     -> DB 'wait_pullback'
+   *   Alpha 'push_confirmation' -> DB 'wait_confirmation'
    */
   private toDbEntryMode(
     alphaEntryMode: string | undefined | null
-  ): 'immediate' | 'wait_pullback' | 'wait_confirmation' | 'pending_zone_entry' {
+  ): 'immediate' | 'wait_pullback' | 'wait_confirmation' {
     switch (alphaEntryMode) {
-      case 'execute_now':         return 'immediate';
-      case 'wait_pullback':       return 'wait_pullback';
-      case 'push_confirmation':   return 'wait_confirmation';
-      case 'pending_zone_entry':  return 'pending_zone_entry';
+      case 'execute_now':   return 'immediate';
+      case 'wait_pullback': return 'wait_pullback';
+      case 'push_confirmation': return 'wait_confirmation';
       default: return 'wait_pullback';
     }
   }

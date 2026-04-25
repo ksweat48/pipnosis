@@ -281,7 +281,7 @@ export interface AlphaDecision {
   regime_advisory?: RegimeSnapshot;
   conflictInfo?: ConflictInfo; // CCIP 2026-02-14: Omega conflict detection data from orchestrator
   entry_spec?: EntrySpec; // NEW: Alpha's explicit entry specification
-  entry_mode?: 'execute_now' | 'wait_pullback' | 'push_confirmation' | 'pending_zone_entry'; // CCIP-2026-0426A: pending_zone_entry is the fourth decision mode — SSOT: EntryMode from alpha-identity.ts
+  entry_mode?: 'execute_now' | 'wait_pullback' | 'push_confirmation'; // Promoted from entry_spec for execution routing — SSOT: EntryMode from alpha-identity.ts
   thesis?: string; // Trade thesis type (momentum_scalp, liquidity_sweep_reversal, etc.)
   style_intent?: string; // Style intent (SCALP, MICRO_INTRADAY, INTRADAY)
   execution_preference?: string; // Execution preference (IMMEDIATE, WAIT_PULLBACK, WAIT_CONFIRMATION)
@@ -299,10 +299,7 @@ export interface AlphaDecision {
     invalidation_price: number;
     wait_reasoning: string;
     expected_wait_minutes?: number;
-    intent_mode?: 'pullback_to_zone' | 'push_confirmation_zone' | 'pending_zone_entry_zone';
-    trigger_event?: 'reclaim_close' | 'sweep_and_reclaim' | 'bos_confirmation' | 'range_boundary_touch' | 'equal_level_touch';
-    ttl_minutes?: number;
-    runaway_threshold_pips?: number;
+    intent_mode?: 'pullback_to_zone' | 'push_confirmation_zone';
   };
   confidenceAdjustments?: Array<{
     source: string;
@@ -889,16 +886,14 @@ If YES → output BUY/SELL + "entry_mode": "execute_now" + your confidence tier.
 
 STEP 2 — CAN I SET A WAIT INTENT? (only if Step 1 fails)
 Ask: Is there a named structural level where the trigger WILL fire? Can I define the zone?
-If YES → output BUY/SELL + one of three wait modes below + your confidence tier. DONE.
-Wait intents are valid for: pending sweeps, pending BOS, pending reclaims, price not yet at zone, impulsive move where you want a pullback entry, any setup where your entry level is clear but price is not there yet.
+If YES → output BUY/SELL + "entry_mode": "wait_pullback" or "push_confirmation" + your confidence tier. DONE.
+Wait intents are valid for: pending sweeps, pending BOS, pending reclaims, price not yet at zone.
 A wait intent is NOT a weaker decision — it is the correct decision when the trigger has not yet fired.
-CRITICAL — "The move is impulsive" or "risky to enter without a pullback" or "I need price to return to [level]" are STEP 2 outputs — NOT NO_TRADE. The structural level you named IS your wait_condition zone.
 
 STEP 3 — NO_TRADE (only if BOTH Step 1 and Step 2 fail)
-NO_TRADE is only valid when you CANNOT name a direction AND CANNOT name a trigger zone.
-If you can name a trigger zone → output a wait intent (Step 2), not NO_TRADE.
-If you have a directional lean and a named level → that is a wait intent (Step 2), not NO_TRADE.
-If you described the move as impulsive/extended and named a pullback level → that is a wait intent (Step 2), not NO_TRADE.
+NO_TRADE is only valid when you cannot find a direction AND cannot name a trigger zone.
+If you can name a trigger zone — output a wait intent, not NO_TRADE.
+If you have a directional lean and a named level — that is a wait intent, not NO_TRADE.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ENTRY MODE OPTIONS:
@@ -923,27 +918,19 @@ ENTRY MODE OPTIONS:
     → Zone should be tight (1-3 pip width).
     → Include a wait_condition block.
 
-  "entry_mode": "pending_zone_entry"
-    → ARM the zone — execute immediately at market when price touches it. No re-reasoning pass.
-    → Use when you want immediate fill on touch: equal-highs/lows sweeps, EMA touch entries, structural level reactions where a candle close is not needed.
-    → trigger_event is REQUIRED: reclaim_close | sweep_and_reclaim | bos_confirmation | range_boundary_touch | equal_level_touch
-    → Include a wait_condition block with trigger_event set.
-
-For any wait mode, include:
+For wait_pullback or push_confirmation, include:
 {
   "wait_condition": {
     "target_entry_zone_min": <lower bound of the trigger zone>,
     "target_entry_zone_max": <upper bound of the trigger zone>,
     "invalidation_price": <price that invalidates the thesis entirely>,
     "wait_reasoning": "Name the structural level and state exactly why you are waiting",
-    "expected_wait_minutes": <your estimate of how long until trigger fires>,
-    "trigger_event": "<required for pending_zone_entry>",
-    "runaway_threshold_pips": <pips past far zone edge toward TP before the move is done without entry — mandatory for wait_pullback and pending_zone_entry>
+    "expected_wait_minutes": <your estimate of how long until trigger fires>
   }
 }
 
 REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
-{ "action": "SELL", "entry_mode": "wait_pullback", "wait_condition": { ... }, ... }
+{ "action": "BUY", "entry_mode": "wait_pullback", "wait_condition": { ... }, ... }
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
       : `ENTRY MODE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

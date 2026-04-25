@@ -321,11 +321,6 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   const entryMode: string = intent.entry_mode || 'wait_pullback';
   const intentMode: string = intent.intent_mode || 'pullback_to_zone';
   const isPushConfirmMode = intentMode === 'push_confirmation_zone' || entryMode === 'push_confirmation';
-  // CCIP-2026-0426A: pending_zone_entry is the fourth decision mode. Alpha arms
-  // a trigger at a specific structural zone and the server monitor fires the trade
-  // when price enters the zone (execute at market, no re-reasoning).
-  const isPendingZoneEntryMode = intentMode === 'pending_zone_entry_zone' || entryMode === 'pending_zone_entry';
-  const triggerEvent: string | null = (intent as { trigger_event?: string | null }).trigger_event ?? null;
   const m5Confirmed: boolean = intent.m5_candle_close_confirmed ?? false;
   const zoneSource: string = intent.zone_source || 'unknown';
   const isFallbackZone = zoneSource === 'entry_price_fallback';
@@ -395,33 +390,17 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   return (
     <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 border border-gray-700/50">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Target className={`w-4 h-4 ${
-            isPendingZoneEntryMode ? 'text-amber-400' :
-            isPushConfirmMode ? 'text-violet-400' : 'text-cyan-400'
-          }`} />
+        <div className="flex items-center gap-2">
+          <Target className={`w-4 h-4 ${isPushConfirmMode ? 'text-violet-400' : 'text-cyan-400'}`} />
           <h3 className="text-sm font-bold text-white">
-            {isPendingZoneEntryMode
-              ? 'Pending Zone Entry — Armed'
-              : isPushConfirmMode ? 'Trade Found — Waiting Valid Entry' : 'Entry Advisory'}
+            {isPushConfirmMode ? 'Trade Found — Waiting Valid Entry' : 'Entry Advisory'}
           </h3>
           <span className={`text-xs px-2 py-0.5 rounded-full border ${
-            isPendingZoneEntryMode
-              ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-              : isPushConfirmMode
-                ? 'bg-violet-500/15 text-violet-400 border-violet-500/30'
-                : 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+            isPushConfirmMode
+              ? 'bg-violet-500/15 text-violet-400 border-violet-500/30'
+              : 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
           }`}>
             {style}
-          </span>
-          <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border font-semibold ${
-            isPendingZoneEntryMode
-              ? 'bg-amber-500/10 text-amber-300 border-amber-500/25'
-              : isPushConfirmMode
-                ? 'bg-violet-500/10 text-violet-300 border-violet-500/25'
-                : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/25'
-          }`}>
-            {isPendingZoneEntryMode ? 'Zone Entry' : isPushConfirmMode ? 'Push Confirm' : 'Pullback'}
           </span>
         </div>
         <span className={`px-2 py-0.5 rounded text-xs font-bold ${
@@ -433,16 +412,7 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
         </span>
       </div>
 
-      {isPendingZoneEntryMode ? (
-        <PendingZoneEntryBanner
-          zoneMin={pullbackZoneMin}
-          zoneMax={pullbackZoneMax}
-          currentPrice={currentPrice}
-          direction={direction}
-          triggerEvent={triggerEvent}
-          formatPrice={formatPrice}
-        />
-      ) : isPushConfirmMode ? (
+      {isPushConfirmMode ? (
         <PushConfirmationBanner
           zoneMin={pullbackZoneMin}
           zoneMax={pullbackZoneMax}
@@ -466,7 +436,6 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
           alphaConfidence={alphaConfidence}
           pipsAway={pipsAway}
           formatPrice={formatPrice}
-          timeoutAt={intent.timeout_at ?? null}
         />
       )}
 
@@ -562,35 +531,6 @@ interface PullbackExpectedBannerProps {
   alphaConfidence: number | null;
   pipsAway: number | null;
   formatPrice: (price: number) => string;
-  timeoutAt: string | null;
-}
-
-function useCountdown(timeoutAt: string | null) {
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!timeoutAt) { setSecondsLeft(null); return; }
-    const target = new Date(timeoutAt).getTime();
-    const tick = () => {
-      const remaining = Math.max(0, Math.floor((target - Date.now()) / 1000));
-      setSecondsLeft(remaining);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [timeoutAt]);
-
-  return secondsLeft;
-}
-
-function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return 'Expired';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
-  return `${s}s`;
 }
 
 const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
@@ -601,21 +541,9 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
   alphaEntry,
   currentPrice,
   pipsAway,
-  formatPrice,
-  timeoutAt
+  formatPrice
 }) => {
   const isApproaching = pullbackState === 'APPROACHING';
-  const secondsLeft = useCountdown(timeoutAt);
-
-  const timerColor = secondsLeft === null
-    ? 'text-gray-500'
-    : secondsLeft <= 0
-      ? 'text-red-400'
-      : secondsLeft <= 120
-        ? 'text-red-400 animate-pulse'
-        : secondsLeft <= 300
-          ? 'text-amber-400'
-          : 'text-gray-400';
 
   const progress = useMemo(() => {
     if (!currentPrice || !alphaEntry || !pullbackZoneMin || !pullbackZoneMax) return 0;
@@ -662,7 +590,7 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
       </div>
 
       {targetPrice && (
-        <div className="px-3 pb-1.5 flex items-center gap-2">
+        <div className="px-3 pb-2.5 flex items-center gap-2">
           <MapPin className="w-3 h-3 text-gray-500 flex-shrink-0" />
           <span className="text-xs text-gray-400">Potential better entry at</span>
           <span className={`text-sm font-bold font-mono ml-auto ${
@@ -672,14 +600,6 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
           </span>
         </div>
       )}
-
-      <div className="px-3 pb-2.5 flex items-center gap-2">
-        <Clock className="w-3 h-3 text-gray-500 flex-shrink-0" />
-        <span className="text-xs text-gray-400">Auto-cancels in</span>
-        <span className={`text-xs font-mono font-bold ml-auto ${timerColor}`}>
-          {secondsLeft === null ? 'No timeout' : formatCountdown(secondsLeft)}
-        </span>
-      </div>
 
       {pullbackZoneMin && pullbackZoneMax && (
         <div className="h-1 w-full rounded-b-lg overflow-hidden bg-gray-700/40">
@@ -797,106 +717,6 @@ const PushConfirmationBanner: React.FC<PushConfirmationBannerProps> = ({
         <div className="px-3 pb-2.5 flex items-center gap-2">
           <Clock className="w-3 h-3 text-gray-500 flex-shrink-0" />
           <span className="text-xs text-gray-500">Distance to zone</span>
-          <span className="text-xs font-mono font-bold text-gray-300 ml-auto">
-            {formatPrice(distanceToZone)} away
-          </span>
-        </div>
-      )}
-    </div>
-  );
-};
-
-interface PendingZoneEntryBannerProps {
-  zoneMin: number | null;
-  zoneMax: number | null;
-  currentPrice: number | null;
-  direction: string;
-  triggerEvent: string | null;
-  formatPrice: (price: number) => string;
-}
-
-const PendingZoneEntryBanner: React.FC<PendingZoneEntryBannerProps> = ({
-  zoneMin,
-  zoneMax,
-  currentPrice,
-  direction,
-  triggerEvent,
-  formatPrice
-}) => {
-  const isPriceInZone = currentPrice && zoneMin && zoneMax
-    ? currentPrice >= zoneMin && currentPrice <= zoneMax
-    : false;
-
-  const distanceToZone = useMemo(() => {
-    if (!currentPrice || !zoneMin || !zoneMax) return null;
-    if (isPriceInZone) return 0;
-    const target = direction === 'long' ? zoneMin : zoneMax;
-    return Math.abs(currentPrice - target);
-  }, [currentPrice, zoneMin, zoneMax, isPriceInZone, direction]);
-
-  const zoneLabel = zoneMin && zoneMax
-    ? `${formatPrice(zoneMin)} – ${formatPrice(zoneMax)}`
-    : null;
-
-  const triggerLabel = triggerEvent
-    ? triggerEvent.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-    : 'Zone Touch';
-
-  const DirectionIcon = direction === 'long' ? TrendingUp : TrendingDown;
-  const directionColor = direction === 'long' ? 'text-emerald-400' : 'text-red-400';
-
-  if (isPriceInZone) {
-    return (
-      <div className="rounded-lg border bg-amber-900/25 border-amber-500/50">
-        <div className="px-3 py-2.5 flex items-center gap-2.5">
-          <Loader2 className="w-4 h-4 text-amber-400 flex-shrink-0 animate-spin" />
-          <div className="flex-1">
-            <span className="text-sm font-semibold text-amber-300">Price In Armed Zone</span>
-            <p className="text-xs text-amber-400/70 mt-0.5">Firing market entry now</p>
-          </div>
-          <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold">
-            FIRING
-          </span>
-        </div>
-        {zoneLabel && (
-          <div className="px-3 pb-2.5 flex items-center gap-2">
-            <MapPin className="w-3 h-3 text-amber-500/60 flex-shrink-0" />
-            <span className="text-xs text-gray-400">Armed zone</span>
-            <span className="text-sm font-bold font-mono text-amber-400 ml-auto">{zoneLabel}</span>
-          </div>
-        )}
-        <div className="h-1 w-full rounded-b-lg overflow-hidden bg-gray-700/40">
-          <div className="h-full bg-amber-500 animate-pulse" style={{ width: '90%' }} />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-lg border bg-amber-900/15 border-amber-500/30">
-      <div className="px-3 py-2.5 flex items-center gap-2.5">
-        <DirectionIcon className={`w-4 h-4 flex-shrink-0 ${directionColor}`} />
-        <div className="flex-1">
-          <span className="text-sm font-semibold text-white">Waiting for {triggerLabel}</span>
-          <p className="text-xs text-amber-400/70 mt-0.5">
-            Zone armed — market entry fires the moment price touches the zone
-          </p>
-        </div>
-        <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold">
-          ARMED
-        </span>
-      </div>
-      {zoneLabel && (
-        <div className="px-3 pb-2 flex items-center gap-2">
-          <MapPin className="w-3 h-3 text-amber-500/60 flex-shrink-0" />
-          <span className="text-xs text-gray-400">Trigger zone</span>
-          <span className={`text-sm font-bold font-mono ml-auto ${directionColor}`}>{zoneLabel}</span>
-        </div>
-      )}
-      {distanceToZone !== null && distanceToZone > 0 && (
-        <div className="px-3 pb-2.5 flex items-center gap-2">
-          <Clock className="w-3 h-3 text-gray-500 flex-shrink-0" />
-          <span className="text-xs text-gray-500">Distance to trigger</span>
           <span className="text-xs font-mono font-bold text-gray-300 ml-auto">
             {formatPrice(distanceToZone)} away
           </span>
