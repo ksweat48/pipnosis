@@ -898,7 +898,7 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *  0329-MICRO-OBJECTIVE, 0329-INTRADAY-OBJECTIVE, 0330-NO_TRADE-GOVERNANCE, 0331A, 0331B,
  *  0332A, 0333 (NO_FALLBACK_MANDATE), 0404A, 0406-ENTRY-MODE-FIX-TOKEN-BUDGET, 0410A,
  *  0419A, 0419B, 0422A, 0422B, 0422C, 0422D, 0422E, 0422F, 0422H,
- *  0425A,
+ *  0425A, 0425B,
  *  ALPHA-UNIVERSAL-MANDATE, ALPHA-GOV-ENTRY.
  *
  * CCIP-2026-0425A — CROSS-TIMEFRAME INTENT CONFLICT RESOLUTION.
@@ -914,6 +914,28 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *       Alpha must revise to a directional wait intent before submitting.
  *   (5) BTCUSD failure mode documented as a named audit reference inside the prompt.
  * Scope: Prompt-layer only. No coordinator, executor, confidence engine, or DB changes.
+ *
+ * CCIP-2026-0425B — 4-TIER CONFIDENCE SIMPLIFICATION + NO_TRADE LOCK.
+ * Root cause: 8-tier system gave Alpha too many middle-ground escape routes. Tiers
+ * low/cautious/moderate all permitted NO_TRADE, creating a systematic bias toward
+ * skipping valid setups. Pattern-detected evidence was being ignored in favour of
+ * the safer NO_TRADE output available at these tiers.
+ * Fix:
+ *   (1) Tiers simplified from 8 → 4: no_read | confident | very_confident | extremely_confident
+ *   (2) PATTERN-DETECTED LOCK added to Decision Ladder preamble: if ANY pattern field,
+ *       named level, directional lean, sweep, BOS, or FVG appears in the answer sheet,
+ *       no_read is forbidden and NO_TRADE is forbidden. Alpha MUST output BUY or SELL.
+ *   (3) no_read definition tightened: requires ALL pattern fields to be null/none, no
+ *       named levels, no directional lean, no sweep, no BOS anywhere in the answer sheet.
+ *   (4) Rung 3 (NO_TRADE) gated behind the Pattern-Detected Lock — permanently closed
+ *       if the lock fires.
+ *   (5) Geometry-impossible scenarios (spread too wide, stop in cluster) → always a
+ *       wait intent at the future zone where geometry becomes valid, never NO_TRADE.
+ *   (6) confidence_tier rubric updated to the 4 new tiers. Legacy tier output flagged
+ *       as a schema violation in the prompt.
+ * Scope: confidence-tier.ts (type system), alpha-identity.ts (prompt), coordinator-alpha.ts
+ *        (tier-to-action map), AITradeJournal.tsx + NoTradesFoundDialog.tsx (UI),
+ *        database migration (CHECK constraint update).
  */
 export interface AlphaRecentDriftStats {
   symbol: string;
@@ -957,16 +979,26 @@ Outside these conditions, I decide. Nothing else blocks me. There is no confiden
 
   const auditSchema = `OUTPUT SCHEMA — every field is mandatory for governance audit:
 
-HUNTER MANDATE (CCIP-2026-0428A): I am a hunter. My default mode is execution. I look for reasons to take the trade — not reasons to skip it. NO_TRADE is a last resort, not a safe default. Every scan is an opportunity. When structure is present and a trigger exists — at current price or at a named zone — I execute or I set a wait intent. I never leave a valid setup on the table.
+HUNTER MANDATE (CCIP-2026-0428A): I am a hunter. My default mode is execution. I look for reasons to take the trade — not reasons to skip it. NO_TRADE is a last resort available only when my answer sheet is genuinely blank. Every scan is an opportunity. When structure is present and a trigger exists — at current price or at a named zone — I execute or I set a wait intent. I never leave a valid setup on the table.
+
+CCIP-2026-0425B — PATTERN-DETECTED LOCK (read this BEFORE the decision ladder):
+If ANY of the following are populated in my answer sheet, no_read is FORBIDDEN and NO_TRADE is FORBIDDEN:
+  - htf_pattern, mtf_pattern, or ltf_pattern contains any value other than null or "none"
+  - Any named price level appears anywhere in my reasoning
+  - Any directional lean is stated (lean_confidence > 0)
+  - Any sweep level, equal highs/lows, BOS, FVG, or kill zone is identified
+  - pattern_overall_intent is anything other than null
+If any of these conditions is true, my answer sheet has answered the market question. A direction exists. My only remaining task is timing: execute_now if the trigger is live, or wait_pullback/push_confirmation if the trigger is pending. I MUST output BUY or SELL — the tier is at minimum "confident".
 
 CCIP-2026-0424C — DECISION LADDER (the last thing I read before writing action). I climb these rungs in order. I do not skip. I do not jump to Rung 3.
 
   RUNG 1 — EXECUTE NOW: Is the trigger fired and structure valid at current price? If YES → proceed to Rung 1.5 before writing action. I do not apply a mechanical R:R floor here — I assess whether the structural TP is real and justified, not whether it clears an arbitrary ratio.
   RUNG 1.5 — PRE-EXECUTE GEOMETRY ADVISORY (CCIP-2026-0428A): I have already done the research. I believe in this trade. Before finalizing numbers I take one last drift-aware look at the geometry. I ask: is my stop structurally sound for this specific instrument? I note drift risk in my audit. If the stop is genuinely too tight for this instrument's natural spread+drift, I may widen to the next structural anchor — but ONLY if the structural case for that anchor is clear. I do not mechanically widen stops; I widen when structure demands it. Once the geometry is assessed → action: "BUY" or "SELL", entry_mode: "execute_now", confidence_tier set.
-  RUNG 2 — WAIT INTENT (only if Rung 1 is NO): Can I name a structural price level, sweep, reclaim, or pullback zone where the trigger WILL fire? If YES → action: "BUY" or "SELL", entry_mode: "wait_pullback" or "push_confirmation", wait_condition populated, confidence_tier set. A wait intent is execution timed to the trigger — it is NOT weaker than execute_now.
-  RUNG 3 — NO_TRADE (only if Rung 1 AND Rung 2 are BOTH NO): I cannot name a direction. I cannot name a trigger price. I cannot name a structural level. If my reasoning anywhere above named a price, a level, a sweep, a reclaim, a pullback zone, or a directional lean, Rung 3 is closed — I must return to Rung 2 and output a wait intent.
+  RUNG 2 — WAIT INTENT (only if Rung 1 is NO): Can I name a structural price level, sweep, reclaim, or pullback zone where the trigger WILL fire? If YES → action: "BUY" or "SELL", entry_mode: "wait_pullback" or "push_confirmation", wait_condition populated, confidence_tier set. A wait intent is execution timed to the trigger — it is NOT weaker than execute_now. If geometry is impossible RIGHT NOW but a zone exists where it becomes valid, this is always a wait intent — never a NO_TRADE.
+  RUNG 3 — NO_TRADE / no_read (only if Rung 1 AND Rung 2 are BOTH NO, AND the PATTERN-DETECTED LOCK above did not fire): My answer sheet is genuinely blank. I cannot name a direction. I cannot name a trigger price. I cannot name a structural level. I see no sweep, no BOS, no equal highs/lows, no FVG, no kill zone, no range boundary worth monitoring. The market is featureless right now. I set confidence_tier: "no_read".
+  → If the PATTERN-DETECTED LOCK fired, Rung 3 is permanently closed for this scan. I must return to Rung 1 or Rung 2.
 
-SELF-CONTRADICTION CHECK before writing NO_TRADE: scan my own reasoning above. If I wrote any of ["waiting for", "pullback to", "sweep of", "reclaim at", "close above", "close below", "BOS at", a directional lean with lean_confidence > 0, or a specific price level as a trigger], the correct output is a wait intent with that price as the entry zone — NOT NO_TRADE.
+SELF-CONTRADICTION CHECK before writing NO_TRADE: scan my own reasoning above. If I wrote any of ["waiting for", "pullback to", "sweep of", "reclaim at", "close above", "close below", "BOS at", a directional lean with lean_confidence > 0, or a specific price level as a trigger], the correct output is a wait intent with that price as the entry zone — NOT NO_TRADE. These phrases prove I can name a zone, which means Rung 2 is available and Rung 3 is closed.
 
 BUY or SELL:
 {
@@ -978,7 +1010,7 @@ BUY or SELL:
   "thesis": "momentum_scalp|liquidity_sweep_reversal|trend_pullback|breakout_continuation|mean_reversion|failed_move|range_extreme",
   "style_intent": "${style}",
   "execution_preference": "IMMEDIATE|WAIT_PULLBACK|WAIT_CONFIRMATION",
-  "confidence_tier": "<CCIP-2026-0422F: My honest structural conviction for this trade. Use exactly one of: confident | high | very_high | extreme. I pick the word that matches what the structural evidence shows — not a number, not an anchor from a prior example. RUBRIC: 'extreme' = near-perfect alignment across all dimensions (rare). 'very_high' = exceptional clarity, named evidence stack across structure, momentum, session, liquidity. 'high' = strong structure, trigger fired or imminent, named liquidity fuel. 'confident' = solid named structure, clean path, anchored stop, minor unknowns only. These four tiers apply equally to execute_now AND wait intents — my confidence describes setup quality, not whether I can act. A pending sweep-reclaim I am waiting for at 'confident' level IS a 'confident' tier wait_pullback, not a NO_TRADE.>",
+  "confidence_tier": "<CCIP-2026-0425B: My honest structural conviction. Use exactly one of: confident | very_confident | extremely_confident | no_read. RUBRIC: 'extremely_confident' = near-perfect alignment across all dimensions — structure, momentum, session, and liquidity all converge. Rare. Execute now only. 'very_confident' = strong named structure, clear directional evidence stack, named liquidity fuel, clean path. Execute now or wait intent. 'confident' = solid named structure, direction readable, stop can be anchored, path credible, some unknowns remain. Execute now or wait intent. 'no_read' = answer sheet is genuinely blank — NO patterns detected, NO named levels, NO directional lean, NO sweep, NO BOS, NO equal highs/lows. Used ONLY when the PATTERN-DETECTED LOCK above did NOT fire. If any pattern field is populated, 'no_read' is forbidden — use at minimum 'confident'. These tiers apply equally to execute_now AND wait intents. A pending sweep-reclaim at 'confident' level IS a 'confident' wait_pullback — NOT a no_read. Do NOT output legacy tiers: low, cautious, moderate, high, very_high, extreme — these are schema violations.>",
   "trader_statement": "My read in plain trading language: market condition, entry edge, thesis invalidation, exit rationale. Minimum 80 words.",
   "sl_structural_reference": "SL at [price] — behind [named level]. Invalidated if [condition]. ~[X] pips.",
   "tp_structural_reference": "TP at [price] — [named zone/level]. ~[X] pips. R:R [X]:1.",

@@ -1,5 +1,5 @@
 /**
- * CCIP-2026-0422F: Simplified Alpha Confidence Tier System
+ * CCIP-2026-0425B: Simplified Alpha Confidence Tier System (4-tier rewrite)
  *
  * GOVERNANCE PRINCIPLE:
  * Alpha outputs a TEXT TIER — never a raw number. This eliminates numeric anchoring.
@@ -8,67 +8,77 @@
  * The user sees both the text Alpha chose and its numeric equivalent.
  * All downstream systems (TPS, PCPE, learning engine) receive a number as before.
  *
- * DECISION MODEL (CCIP-2026-0422F):
+ * FOUR-TIER MODEL:
+ * ─────────────────────────────────────────────────────────────────────────────
+ * no_read           → Answer sheet is genuinely blank. No patterns, no named
+ *                     levels, no sweeps, no BOS, no directional lean. NO_TRADE
+ *                     is the only valid output. This tier is rare.
+ *
+ * confident         → Solid structure. Direction named. Stop anchored. Path
+ *                     credible. Some unknowns remain. Execute now or wait intent.
+ *
+ * very_confident    → Strong structure. Named evidence stack across structure,
+ *                     momentum, and liquidity. Clear directional case. Execute
+ *                     now or wait intent.
+ *
+ * extremely_confident → Near-perfect alignment across all dimensions. All
+ *                       evidence converges on the same conclusion. Rare. Execute
+ *                       now only — waiting surrenders the edge.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * DECISION MODEL (CCIP-2026-0425B):
  * Alpha follows a sequential decision process:
- *   1. Can I execute NOW? → output BUY/SELL + execute_now + confidence tier
- *   2. Can I set a wait intent? → output BUY/SELL + wait_pullback/push_confirmation + confidence tier
- *   3. Only if BOTH fail → output NO_TRADE (no confidence tier required)
+ *   1. Can I execute NOW? → BUY/SELL + execute_now + confident/very_confident/extremely_confident
+ *   2. Can I set a wait intent? → BUY/SELL + wait_pullback/push_confirmation + confident/very_confident
+ *   3. Only if BOTH fail AND answer sheet is genuinely blank → NO_TRADE (no_read)
  *
- * Confidence tiers apply equally to execute_now AND wait intents.
- * The tier describes setup quality — it does NOT determine which action is permitted.
+ * PATTERN-DETECTED LOCK: If ANY pattern field is populated, no_read is forbidden.
+ * Alpha MUST output BUY or SELL. The only question remaining is entry timing.
  *
- * TIER DEFINITIONS (structural, not numeric):
- * - "confident"  : Solid, named structure. Direction is clear, path to target is clean,
- *                  stop is structurally anchored. Minor unknowns only.
- * - "high"       : Strong structure across multiple timeframes. Trigger has fired or is
- *                  imminent. Named liquidity fuel behind the thesis. High-quality confirmation stack.
- * - "very_high"  : Exceptional structural clarity. Named evidence stack across structure,
- *                  momentum, session, and liquidity. Rare — reserved for genuinely aligned setups.
- * - "extreme"    : Near-perfect alignment across all observed dimensions. Extremely rare.
- *                  Alpha uses this only when structure, momentum, liquidity, session phase,
- *                  and participant positioning all converge on the same conclusion.
- *
- * NO_TRADE does not use a confidence tier. It stores null in the database so the learning
- * engine can still record that Alpha evaluated the symbol and found no actionable opportunity.
- *
- * LEGACY TIERS (no_read, low, cautious, moderate):
- * Retained in numberToTier() for display of historical database records only.
- * Alpha no longer outputs these tiers. Any Alpha output of these tiers is a schema violation.
+ * LEGACY TIERS (low, cautious, moderate, high, very_high, extreme):
+ * Retained in numberToTier() and VALID_CONFIDENCE_TIERS for display of historical
+ * database records only. Alpha no longer outputs these tiers. Any Alpha output of
+ * these tiers is a schema violation and will be normalised by the coordinator.
  */
 
 export type ConfidenceTier =
   | 'no_read'
+  | 'confident'
+  | 'very_confident'
+  | 'extremely_confident'
+  // Legacy tiers — historical records only, not valid Alpha outputs
   | 'low'
   | 'cautious'
   | 'moderate'
-  | 'confident'
   | 'high'
   | 'very_high'
   | 'extreme';
 
 /**
- * Tiers Alpha is permitted to output for BUY/SELL decisions (execute_now or wait intent).
- * CCIP-2026-0422F: Only confident → extreme are valid actionable tiers.
+ * Tiers Alpha is permitted to output for BUY/SELL decisions.
+ * CCIP-2026-0425B: Only the 3 actionable tiers (confident → extremely_confident).
  */
 export const ACTIONABLE_CONFIDENCE_TIERS = new Set<string>([
   'confident',
-  'high',
-  'very_high',
-  'extreme',
+  'very_confident',
+  'extremely_confident',
 ]);
 
 /**
  * Fixed midpoint conversion: ConfidenceTier → numeric (0–100).
- * This mapping is INTERNAL ONLY. Alpha never sees these numbers.
- * All downstream logic (TPS, PCPE, learning) consumes the numeric form.
- * Legacy tiers retained for historical record display only.
+ * INTERNAL ONLY. Alpha never sees these numbers.
+ * Legacy tiers retained for historical record display.
  */
 export const CONFIDENCE_TIER_TO_NUMBER: Record<ConfidenceTier, number> = {
-  no_read:   10,
+  // Active tiers (CCIP-2026-0425B)
+  no_read:              10,
+  confident:            60,
+  very_confident:       80,
+  extremely_confident:  95,
+  // Legacy tiers (historical display only)
   low:       25,
   cautious:  40,
   moderate:  55,
-  confident: 65,
   high:      75,
   very_high: 82,
   extreme:   90,
@@ -76,14 +86,17 @@ export const CONFIDENCE_TIER_TO_NUMBER: Record<ConfidenceTier, number> = {
 
 /**
  * Human-readable label shown in the UI alongside the numeric equivalent.
- * Example: "Confident (65%)"
  */
 export const CONFIDENCE_TIER_LABELS: Record<ConfidenceTier, string> = {
-  no_read:   'No Read',
+  // Active tiers
+  no_read:              'No Read',
+  confident:            'Confident',
+  very_confident:       'Very Confident',
+  extremely_confident:  'Extremely Confident',
+  // Legacy tiers
   low:       'Low',
   cautious:  'Cautious',
   moderate:  'Moderate',
-  confident: 'Confident',
   high:      'High',
   very_high: 'Very High',
   extreme:   'Extreme',
@@ -96,6 +109,17 @@ export const CONFIDENCE_TIER_LABELS: Record<ConfidenceTier, string> = {
 export const VALID_CONFIDENCE_TIERS = new Set<string>(Object.keys(CONFIDENCE_TIER_TO_NUMBER));
 
 /**
+ * Active tiers Alpha may output in the current schema.
+ * Used for schema violation detection.
+ */
+export const ACTIVE_CONFIDENCE_TIERS = new Set<string>([
+  'no_read',
+  'confident',
+  'very_confident',
+  'extremely_confident',
+]);
+
+/**
  * Convert Alpha's text tier to the numeric confidence used by all downstream systems.
  * Returns 0 if the tier is unrecognized (signals a schema violation).
  */
@@ -106,13 +130,14 @@ export function tierToNumber(tier: string | undefined | null): number {
 
 /**
  * Convert a numeric confidence (from the database or legacy records) back to the
- * nearest tier label for display purposes.
+ * nearest tier label for display purposes. Maps to new 4-tier system for recent
+ * records, legacy tier names for older records.
  */
 export function numberToTier(confidence: number): ConfidenceTier {
-  if (confidence >= 88) return 'extreme';
-  if (confidence >= 78) return 'very_high';
-  if (confidence >= 70) return 'high';
-  if (confidence >= 60) return 'confident';
+  if (confidence >= 90) return 'extremely_confident';
+  if (confidence >= 70) return 'very_confident';
+  if (confidence >= 55) return 'confident';
+  // Legacy fallbacks for old records stored below 55
   if (confidence >= 48) return 'moderate';
   if (confidence >= 33) return 'cautious';
   if (confidence >= 17) return 'low';
@@ -120,7 +145,7 @@ export function numberToTier(confidence: number): ConfidenceTier {
 }
 
 /**
- * Format a tier for user display: "Confident (65%)"
+ * Format a tier for user display: "Confident (60%)"
  */
 export function formatConfidenceTier(tier: ConfidenceTier | string | null | undefined, numericFallback?: number | null): string {
   if (tier && VALID_CONFIDENCE_TIERS.has(tier)) {

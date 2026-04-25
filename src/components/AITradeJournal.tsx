@@ -134,24 +134,28 @@ function convictionLabel(confidence: number | null | undefined, tier: string | n
   if (confidence == null && !tier) return '';
   if (tier) {
     const tierLabels: Record<string, string> = {
+      // Active tiers (CCIP-2026-0425B)
+      extremely_confident: 'extreme conviction',
+      very_confident:      'very high conviction',
+      confident:           'confident conviction',
+      no_read:             'no clear read',
+      // Legacy tiers — historical records only
       extreme:   'extreme conviction',
       very_high: 'very high conviction',
       high:      'high conviction',
-      confident: 'confident conviction',
       moderate:  'moderate conviction',
       cautious:  'cautious conviction',
       low:       'low conviction',
-      no_read:   'no clear read',
     };
     const label = tierLabels[tier] ?? tier;
     const pct = confidence != null ? ` (${confidence}%)` : '';
     return `Alpha entered this trade with ${label}${pct}.`;
   }
   if (confidence == null) return '';
-  if (confidence >= 80) return `Alpha entered this trade with strong conviction at ${confidence}% confidence.`;
-  if (confidence >= 65) return `Alpha entered this trade with confident conviction at ${confidence}% confidence.`;
-  if (confidence >= 50) return `Alpha entered this trade with cautious conviction at ${confidence}% confidence.`;
-  return `Alpha entered this trade with low conviction at ${confidence}% confidence, indicating a higher-risk setup.`;
+  if (confidence >= 90) return `Alpha entered this trade with extreme conviction at ${confidence}% confidence.`;
+  if (confidence >= 70) return `Alpha entered this trade with very high conviction at ${confidence}% confidence.`;
+  if (confidence >= 55) return `Alpha entered this trade with confident conviction at ${confidence}% confidence.`;
+  return `Alpha entered this trade with a directional read at ${confidence}% confidence.`;
 }
 
 interface JournalCardProps {

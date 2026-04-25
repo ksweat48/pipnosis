@@ -149,9 +149,23 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
     if (confidence === 0 && !decisionOrigin && !confidenceTier) return null;
 
-    // Format: "cautious — 40%" or just "40%" if tier not available
-    const confidenceLabel = confidenceTier
-      ? `${confidenceTier} — ${confidence}%`
+    // Format: "Confident — 60%" or just "60%" if tier not available
+    const tierDisplayNames: Record<string, string> = {
+      extremely_confident: 'Extremely Confident',
+      very_confident:      'Very Confident',
+      confident:           'Confident',
+      no_read:             'No Read',
+      // Legacy tiers for historical display
+      extreme:   'Extreme',
+      very_high: 'Very High',
+      high:      'High',
+      moderate:  'Moderate',
+      cautious:  'Cautious',
+      low:       'Low',
+    };
+    const tierLabel = confidenceTier ? (tierDisplayNames[confidenceTier] ?? confidenceTier) : null;
+    const confidenceLabel = tierLabel
+      ? `${tierLabel} — ${confidence}%`
       : `${confidence}%`;
 
     // NO_TRADE_LEAN: Alpha had a directional lean but found insufficient structure to execute.
