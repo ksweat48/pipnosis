@@ -898,7 +898,22 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *  0329-MICRO-OBJECTIVE, 0329-INTRADAY-OBJECTIVE, 0330-NO_TRADE-GOVERNANCE, 0331A, 0331B,
  *  0332A, 0333 (NO_FALLBACK_MANDATE), 0404A, 0406-ENTRY-MODE-FIX-TOKEN-BUDGET, 0410A,
  *  0419A, 0419B, 0422A, 0422B, 0422C, 0422D, 0422E, 0422F, 0422H,
+ *  0425A,
  *  ALPHA-UNIVERSAL-MANDATE, ALPHA-GOV-ENTRY.
+ *
+ * CCIP-2026-0425A — CROSS-TIMEFRAME INTENT CONFLICT RESOLUTION.
+ * Root cause: Production audit 2026-04-25 confirmed BTCUSD NO_TRADE × 2 (07:46, 08:13 UTC)
+ * where Alpha output "conflicting signals across timeframes" despite equal_highs_lows trap_likely
+ * on HTF+MTF and stop_hunt_expansion continuation_likely on LTF — a textbook Act 1 sweep-reclaim
+ * sequence. Alpha misread cross-timeframe intent disagreement as directional ambiguity.
+ * Fix: Added section 4E immediately after 4D in the prompt. Core obligations:
+ *   (1) HTF trap_likely is the dominant signal — it establishes direction.
+ *   (2) LTF continuation_likely alongside HTF trap_likely = hunt in progress (Act 1), not conflict.
+ *   (3) Correct output: directional wait_pullback naming the sweep level — NOT NO_TRADE.
+ *   (4) "Conflicting signals across timeframes" paired with any trap_likely = self-contradiction.
+ *       Alpha must revise to a directional wait intent before submitting.
+ *   (5) BTCUSD failure mode documented as a named audit reference inside the prompt.
+ * Scope: Prompt-layer only. No coordinator, executor, confidence engine, or DB changes.
  */
 export interface AlphaRecentDriftStats {
   symbol: string;
@@ -1218,6 +1233,41 @@ ${isIntraday ? `
    → My output is NOT "NO_TRADE with 'no direction' reasoning."
    → My output is a directional SELL or BUY with wait_pullback, naming the pattern, the structural level the pattern points to, and the specific candle event that would convert the pattern signal into an entry trigger.
    → NO_TRADE is only appropriate if after naming the pattern, naming the implied trade, and evaluating the structural geometry, I find that the geometry is physically impossible (insufficient room for 1:1 R:R, SL would be inside a cluster that gets swept, etc.). In that case, I name the geometry obstacle with specific prices — not the generic pattern description.
+
+4E. CROSS-TIMEFRAME INTENT CONFLICT RESOLUTION — MANDATORY (CCIP-2026-0425A):
+
+   When my pattern intelligence fields show different intent values across timeframes (e.g. HTF=trap_likely, LTF=continuation_likely), this is NOT a reason for NO_TRADE. Cross-timeframe intent disagreement is a timing signal — it tells me WHERE I am in the sweep-reclaim sequence, not that no trade exists.
+
+   THE RESOLUTION HIERARCHY — I apply this before forming any conclusion:
+
+   RULE 1 — HTF trap_likely is the dominant signal.
+   If HTF or MTF shows trap_likely intent (from equal_highs_lows, stop_hunt_expansion, or sfp_sweep), that is the structural story for this scan. A liquidity pool exists at a higher timeframe level. The market is in the process of hunting it. HTF trap_likely means: I know the destination, I am watching the mechanism execute.
+
+   RULE 2 — LTF continuation_likely is the hunt executing, not a conflicting direction.
+   If LTF shows continuation_likely while HTF shows trap_likely, that means the hunt is currently in progress on the lower timeframe. The continuation is the sweep leg itself — price is continuing toward the liquidity pool to take it. This is Act 1 of the sweep-reclaim protocol. I am watching the trap arm.
+   "LTF continuation conflicts with HTF trap" is a misread. They are describing the same event from different timeframes. The continuation IS the sweep.
+
+   RULE 3 — The correct output when HTF trap_likely + LTF continuation_likely:
+   → I identify WHICH side the trap is aimed at (equal highs = SELL trap, equal lows = BUY trap).
+   → I name the specific sweep level (the price where the equal highs or lows sit).
+   → I output a directional trade (SELL if equal highs, BUY if equal lows) with entry_mode: wait_pullback.
+   → My wait_condition describes the sweep-reclaim confirmation I need: "Watching for sweep of [level] followed by reclaim close on [confirmation TF]."
+   → This is NOT a no-edge scenario. This is a high-probability setup with a named pending trigger.
+
+   RULE 4 — "Conflicting timeframe signals" is a BANNED reason for NO_TRADE.
+   If I write "conflicting signals across timeframes" or "mixed signals prevent directional bias" in a scan where trap_likely appears on ANY timeframe, I am contradicting my own pattern intelligence. The trap_likely signal IS the directional bias. I already know which direction the hunt is aimed. My job is to name the level and wait for the confirmation — not declare no direction.
+
+   THE BTCUSD FAILURE MODE (production audit 2026-04-25):
+   Both BTCUSD scans at 07:46 and 08:13 UTC showed equal_highs_lows with trap_likely on HTF and MTF, and stop_hunt_expansion with continuation_likely on LTF. Alpha wrote "conflicting signals" and "no clear directional bias" both times. The correct output in each case was a directional SELL (equal highs = pending hunt of those highs = sell the reclaim after sweep) with wait_pullback and the sweep level named. The continuation on LTF confirmed the hunt was in progress — not that the direction was unclear.
+
+   SELF-CONTRADICTION CHECK — mandatory before submitting any NO_TRADE:
+   I read back my no_trade_statement. If it contains any of these phrases AND my pattern intelligence shows trap_likely on any timeframe, I have contradicted myself and must revise to a directional wait intent:
+   - "conflicting signals across timeframes"
+   - "mixed signals"
+   - "no clear directional bias"
+   - "conflicting higher timeframe signals"
+   - "lack of clear directional momentum"
+   Any of these phrases paired with trap_likely pattern intelligence = a self-contradiction. The patterns gave me the direction. I must name it.
 
 5. WHAT IS THE MOVE STAGE? — READ THE CANDLES FIRST
    CCIP-2026-0324A: I do NOT choose DEVELOPING as a default. I read the ${confirmationTF} candles and describe what I see, then the stage label follows from that description.
