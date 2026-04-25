@@ -226,7 +226,7 @@ export const SPREAD_ESTIMATES: Record<string, number> = {
   AUDUSD: 1.5,
   NZDUSD: 2.0,
   USDCAD: 2.0,
-  XAUUSD: 3.0,
+  XAUUSD: 1.5,  // 1 pip = 1 price point. Real spread $0.20–$0.60 — 1.5 is conservative.
   XAGUSD: 4.0,
   US30:   3.0,
   NAS100: 2.0,
@@ -234,7 +234,7 @@ export const SPREAD_ESTIMATES: Record<string, number> = {
   SPX500: 1.0,
   US500:  1.0,
   BTCUSD: 5.0,
-  ETHUSD: 5.0,
+  ETHUSD: 1.5,  // 1 pip = $1. Real spread $0.50–$2.00 — 1.5 is conservative.
 } as const;
 
 /**
