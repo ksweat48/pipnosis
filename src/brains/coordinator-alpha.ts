@@ -867,9 +867,9 @@ class AlphaCoordinatorBrain {
     ]);
 
     // CCIP-2026-0322A: Resolve monitor status from parallel fetch.
-    // This is injected into the prompt so Alpha knows exactly whether wait modes are available
-    // before he reasons about entry_mode. Default to false (safe: deny wait if unreadable).
-    const entryMonitorActive = monitorPrefRaw?.entry_price_monitor_enabled === true;
+    // CCIP-2026-0428A: Default to TRUE — denying wait modes when preference is unreadable
+    // was silently coercing 8/10 users into the restrictive "execute_now or NO_TRADE" branch.
+    const entryMonitorActive = monitorPrefRaw?.entry_price_monitor_enabled ?? true;
 
     const entryModePromptSection = entryMonitorActive
       ? `ENTRY MODE — SEQUENTIAL DECISION PROCESS (CCIP-2026-0422F):
@@ -932,17 +932,53 @@ For wait_pullback or push_confirmation, include:
 REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
 { "action": "BUY", "entry_mode": "wait_pullback", "wait_condition": { ... }, ... }
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-      : `ENTRY MODE:
+      : `ENTRY MODE — SEQUENTIAL DECISION PROCESS (CCIP-2026-0428A):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field
-in the JSON. Omitting entry_mode will BLOCK the trade.
+in the JSON. Omitting entry_mode will BLOCK the trade — it is not optional, not nested, not skippable.
 
-The entry monitor is OFFLINE. Only one entry_mode is available for BUY/SELL:
+MANDATORY DECISION SEQUENCE — evaluate in this exact order for every pair:
 
-  "entry_mode": "execute_now" → Structure and momentum support an immediate entry at current price.
+STEP 1 — CAN I EXECUTE NOW?
+Ask: Is the setup valid at the current price? Is the trigger fired or firing? Is the R:R clear?
+If YES → output BUY/SELL + "entry_mode": "execute_now" + your confidence tier. DONE.
 
-"wait_pullback" and "push_confirmation" require the entry monitor to be active and are NOT available.
-Set entry_mode to "execute_now" for all BUY/SELL decisions when the monitor is offline, or output NO_TRADE.
+STEP 2 — CAN I SET A WAIT INTENT? (only if Step 1 fails)
+Ask: Is there a named structural level where the trigger WILL fire? Can I define the zone?
+If YES → output BUY/SELL + "entry_mode": "wait_pullback" or "push_confirmation" + your confidence tier. DONE.
+Wait intents are valid for: pending sweeps, pending BOS, pending reclaims, price not yet at zone.
+A wait intent is NOT a weaker decision — it is the correct decision when the trigger has not yet fired.
+
+STEP 3 — NO_TRADE (only if BOTH Step 1 and Step 2 fail)
+NO_TRADE is only valid when you cannot find a direction AND cannot name a trigger zone.
+If you can name a trigger zone — output a wait intent, not NO_TRADE.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENTRY MODE OPTIONS:
+
+  "entry_mode": "execute_now"
+    → Trigger has fired. Structure and momentum support entry at current price.
+
+  "entry_mode": "wait_pullback"
+    → Price not yet at zone OR you want a better structural entry.
+      The system monitors and executes when price enters the zone.
+    → ALWAYS preferred over NO_TRADE when you can name the trigger zone.
+    → Include a wait_condition block.
+
+  "entry_mode": "push_confirmation"
+    → You require a candle CLOSE inside a specific zone before entry is confirmed.
+    → Include a wait_condition block.
+
+For wait_pullback or push_confirmation, include:
+{
+  "wait_condition": {
+    "target_entry_zone_min": <lower bound>,
+    "target_entry_zone_max": <upper bound>,
+    "invalidation_price": <price that invalidates the thesis>,
+    "wait_reasoning": "Name the structural level and state exactly why you are waiting",
+    "expected_wait_minutes": <your estimate>
+  }
+}
 
 REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
 { "action": "BUY", "entry_mode": "execute_now", ... }
@@ -5311,12 +5347,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
       if (correctedAction === 'NO_TRADE') {
         entryMode = undefined;
       } else if (!parsed.entry_mode && !parsed.entry_spec?.entry_mode) {
+        // CCIP-2026-0428A: Alpha omitted entry_mode — was previously a hard block (ALPHA_BLOCKED_COMPLIANCE).
+        // Changed to advisory + default to execute_now. The intent is clear from action=BUY/SELL;
+        // blocking the trade silently discards a valid Alpha decision.
         logViolation({
           violationType: 'MISSING_ENTRY_MODE',
           symbol: marketContext.symbol,
           attemptedOperation: 'entry_mode_governance_check',
           callLocation: 'coordinator-alpha.entry_mode_governance',
-          blocked: true,
+          blocked: false,
           errorDetails: {
             action,
             tradeStyle,
@@ -5325,31 +5364,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
             userId: userId ?? null,
           }
         }).catch(() => {});
-        console.error(
-          `[CCIP-2026-0333] MISSING_ENTRY_MODE — Alpha returned ${correctedAction} for ${marketContext.symbol} without entry_mode. ` +
-          `Trade BLOCKED. Alpha must explicitly declare execution intent.`
+        console.warn(
+          `[CCIP-2026-0428A] MISSING_ENTRY_MODE — Alpha returned ${correctedAction} for ${marketContext.symbol} without entry_mode. ` +
+          `Defaulting to execute_now (was: hard block). Violation logged.`
         );
-        return {
-          action: 'NO_TRADE',
-          decision: 'NO_TRADE',
-          entry: currentPrice,
-          stopLoss: currentPrice,
-          takeProfit: currentPrice,
-          confidence: tradeConfidence,
-          reasoning: 'GOVERNANCE_BLOCK: Alpha omitted entry_mode — prompt compliance failure. Trade blocked.',
-          omega_summary: '',
-          risk_pct: 0,
-          symbol: marketContext.symbol,
-          decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
-          alpha_original_decision: {
-            action: correctedAction as 'BUY' | 'SELL',
-            entry: parsed.entry ?? currentPrice,
-            stopLoss: parsed.stopLoss ?? currentPrice,
-            takeProfit: parsed.takeProfit ?? currentPrice,
-            confidence: tradeConfidence,
-            reasoning: parsed.reasoning,
-          },
-        };
+        entryMode = 'execute_now';
       } else {
         entryMode = parsed.entry_mode ?? parsed.entry_spec?.entry_mode;
       }

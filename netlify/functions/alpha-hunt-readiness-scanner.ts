@@ -101,9 +101,10 @@ const STYLE_TF_MINUTES: Record<TradingStyle, number> = {
 };
 
 // Minimum quality score (0-100) to surface as ready/live.
-// Setups below this threshold are hidden from the UI — Alpha would likely return
-// cautious or moderate at best, not the confident+ tier users expect to see.
-const MIN_QUALITY_SCORE = 60;
+// CCIP-2026-0428A: Lowered from 60 to 25 — the 60-point floor was blocking 68% of
+// all scans including real structural setups (US30 47, EURUSD 37, GBPUSD 24).
+// Alpha evaluates quality independently; the gate's job is to filter zero-material noise.
+const MIN_QUALITY_SCORE = 25;
 
 interface CandleRow {
   open: number;
