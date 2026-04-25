@@ -55,7 +55,7 @@ import { alphaLearningTracker } from './alpha-learning-tracker';
 import { computeTPS } from './trade-priority-score';
 import type { TPSCandidate } from '../types/tps';
 import { getCouncilTimeoutMs } from '../config/concurrent-execution-config';
-import { resolveExecutionMode } from './execution-mode-resolver';
+import { resolveExecutionMode, type MonitorRequiredDetails } from './execution-mode-resolver';
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -1846,11 +1846,28 @@ class GoalSessionLiveEngine {
       // ENTRY MONITOR GATE: Delegate to resolveExecutionMode() — the SSOT gate authority.
       // resolveExecutionMode checks all four wait variants and the user toggle in one place.
       const alphaEntryMode = decision.entry_mode;
-      const { executionMode, entryMonitorGateActive } = await this.resolveExecutionMode(
-        decision,
+      const { executionMode, entryMonitorGateActive, monitorRequiredDetails } = await this.resolveExecutionMode(
+        { ...decision, symbol: selectedSymbol },
         config.userId,
         activeSession!
       );
+
+      // CCIP-2026-0429A: Alpha found a deferred setup but the user's monitor is off.
+      // Write an audit record visible in AlphaScanningFeed and surface as upgrade prompt.
+      if (executionMode === 'MONITOR_REQUIRED' && monitorRequiredDetails) {
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[CCIP-2026-0429A] MONITOR_REQUIRED — Alpha found ${monitorRequiredDetails.action} on ${selectedSymbol}, monitor off. Writing upgrade prompt record.`,
+          { symbol: selectedSymbol, confidenceTier: monitorRequiredDetails.confidenceTier }
+        );
+        await this.writeMonitorRequiredRecord(
+          monitorRequiredDetails,
+          activeSession!,
+          config.userId,
+          monitorRequiredDetails.waitReasoning
+        );
+        return; // No execution — user sees the upgrade card
+      }
 
       // CCIP-2026-0321A supersedes CCIP-2026-0320A.
       // Entry deviation enforcement is Alpha-owned and handled exclusively inside
@@ -2620,11 +2637,27 @@ class GoalSessionLiveEngine {
 
       // ✅ ENTRY MONITOR GATE: Delegate to resolveExecutionMode() — the SSOT gate authority.
       // Checks all four wait variants and the user toggle. Identical to Path 1.
-      const { executionMode, entryMonitorGateActive } = await this.resolveExecutionMode(
-        alphaDecision,
+      const { executionMode, entryMonitorGateActive, monitorRequiredDetails: monitorRequiredDetailsPath2 } = await this.resolveExecutionMode(
+        { ...alphaDecision, symbol: trade.symbol },
         this.config.userId,
         this.activeSession
       );
+
+      // CCIP-2026-0429A: Alpha found a deferred setup but the user's monitor is off.
+      if (executionMode === 'MONITOR_REQUIRED' && monitorRequiredDetailsPath2) {
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[CCIP-2026-0429A] MONITOR_REQUIRED — Alpha found ${monitorRequiredDetailsPath2.action} on ${trade.symbol}, monitor off.`,
+          { symbol: trade.symbol }
+        );
+        await this.writeMonitorRequiredRecord(
+          monitorRequiredDetailsPath2,
+          this.activeSession,
+          this.config.userId,
+          monitorRequiredDetailsPath2.waitReasoning
+        );
+        return false; // No trade executed
+      }
 
       logger.info(
         LogCategory.AI_TRADING,
@@ -2755,11 +2788,43 @@ class GoalSessionLiveEngine {
    * @returns object with executionMode and entryMonitorGateActive flag
    */
   private async resolveExecutionMode(
-    alphaDecision: { action?: string; entry_mode?: string; wait_condition?: unknown },
+    alphaDecision: { action?: string; entry_mode?: string; wait_condition?: unknown; symbol?: string; confidence_tier?: string; reasoning?: unknown },
     userId: string,
     sessionId: string
-  ): Promise<{ executionMode: 'IMMEDIATE' | 'PENDING' | 'MONITORED'; entryMonitorGateActive: boolean }> {
+  ) {
     return resolveExecutionMode(alphaDecision, userId, sessionId);
+  }
+
+  // CCIP-2026-0429A: Write a MONITOR_REQUIRED record to alpha_decisions so AlphaScanningFeed
+  // can render it as an upgrade prompt card. Non-blocking — audit only.
+  private async writeMonitorRequiredRecord(
+    details: MonitorRequiredDetails,
+    sessionId: string,
+    userId: string,
+    waitReasoning: string
+  ): Promise<void> {
+    try {
+      await supabase.from('alpha_decisions').insert({
+        user_id: userId,
+        session_id: sessionId,
+        symbol: details.symbol,
+        action: 'MONITOR_REQUIRED',
+        confidence: null,
+        reasoning: `Alpha identified a ${details.action} opportunity on ${details.symbol} (${details.confidenceTier}) requiring a deferred entry. ${details.waitReasoning}`,
+        decision_origin: 'ALPHA_WANTS_WAIT_MONITOR_REQUIRED',
+        trade_executed: false,
+        safety_blocked: false,
+        answer_sheet: {
+          monitor_required_action: details.action,
+          monitor_required_confidence: details.confidenceTier,
+          monitor_required_zone_min: details.zoneMin ?? null,
+          monitor_required_zone_max: details.zoneMax ?? null,
+          monitor_required_reasoning: waitReasoning,
+        },
+      });
+    } catch (err) {
+      logger.warn(LogCategory.AI_TRADING, '[CCIP-2026-0429A] Failed to write MONITOR_REQUIRED record (non-blocking)', { err });
+    }
   }
 
   /**

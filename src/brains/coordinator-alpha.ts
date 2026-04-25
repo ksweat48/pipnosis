@@ -867,9 +867,10 @@ class AlphaCoordinatorBrain {
     ]);
 
     // CCIP-2026-0322A: Resolve monitor status from parallel fetch.
-    // CCIP-2026-0428A: Default to TRUE — denying wait modes when preference is unreadable
-    // was silently coercing 8/10 users into the restrictive "execute_now or NO_TRADE" branch.
-    const entryMonitorActive = monitorPrefRaw?.entry_price_monitor_enabled ?? true;
+    // CCIP-2026-0429A: Default to FALSE — Alpha's prompt must match what the downstream
+    // executor can deliver. Monitor-OFF users get execute_now only; the new
+    // ALPHA_WANTS_WAIT_MONITOR_REQUIRED state surfaces deferred setups with an upgrade prompt.
+    const entryMonitorActive = monitorPrefRaw?.entry_price_monitor_enabled === true;
 
     const entryModePromptSection = entryMonitorActive
       ? `ENTRY MODE — SEQUENTIAL DECISION PROCESS (CCIP-2026-0422F):
@@ -932,56 +933,30 @@ For wait_pullback or push_confirmation, include:
 REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
 { "action": "BUY", "entry_mode": "wait_pullback", "wait_condition": { ... }, ... }
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-      : `ENTRY MODE — SEQUENTIAL DECISION PROCESS (CCIP-2026-0428A):
+      : `ENTRY MODE — IMMEDIATE EXECUTION ONLY (CCIP-2026-0429A):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field
 in the JSON. Omitting entry_mode will BLOCK the trade — it is not optional, not nested, not skippable.
 
-MANDATORY DECISION SEQUENCE — evaluate in this exact order for every pair:
-
-STEP 1 — CAN I EXECUTE NOW?
-Ask: Is the setup valid at the current price? Is the trigger fired or firing? Is the R:R clear?
-If YES → output BUY/SELL + "entry_mode": "execute_now" + your confidence tier. DONE.
-
-STEP 2 — CAN I SET A WAIT INTENT? (only if Step 1 fails)
-Ask: Is there a named structural level where the trigger WILL fire? Can I define the zone?
-If YES → output BUY/SELL + "entry_mode": "wait_pullback" or "push_confirmation" + your confidence tier. DONE.
-Wait intents are valid for: pending sweeps, pending BOS, pending reclaims, price not yet at zone.
-A wait intent is NOT a weaker decision — it is the correct decision when the trigger has not yet fired.
-
-STEP 3 — NO_TRADE (only if BOTH Step 1 and Step 2 fail)
-NO_TRADE is only valid when you cannot find a direction AND cannot name a trigger zone.
-If you can name a trigger zone — output a wait intent, not NO_TRADE.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ENTRY MODE OPTIONS:
+This user does not have the Entry Monitor active. Only one entry_mode is available:
 
   "entry_mode": "execute_now"
-    → Trigger has fired. Structure and momentum support entry at current price.
+    → Trigger has fired at current price. Structure and momentum support immediate entry.
+    → Use this when the setup is valid RIGHT NOW at the current market price.
 
-  "entry_mode": "wait_pullback"
-    → Price not yet at zone OR you want a better structural entry.
-      The system monitors and executes when price enters the zone.
-    → ALWAYS preferred over NO_TRADE when you can name the trigger zone.
-    → Include a wait_condition block.
+IMPORTANT — DEFERRED SETUPS:
+If the trigger has NOT yet fired but you can name a structural level where it WILL fire,
+output BUY or SELL with "entry_mode": "wait_pullback" and populate wait_condition normally.
+The system will capture this as a monitor-required opportunity and surface it to the user
+with the option to activate the Entry Monitor for deferred trades.
+Do NOT output NO_TRADE when you can name a trigger zone — output the wait intent instead.
 
-  "entry_mode": "push_confirmation"
-    → You require a candle CLOSE inside a specific zone before entry is confirmed.
-    → Include a wait_condition block.
+DECISION SEQUENCE:
+STEP 1: Is the trigger fired at current price? YES → execute_now. DONE.
+STEP 2: Is there a named zone where the trigger WILL fire? YES → wait_pullback + wait_condition. DONE.
+STEP 3: Cannot find a direction or a trigger zone at all → NO_TRADE.
 
-For wait_pullback or push_confirmation, include:
-{
-  "wait_condition": {
-    "target_entry_zone_min": <lower bound>,
-    "target_entry_zone_max": <upper bound>,
-    "invalidation_price": <price that invalidates the thesis>,
-    "wait_reasoning": "Name the structural level and state exactly why you are waiting",
-    "expected_wait_minutes": <your estimate>
-  }
-}
-
-REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
-{ "action": "BUY", "entry_mode": "execute_now", ... }
+REMINDER: "entry_mode" must be a top-level key in your JSON response.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
     let riskContext = '';

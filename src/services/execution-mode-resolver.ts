@@ -1,11 +1,23 @@
 import { supabase } from '../lib/supabase';
 import { logger, LogCategory } from '../lib/logger';
 
-export type ExecutionMode = 'IMMEDIATE' | 'PENDING' | 'MONITORED';
+export type ExecutionMode = 'IMMEDIATE' | 'PENDING' | 'MONITORED' | 'MONITOR_REQUIRED';
+
+export interface MonitorRequiredDetails {
+  action: 'BUY' | 'SELL';
+  symbol: string;
+  waitReasoning: string;
+  confidenceTier: string;
+  zoneMin?: number;
+  zoneMax?: number;
+}
 
 export interface ExecutionModeResult {
   executionMode: ExecutionMode;
   entryMonitorGateActive: boolean;
+  // CCIP-2026-0429A: Set when Alpha found a deferred setup but the user's monitor is off.
+  // The caller should surface this as an upgrade prompt card rather than discarding the setup.
+  monitorRequiredDetails?: MonitorRequiredDetails;
 }
 
 /**
@@ -17,14 +29,25 @@ export interface ExecutionModeResult {
  *   - wait_condition is advisory context only (not a routing trigger)
  *   - NO_TRADE decisions always route to IMMEDIATE regardless of entry_mode
  *   - alphaWantsToWait is true only for 'wait_pullback' or 'push_confirmation'
- *   - If monitor pref is off or unreadable, falls back to IMMEDIATE (no orphaned intents)
+ *
+ * CCIP-2026-0429A:
+ *   - When alphaWantsToWait=true but monitor is OFF, returns MONITOR_REQUIRED instead of
+ *     silently falling back to IMMEDIATE. Callers surface an upgrade prompt card showing
+ *     what Alpha found, with an option to activate the Entry Monitor (Club Tier 1).
  *
  * Previously a private method on GoalSessionLiveEngine. Extracted here so both
  * goal-session-live-engine.ts and goal-scanner.ts share a single authoritative
  * implementation without code duplication.
  */
 export async function resolveExecutionMode(
-  alphaDecision: { action?: string; entry_mode?: string; wait_condition?: unknown },
+  alphaDecision: {
+    action?: string;
+    entry_mode?: string;
+    wait_condition?: unknown;
+    symbol?: string;
+    confidence_tier?: string;
+    reasoning?: { wait_reasoning?: string } | string;
+  },
   userId: string,
   sessionId: string
 ): Promise<ExecutionModeResult> {
@@ -42,6 +65,7 @@ export async function resolveExecutionMode(
 
   let executionMode: ExecutionMode = 'MONITORED';
   let entryMonitorGateActive = false;
+  let monitorRequiredDetails: MonitorRequiredDetails | undefined;
 
   try {
     const { data: monitorPref } = await supabase
@@ -54,13 +78,30 @@ export async function resolveExecutionMode(
       executionMode = 'MONITORED';
       entryMonitorGateActive = true;
     } else {
-      executionMode = 'IMMEDIATE';
-      logger.warn(
+      // CCIP-2026-0429A: Alpha found a deferred setup but this user's monitor is off.
+      // Surface as MONITOR_REQUIRED so the UI can show an upgrade prompt with the setup details.
+      executionMode = 'MONITOR_REQUIRED';
+      const wc = alphaDecision.wait_condition as Record<string, unknown> | null | undefined;
+      const waitReasoning =
+        wc?.wait_reasoning as string
+        ?? (typeof alphaDecision.reasoning === 'object' && alphaDecision.reasoning !== null
+          ? (alphaDecision.reasoning as Record<string, unknown>).wait_reasoning as string
+          : undefined)
+        ?? 'Alpha identified a deferred entry setup';
+
+      monitorRequiredDetails = {
+        action: alphaDecision.action as 'BUY' | 'SELL',
+        symbol: alphaDecision.symbol ?? '',
+        waitReasoning,
+        confidenceTier: alphaDecision.confidence_tier ?? 'confident',
+        zoneMin: wc?.target_entry_zone_min as number | undefined,
+        zoneMax: wc?.target_entry_zone_max as number | undefined,
+      };
+
+      logger.info(
         LogCategory.AI_TRADING,
-        '[ExecutionModeResolver] GOVERNANCE ANOMALY: alphaWantsToWait=true but monitor is off. ' +
-        'coordinator-alpha should have blocked this. Falling back to IMMEDIATE to prevent orphaned intent. ' +
-        'Review CCIP-2026-0319B.',
-        { userId, sessionId, alphaEntryMode: alphaDecision.entry_mode }
+        '[ExecutionModeResolver] CCIP-2026-0429A: Alpha found deferred setup, monitor off — MONITOR_REQUIRED',
+        { userId, sessionId, alphaEntryMode: alphaDecision.entry_mode, symbol: alphaDecision.symbol }
       );
     }
   } catch (prefErr) {
@@ -96,5 +137,5 @@ export async function resolveExecutionMode(
     }
   );
 
-  return { executionMode, entryMonitorGateActive };
+  return { executionMode, entryMonitorGateActive, monitorRequiredDetails };
 }

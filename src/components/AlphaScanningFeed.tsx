@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, Target, CheckCircle, Search, Users, BarChart3, Award, Zap, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Minus, AlertCircle, Eye } from 'lucide-react';
+import { Brain, Target, CheckCircle, Search, Users, BarChart3, Award, Zap, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Minus, AlertCircle, Eye, Lock, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface AlphaThought {
@@ -250,12 +250,14 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
   const getActionColor = (action: string) => {
     if (action === 'BUY') return 'text-emerald-400';
     if (action === 'SELL') return 'text-red-400';
+    if (action === 'MONITOR_REQUIRED') return 'text-amber-400';
     return 'text-gray-400';
   };
 
   const getActionIcon = (action: string) => {
     if (action === 'BUY') return <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />;
     if (action === 'SELL') return <TrendingDown className="w-3.5 h-3.5 text-red-400" />;
+    if (action === 'MONITOR_REQUIRED') return <Lock className="w-3.5 h-3.5 text-amber-400" />;
     return <Minus className="w-3.5 h-3.5 text-gray-500" />;
   };
 
@@ -393,22 +395,28 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
 
           {/* Summary row */}
           <div className="px-4 py-2 border-b border-gray-700/30 bg-gray-800/30">
-            <div className="flex items-center gap-4 text-xs text-gray-400">
+            <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap">
               <span>
                 <span className="text-emerald-400 font-semibold">
                   {scanResults.filter(r => r.action === 'BUY' || r.action === 'SELL').length}
                 </span>{' '}
-                trade signal{scanResults.filter(r => r.action === 'BUY' || r.action === 'SELL').length !== 1 ? 's' : ''}
+                signal{scanResults.filter(r => r.action === 'BUY' || r.action === 'SELL').length !== 1 ? 's' : ''}
               </span>
+              {scanResults.filter(r => r.action === 'MONITOR_REQUIRED').length > 0 && (
+                <span>
+                  <span className="text-amber-400 font-semibold">
+                    {scanResults.filter(r => r.action === 'MONITOR_REQUIRED').length}
+                  </span>{' '}
+                  deferred
+                </span>
+              )}
               <span>
                 <span className="text-gray-300 font-semibold">
                   {scanResults.filter(r => r.action === 'NO_TRADE').length}
                 </span>{' '}
                 no-trade
               </span>
-              <span>
-                Tap a pair to see Alpha's full reasoning
-              </span>
+              <span>Tap a pair to see Alpha's reasoning</span>
             </div>
           </div>
 
@@ -419,6 +427,90 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
               const phaseInfo = phase ? PHASE_CHECKS[phase] : null;
               const isExpanded = expandedSymbol === result.symbol;
               const isTradeSignal = result.action === 'BUY' || result.action === 'SELL';
+              const isMonitorRequired = result.action === 'MONITOR_REQUIRED';
+
+              // CCIP-2026-0429A: Render MONITOR_REQUIRED as a special upgrade prompt card
+              if (isMonitorRequired) {
+                const monitorAction = result.answer_sheet?.monitor_required_action as string | undefined;
+                const monitorConfidence = result.answer_sheet?.monitor_required_confidence as string | undefined;
+                const monitorReasoning = result.answer_sheet?.monitor_required_reasoning as string | undefined;
+                const zoneMin = result.answer_sheet?.monitor_required_zone_min as number | undefined;
+                const zoneMax = result.answer_sheet?.monitor_required_zone_max as number | undefined;
+                return (
+                  <div key={result.id} className="overflow-hidden">
+                    <button
+                      className="w-full text-left px-4 py-3 hover:bg-amber-900/10 transition-colors"
+                      onClick={() => setExpandedSymbol(isExpanded ? null : result.symbol)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-sm font-bold text-white w-16 flex-shrink-0">
+                          {result.symbol}
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <Lock className="w-3.5 h-3.5 text-amber-400" />
+                          {monitorAction === 'BUY'
+                            ? <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                            : <TrendingDown className="w-3.5 h-3.5 text-red-400" />
+                          }
+                          <span className="text-xs font-semibold text-amber-400">Deferred</span>
+                        </div>
+                        {monitorConfidence && (
+                          <span className="text-xs text-amber-300/70 bg-amber-900/20 border border-amber-700/30 px-1.5 py-0.5 rounded flex-shrink-0">
+                            {monitorConfidence}
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-500 ml-auto mr-1">Monitor required</span>
+                        <div className="flex-shrink-0 text-gray-500">
+                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </div>
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="px-4 pb-4 bg-amber-900/5">
+                        {/* What Alpha found */}
+                        <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-3 mb-3">
+                          <div className="flex items-start gap-2">
+                            <Lock className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <div className="text-xs font-semibold text-amber-300 mb-1">
+                                Alpha found a {monitorAction} setup on {result.symbol} — Entry Monitor required
+                              </div>
+                              {monitorReasoning && (
+                                <div className="text-xs text-gray-300 leading-relaxed">
+                                  {monitorReasoning}
+                                </div>
+                              )}
+                              {(zoneMin != null && zoneMax != null) && (
+                                <div className="mt-2 text-xs text-gray-400 font-mono">
+                                  Target zone: {zoneMin.toFixed(5)} – {zoneMax.toFixed(5)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Upgrade prompt */}
+                        <div className="bg-gray-800/60 border border-gray-700/40 rounded-lg p-3">
+                          <div className="text-xs text-gray-300 mb-2 leading-relaxed">
+                            This setup requires a deferred entry — the trigger hasn't fired yet.
+                            The Entry Monitor watches for your zone and executes automatically when price arrives.
+                          </div>
+                          <div className="text-xs text-gray-400 mb-3">
+                            Available to Pipnosis Club Tier 1 members. Try scanning again in 5–15 minutes for an immediate execute_now opportunity.
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 text-xs text-amber-400 font-semibold">
+                              <ArrowRight className="w-3.5 h-3.5" />
+                              <span>Join Club to unlock Entry Monitor</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
 
               return (
                 <div key={result.id} className="overflow-hidden">

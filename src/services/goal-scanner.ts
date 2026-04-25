@@ -363,7 +363,39 @@ class GoalScanner {
             continue;
           }
 
-          const { executionMode } = await resolveExecutionMode(alphaDecision, userId, sessionId);
+          const { executionMode, monitorRequiredDetails } = await resolveExecutionMode(
+            { ...alphaDecision, symbol: setup.symbol },
+            userId,
+            sessionId
+          );
+
+          // CCIP-2026-0429A: Alpha found a deferred setup but user's monitor is off.
+          if (executionMode === 'MONITOR_REQUIRED' && monitorRequiredDetails) {
+            console.log(`[Goal Scanner] CCIP-2026-0429A: MONITOR_REQUIRED for ${setup.symbol} — writing upgrade prompt record`);
+            try {
+              await supabase.from('alpha_decisions').insert({
+                user_id: userId,
+                session_id: sessionId,
+                symbol: setup.symbol,
+                action: 'MONITOR_REQUIRED',
+                confidence: null,
+                reasoning: `Alpha identified a ${monitorRequiredDetails.action} opportunity on ${setup.symbol} (${monitorRequiredDetails.confidenceTier}) requiring a deferred entry. ${monitorRequiredDetails.waitReasoning}`,
+                decision_origin: 'ALPHA_WANTS_WAIT_MONITOR_REQUIRED',
+                trade_executed: false,
+                safety_blocked: false,
+                answer_sheet: {
+                  monitor_required_action: monitorRequiredDetails.action,
+                  monitor_required_confidence: monitorRequiredDetails.confidenceTier,
+                  monitor_required_zone_min: monitorRequiredDetails.zoneMin ?? null,
+                  monitor_required_zone_max: monitorRequiredDetails.zoneMax ?? null,
+                  monitor_required_reasoning: monitorRequiredDetails.waitReasoning,
+                },
+              });
+            } catch (err) {
+              console.warn('[CCIP-2026-0429A] Failed to write MONITOR_REQUIRED record (non-blocking)', err);
+            }
+            continue; // Skip execution
+          }
 
           if (executionMode === 'MONITORED') {
             console.log(`[Goal Scanner] Alpha chose WAIT mode (${alphaDecision.entry_mode}) for ${setup.symbol} — creating monitored entry intent`);
