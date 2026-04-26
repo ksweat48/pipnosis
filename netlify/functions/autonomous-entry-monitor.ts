@@ -170,7 +170,29 @@ export const handler: Handler = async (event, context) => {
           p_instance_id: 'netlify-entry-monitor'
         });
 
-        // Check if price data is stale
+        // CCIP-2026-0426B: Manual trigger must execute before ANY price staleness gate.
+        // The browser confirmed price was in the zone — the server honours that immediately.
+        // Falls back to zone midpoint if current_price is unavailable.
+        const isManualTriggerEarly = intent.market_context?.manual_trigger === true;
+        if (isManualTriggerEarly) {
+          const fallbackPrice = (Number(intent.entry_zone_min) + Number(intent.entry_zone_max)) / 2;
+          const manualPrice = intent.current_price ?? fallbackPrice;
+          console.log(`[Entry Monitor] ⚡ MANUAL TRIGGER for ${intent.symbol} — bypassing all gates. Price: ${manualPrice} (${intent.current_price ? 'live' : 'zone-midpoint fallback'})`);
+          const executed = await executeIntent(intent, manualPrice, 100);
+          if (executed) {
+            executedCount++;
+            successCount++;
+            console.log(`[Entry Monitor] ✅ Manual trigger trade executed for ${intent.symbol}`);
+            results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: true, action: 'manual_trigger', price: manualPrice });
+          } else {
+            errorCount++;
+            console.error(`[Entry Monitor] ❌ Manual trigger execution FAILED for ${intent.symbol}`);
+            results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: false, action: 'manual_trigger_failed' });
+          }
+          continue;
+        }
+
+        // Check if price data is stale — only applies to automatic monitoring (manual trigger bypassed above)
         if (!intent.current_price || !intent.price_updated_at) {
           console.log(`[Entry Monitor] ⚠️ No price data for ${intent.symbol}, skipping`);
           await updateServerState(intent.intent_id, intent.user_id, null, null, 'no_price_data', 'Price data unavailable');
@@ -436,29 +458,8 @@ export const handler: Handler = async (event, context) => {
           timeAdjustedThreshold
         );
 
-        // CCIP-2026-0426A: Manual trigger — user pressed ENTER NOW in the UI.
-        // The browser-side mid-trade-alert-executor sets market_context.manual_trigger = true.
-        // When this flag is present, skip EQS and zone checks and execute immediately.
-        const isManualTrigger = intent.market_context?.manual_trigger === true;
-
-        if (isManualTrigger) {
-          console.log(`[Entry Monitor] ⚡ MANUAL TRIGGER detected for ${intent.symbol} — bypassing EQS and zone checks`);
-          const manualPrice = intent.current_price ?? (intent.entry_zone_min + intent.entry_zone_max) / 2;
-          const executed = await executeIntent(intent, manualPrice, 100);
-          if (executed) {
-            executedCount++;
-            successCount++;
-            console.log(`[Entry Monitor] ✅ Manual trigger trade executed for ${intent.symbol}`);
-            results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: true, action: 'manual_trigger', price: manualPrice });
-          } else {
-            errorCount++;
-            console.error(`[Entry Monitor] ❌ Manual trigger execution FAILED for ${intent.symbol}`);
-            results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: false, action: 'manual_trigger_failed' });
-          }
-          continue;
-        }
-
         // Execution decision: Price in zone AND EQS meets threshold
+        // Note: manual_trigger path was moved above the stale price gate (CCIP-2026-0426B)
         console.log(`[Entry Monitor] 🎯 EXECUTION CHECK for ${intent.symbol}:`);
         console.log(`  - Price in zone: ${isInZoneWithPhase} (price: ${intent.current_price}, zone: ${intent.entry_zone_min}-${intent.entry_zone_max}, tolerance: ${zoneTolerancePips}p)`);
         console.log(`  - EQS check: ${eqsScore.toFixed(1)} >= ${timeAdjustedThreshold} = ${eqsScore >= timeAdjustedThreshold}`);
