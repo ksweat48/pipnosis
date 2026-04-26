@@ -319,7 +319,7 @@ class PostTradeAnalyzer {
     const { closeReason, finalPnL, exitPrice, goalPnL, priorStage, isTP1Close, isTP2Close, tp1Pnl, entryPrice, entryTime, exitTime, direction, symbol } = params;
     const pnlStr = (v: number) => `${v >= 0 ? '+' : ''}$${Math.abs(v).toFixed(2)}`;
 
-    const pipValue = symbol?.includes('JPY') ? 0.01 : 0.0001;
+    const { pipValue } = symbol ? getCurrencyPipInfo(symbol) : { pipValue: 0.0001 };
     const pipsMoved = (entryPrice && exitPrice && direction)
       ? Math.round(Math.abs(exitPrice - entryPrice) / pipValue)
       : null;
@@ -453,14 +453,9 @@ class PostTradeAnalyzer {
       const takeProfit = enriched.takeProfit || 0;
 
       const sym = enriched.symbol || '';
-      const pipValue = sym.includes('JPY') ? 0.01
-        : sym.toLowerCase().includes('xau') || sym.toLowerCase().includes('gold') ? 0.1
-        : sym.toLowerCase().includes('xag') || sym.toLowerCase().includes('silver') ? 0.01
-        : 0.0001;
-      const pricePrecision = sym.includes('JPY') ? 3
-        : sym.toLowerCase().includes('xau') || sym.toLowerCase().includes('gold') ? 2
-        : sym.toLowerCase().includes('xag') || sym.toLowerCase().includes('silver') ? 3
-        : 5;
+      const pipInfo = getCurrencyPipInfo(sym);
+      const pipValue = pipInfo.pipValue;
+      const pricePrecision = pipInfo.decimalPlaces;
       const slPips = stopLoss > 0 && entryPrice > 0 ? Math.round(Math.abs(entryPrice - stopLoss) / pipValue) : 0;
       const tpPips = takeProfit > 0 && entryPrice > 0 ? Math.round(Math.abs(takeProfit - entryPrice) / pipValue) : 0;
       const rr = slPips > 0 ? (tpPips / slPips).toFixed(1) : 'N/A';

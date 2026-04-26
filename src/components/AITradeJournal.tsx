@@ -27,6 +27,7 @@ import {
 import { llmReasoningLogger } from '../services/llm-reasoning-logger';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 function deriveSession(entryTime: string): string {
   const hour = new Date(entryTime).getUTCHours();
@@ -77,7 +78,7 @@ function calcRR(entry: any): string | null {
 }
 
 function calcPips(symbol: string, from: number, to: number): number {
-  const pipValue = symbol?.includes('JPY') ? 0.01 : 0.0001;
+  const { pipValue } = getCurrencyPipInfo(symbol);
   return Math.round(Math.abs(to - from) / pipValue);
 }
 
@@ -181,7 +182,7 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
     ? calcPips(entry.symbol, entry.entry_price, entry.exit_price)
     : null;
 
-  const pricePrecision = entry.symbol?.includes('JPY') ? 3 : 5;
+  const pricePrecision = getCurrencyPipInfo(entry.symbol).decimalPlaces;
 
   const tp1Hit = entry.journal_stage === 'tp1_hit' || entry.journal_stage === 'tp2_hit';
   const tp2Hit = entry.journal_stage === 'tp2_hit';
