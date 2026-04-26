@@ -334,7 +334,7 @@ export const handler: Handler = async (event, context) => {
             // Step 3a: In-app notification
             await supabase.from('goal_notifications').insert({
               user_id: intent.user_id,
-              session_id: intent.session_id,
+              goal_session_id: intent.session_id,
               type: 'entry_abandoned',
               title: `Entry Cancelled: ${intent.symbol}`,
               message: abandonMsg,
@@ -1013,7 +1013,7 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
     // Step 10: Create success notification (using valid type 'trade_opened')
     const { error: notificationError } = await supabase.from('goal_notifications').insert({
       user_id: fullIntent.user_id,
-      session_id: fullIntent.session_id,
+      goal_session_id: fullIntent.session_id,
       type: 'trade_opened',
       title: `Trade Executed: ${fullIntent.symbol}`,
       message: `${fullIntent.direction.toUpperCase()} ${fullIntent.symbol} @ ${entryPrice.toFixed(pipInfo.decimals)} | EQS: ${eqsScore.toFixed(1)} | Expected: $${expectedProfit.toFixed(2)}`,
