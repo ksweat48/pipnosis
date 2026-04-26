@@ -4076,22 +4076,18 @@ MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step b
 - SCALP: ONE take-profit ("takeProfit"). No minimum R:R — I place TP at the M5 structural exhaustion point. The structure decides R:R, not a formula.
   Place TP where the M5 leg exhausts. The exit is not a structural destination — it is the point where M5 momentum dies. Look for: prior M5 swing already printed in the direction of travel, M5 equal highs/lows clustering (absorption), M5 candle bodies compressing as wicks extend (pace fading). Place TP at that M5 exhaustion point — not at a structural wall, not at an M15 level.
   M1 timing data (when present) refines the exact entry moment within the M5 structure — it does not change the TP target. The TP is always the nearest M5 exhaustion point. Name the M5 exhaustion signal in tp_structural_reference.
-- MICRO_INTRADAY: Up to TWO take-profits. Minimum R:R 1.0:1.
-  "tp1" = Where the M5 leg first exhausts. Look for: the nearest prior M5 swing already printed in the direction of travel, M5 equal highs/lows clustering (absorption), M5 candle pace visibly fading. That is TP1 — not a named M15 structural zone.
-  "tp2" = Where the M5 leg exhausts a second time if one exists — a second prior M5 swing, a second cluster of equal highs/lows, a M5 FVG fill zone. TP2 R:R must be >= TP1 R:R. tp1 must be closer to entry than tp2.
+- MICRO_INTRADAY: Up to TWO take-profits. Minimum R:R 1.0:1. REASONING ORDER IS FIXED — find TP2 first, then find TP1 inside.
+  "tp2" (FIND FIRST) = The M5 structural destination — the M5 swing extreme, equal highs/lows cluster, or M5 FVG fill zone that defines why this move exists. OPTIONAL for MICRO_INTRADAY. If only one clear M5 exhaustion point is visible, output only "tp1" and omit "tp2". Do NOT fabricate TP2 by pointing at an M15 structural wall.
+  "tp1" (FIND SECOND, INSIDE TP2) = The highest-probability first fill point between entry and TP2. Scan M5 for: a prior M5 swing already printed between entry and TP2, M5 equal highs/lows clustering on the path, or an M5 FVG fill zone between entry and TP2. MANDATORY when TP2 is present. Must be closer to entry than TP2. When no TP2 exists, TP1 is the sole structural exhaustion point.
   M15 tells you the direction. It does not set the destination. The destination is M5 exhaustion.
-  TP2 RULE: If a distinct second M5 exhaustion point exists further from entry than TP1, include "tp2". If no clear second exhaustion point exists — omit "tp2" entirely (set to null or leave absent). Do NOT fabricate a TP2 by pointing at a M15 structural wall.
-  TP1 RULE: If you include "tp2", then "tp1" is MANDATORY and must differ from "tp2". If only one M5 exhaustion point exists, output only "tp1".
-  If the market only offers one reachable exhaustion point, output only "tp1" at that level. This is valid and will execute as a single-target trade.
-  Document the M5 exhaustion signal identified for each TP and the R:R achievable from it.
-- INTRADAY: Up to TWO take-profits. Minimum R:R 1.0:1.
-  "tp1" = Where the M15 leg first exhausts. Look for: the nearest prior M15 swing already printed in the direction of travel, M15 equal highs/lows clustering (absorption), M15 candle bodies compressing as wicks extend (pace fading). That is TP1 — not a named H1 structural zone.
-  "tp2" = Where the M15 leg exhausts a second time if one exists — a second prior M15 swing, a second cluster of equal highs/lows, a M15 FVG fill zone. TP2 R:R must be >= TP1 R:R. tp1 must be closer to entry than tp2.
-  H1 confirms the directional bias. H1 does not set the exit price — M15 exhaustion does. H4 is background macro only — it has no role in TP placement.
-  TP2 RULE: If a distinct second M15 exhaustion point exists further from entry than TP1, include "tp2". If no clear second exhaustion point exists — omit "tp2" entirely (set to null or leave absent). Do NOT fabricate a TP2 by pointing at an H1 or H4 structural wall.
-  TP1 RULE: If you include "tp2", then "tp1" is MANDATORY and must differ from "tp2". If only one M15 exhaustion point exists, output only "tp1".
-  If the market only offers one reachable exhaustion point, output only "tp1" at that level. This is valid and will execute as a single-target trade.
-  Document the M15 exhaustion signal identified for each TP and the R:R achievable from it.
+  tp1 must be closer to entry than tp2. TP2 R:R must be >= TP1 R:R.
+  Document the M5 exhaustion signal for each level and the R:R achievable from it.
+- INTRADAY: BOTH TP1 and TP2 are MANDATORY. Minimum R:R 1.0:1. REASONING ORDER IS FIXED — find TP2 first on M15, then find TP1 inside on M5.
+  "tp2" (FIND FIRST) = The M15 structural destination — the M15 swing extreme, equal highs/lows cluster, or M15 FVG fill zone that defines WHY this intraday trade exists. MANDATORY. If no M15 structural destination can be named, the trade does not qualify as INTRADAY — it is a scalp at best. Do NOT fabricate TP2 by pointing at an H1 or H4 structural wall.
+  "tp1" (FIND SECOND, DROP TO M5) = With TP2 identified on M15, drop to M5 and find the highest-probability first fill point between entry and TP2. Look for: an M5 swing already printed between entry and TP2, M5 equal highs/lows clustering on the path to TP2, an M5 FVG fill zone sitting between entry and TP2, or where the initial M5 impulse is most likely to stall before the second leg delivers the M15 target. MANDATORY. Must be closer to entry than TP2. An INTRADAY output with no tp1 is malformed.
+  H1 confirms the directional bias. H4 is background macro only. Neither names the exit — M15 structural destination sets TP2; M5 internal structure sets TP1.
+  tp1 must be closer to entry than tp2. TP2 R:R must be >= TP1 R:R.
+  Document the exhaustion signal for each level, how many pips from entry it sits, and why momentum is most likely to pause at that exact location.
 
 ${entryModePromptSection}
 
