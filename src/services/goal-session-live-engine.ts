@@ -101,6 +101,15 @@ export interface NoTradeRejectionContext {
     // CCIP-2026-0415B: Alpha's raw confidence tier text (e.g. 'cautious', 'moderate') — displayed
     // alongside the numeric value so users see both the label and the converted number.
     confidence_tier?: string;
+    // CCIP-2026-0427B: Wait-intent suppressed because Entry Monitor is off.
+    wait_intent_available_for_monitor_off?: boolean;
+    wait_intent_metadata?: {
+      original_entry_mode: 'wait_pullback' | 'push_confirmation';
+      entry_zone_min?: number;
+      entry_zone_max?: number;
+      invalidation_price?: number;
+      wait_reasoning?: string;
+    };
   }[];
   summary: string;
 }
@@ -3907,6 +3916,9 @@ This learning will carry forward to improve future sessions!
           alpha_original_reasoning: decision.alpha_original_decision?.reasoning ?? undefined,
           // CCIP-2026-0415B: Pass Alpha's raw tier text so the UI can show both label and number.
           confidence_tier: decision.confidence_tier ?? undefined,
+          // CCIP-2026-0427B: Wait-intent suppressed due to Entry Monitor being off.
+          wait_intent_available_for_monitor_off: decision.wait_intent_available_for_monitor_off ?? false,
+          wait_intent_metadata: decision.wait_intent_metadata ?? undefined,
         });
       }
     }

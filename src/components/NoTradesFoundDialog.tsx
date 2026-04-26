@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp, TrendingDown, Brain, TrendingUp, Minus, ShieldAlert } from 'lucide-react';
+import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp, TrendingDown, Brain, TrendingUp, Minus, ShieldAlert, Eye } from 'lucide-react';
 import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
 
 interface NoTradesFoundDialogProps {
@@ -218,6 +218,10 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
   const progressPercent = (countdown / 60) * 100;
 
+  // CCIP-2026-0427B: Detect suppressed wait intents (Entry Monitor was off).
+  const waitIntentSymbols = symbolReasons.filter(r => r.wait_intent_available_for_monitor_off);
+  const hasWaitIntentBanner = waitIntentSymbols.length > 0;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
@@ -247,6 +251,38 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                 </p>
               </div>
             </div>
+
+            {/* CCIP-2026-0427B: Monitor-off wait-intent notice */}
+            {hasWaitIntentBanner && (
+              <div className="bg-sky-900/20 border border-sky-600/40 rounded-xl p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-1.5 rounded-lg bg-sky-700/30 shrink-0 mt-0.5">
+                    <Eye className="w-4 h-4 text-sky-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sky-200 font-semibold text-sm mb-1">
+                      Wait Entry Found — Entry Monitor Required
+                    </p>
+                    <p className="text-sky-300/80 text-xs leading-relaxed">
+                      A wait entry was found — activate Entry Monitor to access wait options, or try again shortly for execute-now trades.
+                    </p>
+                    {waitIntentSymbols.some(r => r.wait_intent_metadata?.entry_zone_min) && (
+                      <div className="mt-2 space-y-1">
+                        {waitIntentSymbols.filter(r => r.wait_intent_metadata?.entry_zone_min).map(r => (
+                          <p key={r.symbol} className="text-xs text-sky-400/70 font-mono">
+                            {r.symbol}
+                            {r.wait_intent_metadata!.original_entry_mode === 'wait_pullback' ? ' — Pullback Zone' : ' — Push Confirmation'}
+                            {r.wait_intent_metadata!.entry_zone_min && r.wait_intent_metadata!.entry_zone_max
+                              ? `: ${r.wait_intent_metadata!.entry_zone_min} – ${r.wait_intent_metadata!.entry_zone_max}`
+                              : ''}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {hasConstraintSandwich ? (
               <div className="space-y-4 mb-6">

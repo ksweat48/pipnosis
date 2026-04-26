@@ -249,10 +249,58 @@ class AlphaLearningTracker {
       }
 
       console.log(`[Alpha Learning] Decision logged: ${decision.action} | OmegaSignals: ${votesList.length} active (Override: ${alpha_override})`);
+
+      // CCIP-2026-0427B: Seed counterfactual row for NO_TRADE decisions with directional lean.
+      // Non-blocking — measurement only, must not delay the decision-log return.
+      if (
+        decision.action === 'NO_TRADE' &&
+        decision.directional_lean &&
+        (decision.directional_lean === 'BUY_LEAN' || decision.directional_lean === 'SELL_LEAN')
+      ) {
+        const referencePrice = (marketContext.livePrice ?? marketContext.price) as number | undefined;
+        if (referencePrice && referencePrice > 0) {
+          this.createNoTradeCounterfactual(
+            data.id,
+            userId,
+            log.symbol as string,
+            decision.directional_lean === 'BUY_LEAN' ? 'BUY' : 'SELL',
+            decision.lean_confidence ?? decision.confidence ?? 0,
+            referencePrice
+          );
+        }
+      }
+
       return data.id;
     } catch (error) {
       console.error('[Alpha Learning] Exception logging decision:', error);
       return null;
+    }
+  }
+
+  private async createNoTradeCounterfactual(
+    decisionId: string,
+    userId: string,
+    symbol: string,
+    directionLean: 'BUY' | 'SELL',
+    leanConfidence: number,
+    referencePrice: number
+  ): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('alpha_no_trade_counterfactuals')
+        .insert({
+          decision_id: decisionId,
+          user_id: userId,
+          symbol,
+          direction_lean: directionLean,
+          lean_confidence: leanConfidence,
+          entry_reference_price: referencePrice,
+        });
+      if (error) {
+        console.warn('[Alpha Learning] Could not seed counterfactual row:', error.message);
+      }
+    } catch (err) {
+      console.warn('[Alpha Learning] Exception seeding counterfactual:', err);
     }
   }
 
