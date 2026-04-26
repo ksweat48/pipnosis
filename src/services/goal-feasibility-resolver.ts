@@ -756,7 +756,7 @@ export class GoalFeasibilityResolver {
 
     // SSOT: Platform absolute limits from trading-constants.ts
     const maxRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100;
-    if (riskPercent > maxRiskPercent) {
+    if (riskPercent > maxRiskPercent + 0.01) {
       return {
         valid: false,
         warning: `Risk ${riskPercent.toFixed(2)}% exceeds platform maximum of ${maxRiskPercent}%`,
