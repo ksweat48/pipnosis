@@ -23,6 +23,7 @@ import { notificationCoordinator } from './notification-coordinator';
 import { MarketDataService } from '../market-data-service';
 import { modalQueueManager } from '../modal-queue-manager';
 import { sessionPhasePerformanceService, SessionPhasePerformanceService } from '../session-phase-performance-service';
+import { alphaLearningTracker } from '../alpha-learning-tracker';
 
 /**
  * SSOT Close Reason Types - MUST match database constraint
@@ -216,6 +217,13 @@ class TradeClosureCoordinator {
 
       await this.logToAudit(request, tradeData, pnl, 'coordinator');
 
+      // CCIP-2026-0427-A: Alpha learning outcome capture (SSOT)
+      // Wires the orphaned alphaLearningTracker.logOutcome() into the close flow.
+      // Without this, alpha_decision_outcomes is never populated and the
+      // profitability dashboard cannot measure whether Alpha is hunting profitably.
+      // Non-blocking. Fires after confirmed RPC success.
+      this.recordAlphaOutcome(request, trade as any, pnl).catch(() => {});
+
       // CCIP-2026-0325B: Session-phase-style performance mirror
       // Non-blocking. Fires after confirmed RPC success. Authority: sessionPhasePerformanceService.
       this.recordPerformanceOutcome(request, trade, pnl).catch(() => {});
@@ -361,6 +369,9 @@ class TradeClosureCoordinator {
       },
     });
 
+    // CCIP-2026-0427-A: Alpha learning outcome capture (emergency path)
+    this.recordAlphaOutcome(request, trade as any, pnl).catch(() => {});
+
     return {
       success: true,
       tradeId: request.tradeId,
@@ -369,6 +380,72 @@ class TradeClosureCoordinator {
       closeReason: request.closeReason,
       usedEmergencyRecovery: true,
     };
+  }
+
+  /**
+   * CCIP-2026-0427-A: Bridge from trade closure to alpha_decision_outcomes.
+   *
+   * This is the single missing link that prevented Alpha's profitability from
+   * being measurable. Every executed trade carries `alpha_decision_id`. When
+   * the trade closes, we translate the close into the AlphaOutcomeLog shape
+   * and hand it to the learning tracker.
+   *
+   * Authority: alphaLearningTracker.logOutcome (SSOT for outcome writes)
+   * Trigger: every confirmed trade close (RPC path + emergency path)
+   */
+  private async recordAlphaOutcome(
+    request: CloseTradeRequest,
+    trade: Record<string, any>,
+    pnl: number
+  ): Promise<void> {
+    const decisionId: string | undefined = trade?.alpha_decision_id ?? undefined;
+    if (!decisionId) return;
+
+    const direction: 'buy' | 'sell' = trade.direction;
+    const reason = String(request.closeReason || '').toLowerCase();
+
+    let outcome: 'WIN' | 'LOSS' | 'BREAKEVEN' | 'NOT_EXECUTED' = 'BREAKEVEN';
+    if (pnl > 0.005) outcome = 'WIN';
+    else if (pnl < -0.005) outcome = 'LOSS';
+
+    let exitReason: 'TP' | 'SL' | 'MANUAL' | 'TIMEOUT' | 'NOT_EXECUTED' = 'MANUAL';
+    if (reason.includes('take_profit') || reason.includes('tp')) exitReason = 'TP';
+    else if (reason.includes('stop_loss') || reason === 'sl') exitReason = 'SL';
+    else if (reason.includes('timeout') || reason.includes('expired') || reason.includes('session_end')) exitReason = 'TIMEOUT';
+    else if (reason.includes('manual') || reason.includes('force')) exitReason = 'MANUAL';
+
+    const alphaWasRight = outcome === 'WIN' && (
+      (direction === 'buy' && pnl > 0) ||
+      (direction === 'sell' && pnl > 0)
+    );
+
+    const entryTime = trade?.opened_at ?? trade?.created_at;
+    let durationMinutes: number | undefined;
+    if (entryTime) {
+      const entry = new Date(entryTime).getTime();
+      if (!isNaN(entry)) {
+        durationMinutes = Math.max(0, Math.round((Date.now() - entry) / 60000));
+      }
+    }
+
+    const entryPrice = Number(trade.entry_price) || 0;
+    const exitPrice = Number(request.currentPrice) || 0;
+    const pnlPct = entryPrice > 0
+      ? ((direction === 'buy' ? exitPrice - entryPrice : entryPrice - exitPrice) / entryPrice) * 100
+      : undefined;
+
+    await alphaLearningTracker.logOutcome(decisionId, request.userId, {
+      decision_id: decisionId,
+      user_id: request.userId,
+      trade_id: request.tradeId,
+      executed: true,
+      outcome,
+      pnl,
+      pnl_pct: pnlPct,
+      duration_minutes: durationMinutes,
+      exit_reason: exitReason,
+      alpha_was_right: alphaWasRight,
+    });
   }
 
   private async logToAudit(

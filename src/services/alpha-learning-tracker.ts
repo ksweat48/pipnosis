@@ -227,6 +227,16 @@ class AlphaLearningTracker {
         log.trade_style = decision.resolvedStyle;
       }
 
+      // CCIP-2026-0427-A: WAIT_INTENT_AVAILABLE_MONITOR_OFF subclass tagging.
+      // Persisted so alpha_profitability_dashboard can count NO_TRADE rows that were
+      // structurally valid wait setups suppressed only by the user's monitor-off state.
+      if ((decision as any).wait_intent_available_for_monitor_off === true) {
+        log.wait_intent_available_for_monitor_off = true;
+        if ((decision as any).wait_intent_metadata) {
+          log.wait_intent_metadata = (decision as any).wait_intent_metadata;
+        }
+      }
+
       const { data, error } = await supabase
         .from('alpha_decisions')
         .insert(log)

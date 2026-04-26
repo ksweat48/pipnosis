@@ -511,6 +511,25 @@ export interface AlphaDecision {
    */
   sl_structural_reference?: string;
   /**
+   * CCIP-2026-0427-A: Wait-intent-available-but-suppressed-by-monitor-off subclass.
+   * Set true when entryMonitorActive === false AND Alpha returned wait_pullback or
+   * push_confirmation. The decision is downstream NO_TRADE (executor cannot deliver
+   * deferred entries without the monitor) but is structurally a valid wait setup.
+   * The dashboard uses this to quantify monitor-off impact on alpha_profitability_dashboard.
+   */
+  wait_intent_available_for_monitor_off?: boolean;
+  /**
+   * CCIP-2026-0427-A: Snapshot of the original wait intent that was suppressed.
+   * Captures what Alpha would have entered into if the monitor were active.
+   */
+  wait_intent_metadata?: {
+    original_entry_mode: 'wait_pullback' | 'push_confirmation';
+    entry_zone_min?: number;
+    entry_zone_max?: number;
+    invalidation_price?: number;
+    wait_reasoning?: string;
+  };
+  /**
    * tp_multiplier_override: Alpha's per-trade ATR TP multiplier.
    *
    * CCIP-ALPHA-GOV-001: When present, this value replaces the static 3.0x ATR base
@@ -4454,7 +4473,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
           userId,
           sessionId,
           tradeStyle,
-          dualArenaWalls
+          dualArenaWalls,
+          entryMonitorActive
         );
       }
 
@@ -4553,7 +4573,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
         userId,
         sessionId,
         tradeStyle,
-        dualArenaWalls
+        dualArenaWalls,
+        entryMonitorActive
       );
 
       if (responseFingerprint) {
@@ -5193,7 +5214,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
     userId?: string,
     sessionId?: string,
     tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'SCALP',
-    dualArenaWalls?: DualArenaWalls | null
+    dualArenaWalls?: DualArenaWalls | null,
+    entryMonitorActive: boolean = true
   ): Promise<AlphaDecision> {
     try {
       // CCIP-REJECT-THESIS-2026-03-08: Defensive pre-check for plain-text thesis responses.
@@ -6406,6 +6428,27 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // from the parsed response. Both fields are now passed through for DB audit.
         tp_structural_reference: typeof parsed.tp_structural_reference === 'string' ? parsed.tp_structural_reference : undefined,
         sl_structural_reference: typeof parsed.sl_structural_reference === 'string' ? parsed.sl_structural_reference : undefined,
+        // CCIP-2026-0427-A: WAIT_INTENT_AVAILABLE_MONITOR_OFF subclass.
+        // When the user has the Entry Monitor disabled, the executor cannot deliver
+        // wait_pullback or push_confirmation entries. Alpha's prompt branch already
+        // routes these users to execute_now only, but if a wait intent slips through,
+        // we tag the row so the dashboard can quantify suppressed-but-valid setups.
+        wait_intent_available_for_monitor_off:
+          !entryMonitorActive &&
+          (correctedAction === 'BUY' || correctedAction === 'SELL') &&
+          (resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation'),
+        wait_intent_metadata:
+          !entryMonitorActive &&
+          (correctedAction === 'BUY' || correctedAction === 'SELL') &&
+          (resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation')
+            ? {
+                original_entry_mode: resolvedEntryMode as 'wait_pullback' | 'push_confirmation',
+                entry_zone_min: resolvedWaitCondition?.target_entry_zone_min,
+                entry_zone_max: resolvedWaitCondition?.target_entry_zone_max,
+                invalidation_price: resolvedWaitCondition?.invalidation_price,
+                wait_reasoning: resolvedWaitCondition?.wait_reasoning,
+              }
+            : undefined,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
