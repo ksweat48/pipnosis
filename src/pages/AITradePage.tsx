@@ -12,7 +12,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { smartGoalSessionManager } from '@/services/smart-goal-session-manager';
 import { clubMembershipService, type UserMembership } from '@/services/club-membership-service';
 import { Target, Trophy } from 'lucide-react';
-import { PriceWritePipelineAlert } from '@/components/PriceWritePipelineAlert';
 
 type TabType = 'start' | 'achievements';
 
@@ -158,9 +157,6 @@ export function AITradePage() {
         {/* Live Trades Ticker — social proof, always visible */}
         <LiveTradesTicker />
 
-        {hasActiveSession && (
-          <PriceWritePipelineAlert className="mb-4" />
-        )}
 
         <div className="mb-8">
           <div className="flex items-center gap-3 bg-gray-800/50 rounded-xl p-1.5 border border-gray-700/50 backdrop-blur-sm max-w-md">
