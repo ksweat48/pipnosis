@@ -394,6 +394,9 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
         title: 'Entry Zone Reached',
         message: 'Price has entered the target zone. Executing entry now.',
         priority: 'critical',
+        requires_user_alert: true,
+        auto_execute_at: new Date().toISOString(),
+        recommendation_data: { recommendation: 'EXECUTE_ENTRY', intent_id: intentId },
         metadata: { intent_id: intentId }
       });
 
@@ -434,6 +437,9 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
         title: 'Entry Zone Reached — Manual Trigger',
         message: 'User requested immediate entry execution.',
         priority: 'critical',
+        requires_user_alert: true,
+        auto_execute_at: new Date().toISOString(),
+        recommendation_data: { recommendation: 'EXECUTE_ENTRY', intent_id: intent.id, manual: true },
         metadata: { intent_id: intent.id, manual: true }
       });
       if (error) {
