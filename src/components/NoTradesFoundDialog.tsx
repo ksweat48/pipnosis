@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp, TrendingDown, Brain, TrendingUp, Minus, ShieldAlert, Eye } from 'lucide-react';
+import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp, TrendingDown, TrendingUp, Minus, ShieldAlert, Eye } from 'lucide-react';
 import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
 
 interface NoTradesFoundDialogProps {

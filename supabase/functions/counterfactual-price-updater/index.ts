@@ -7,20 +7,27 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-// Typical SL distance in pips by instrument family — used for would_have_won heuristic.
-// These are conservative baselines; the counterfactual is informational, not prescriptive.
+// Typical SL distance in pips per instrument — used for would_have_won heuristic.
 const TYPICAL_SL_PIPS: Record<string, number> = {
   XAUUSD: 150,
   BTCUSD: 300,
   ETHUSD: 200,
   US30:   300,
   NAS100: 200,
-  // Default for major forex pairs
   DEFAULT: 12,
 };
 
 function getTypicalSlPips(symbol: string): number {
   return TYPICAL_SL_PIPS[symbol] ?? TYPICAL_SL_PIPS.DEFAULT;
+}
+
+// Pip size per instrument family.
+function getPipSize(symbol: string): number {
+  if (symbol.includes("JPY")) return 0.01;
+  if (symbol === "XAUUSD") return 0.1;
+  if (symbol.startsWith("BTC") || symbol.startsWith("ETH")) return 1;
+  if (["US30", "NAS100", "UK100", "GER40"].some(i => symbol.includes(i))) return 1;
+  return 0.0001;
 }
 
 Deno.serve(async (req: Request) => {
@@ -38,8 +45,7 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch pending counterfactual rows — any column still NULL within a 3-hour window.
-    // We cap at 3 hours to avoid processing ancient rows on cold restarts.
+    // Fetch pending counterfactual rows within the 3-hour processing window.
     const { data: pending, error: fetchError } = await supabase
       .from("alpha_no_trade_counterfactuals")
       .select("id, symbol, direction_lean, entry_reference_price, created_at, price_30m, price_60m, price_120m")
@@ -59,21 +65,19 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Collect unique symbols to fetch prices in one pass.
+    // Fetch latest price for all unique symbols in a single query.
     const symbols = [...new Set(pending.map((r: any) => r.symbol as string))];
+    const { data: priceRows } = await supabase
+      .from("realtime_prices")
+      .select("symbol, mid, created_at")
+      .in("symbol", symbols)
+      .order("created_at", { ascending: false });
 
-    // Fetch latest price per symbol from realtime_prices.
+    // Keep only the most-recent price per symbol.
     const priceBySymbol = new Map<string, number>();
-    for (const symbol of symbols) {
-      const { data: priceRow } = await supabase
-        .from("realtime_prices")
-        .select("mid")
-        .eq("symbol", symbol)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (priceRow?.mid) {
-        priceBySymbol.set(symbol, priceRow.mid as number);
+    for (const row of priceRows ?? []) {
+      if (!priceBySymbol.has(row.symbol)) {
+        priceBySymbol.set(row.symbol, row.mid as number);
       }
     }
 
@@ -81,55 +85,37 @@ Deno.serve(async (req: Request) => {
     let updatedCount = 0;
 
     for (const row of pending as any[]) {
-      const createdMs = new Date(row.created_at).getTime();
-      const elapsedMinutes = (now - createdMs) / 60_000;
       const currentPrice = priceBySymbol.get(row.symbol);
-
       if (!currentPrice) continue;
 
+      const elapsedMinutes = (now - new Date(row.created_at).getTime()) / 60_000;
       const update: Record<string, any> = { updated_at: new Date().toISOString() };
       let shouldUpdate = false;
 
-      // 30-minute snapshot
       if (row.price_30m === null && elapsedMinutes >= 30) {
         update.price_30m = currentPrice;
         shouldUpdate = true;
       }
 
-      // 60-minute snapshot + MFE/MAE heuristic
       if (row.price_60m === null && elapsedMinutes >= 60) {
         update.price_60m = currentPrice;
         shouldUpdate = true;
 
-        // MFE/MAE: approximate from entry_reference_price vs current price.
-        // Direction-aware: BUY lean = higher is favorable, SELL lean = lower is favorable.
         const entryRef = row.entry_reference_price as number;
         const priceDiff = currentPrice - entryRef;
-
-        // Convert price delta to pips using instrument-aware scaling.
-        const pipSize = row.symbol.includes("JPY") ? 0.01
-          : row.symbol === "XAUUSD" ? 0.1
-          : row.symbol.startsWith("BTC") || row.symbol.startsWith("ETH") ? 1
-          : ["US30", "NAS100", "UK100", "GER40"].some(i => row.symbol.includes(i)) ? 1
-          : 0.0001;
-
-        const diffPips = Math.abs(priceDiff) / pipSize;
+        const diffPips = Math.abs(priceDiff) / getPipSize(row.symbol);
 
         if (row.direction_lean === "BUY") {
-          // Favorable = price went up
           update.mfe_pips_60m = priceDiff > 0 ? diffPips : 0;
           update.mae_pips_60m = priceDiff < 0 ? diffPips : 0;
         } else {
-          // Favorable = price went down
           update.mfe_pips_60m = priceDiff < 0 ? diffPips : 0;
           update.mae_pips_60m = priceDiff > 0 ? diffPips : 0;
         }
 
-        const typicalSl = getTypicalSlPips(row.symbol);
-        update.would_have_won = update.mfe_pips_60m > typicalSl;
+        update.would_have_won = update.mfe_pips_60m > getTypicalSlPips(row.symbol);
       }
 
-      // 120-minute snapshot
       if (row.price_120m === null && elapsedMinutes >= 120) {
         update.price_120m = currentPrice;
         shouldUpdate = true;

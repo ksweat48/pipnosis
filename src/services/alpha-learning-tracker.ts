@@ -262,7 +262,7 @@ class AlphaLearningTracker {
           this.createNoTradeCounterfactual(
             data.id,
             userId,
-            log.symbol as string,
+            log.symbol,
             decision.directional_lean === 'BUY_LEAN' ? 'BUY' : 'SELL',
             decision.lean_confidence ?? decision.confidence ?? 0,
             referencePrice

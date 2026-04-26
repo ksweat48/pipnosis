@@ -340,7 +340,7 @@ const ActionPriceChip: React.FC<{
   );
 };
 
-const SCALP_PATTERN_BADGE_LABELS: Record<string, string> = {
+const SCALP_PATTERN_LABELS: Record<string, string> = {
   momentum_breakout: 'Momentum Breakout',
   bos_retest: 'BOS Retest',
   ema_rejection: 'EMA Rejection',
@@ -350,8 +350,10 @@ const SCALP_PATTERN_BADGE_LABELS: Record<string, string> = {
   liquidity_sweep: 'Liquidity Sweep',
   engulfing_at_structure: 'Engulfing @ Structure',
   trend_pullback_ema: 'Trend Pullback EMA',
-  none: '',
+  none: 'No Named Structure',
 };
+// Badge usage: 'none' maps to empty string so no badge chip is rendered.
+const SCALP_PATTERN_BADGE_LABELS: Record<string, string> = { ...SCALP_PATTERN_LABELS, none: '' };
 
 const getDurationPillStyle = (minutes: number): { text: string; classes: string } => {
   const hours = minutes / 60;
@@ -514,19 +516,6 @@ const AlphaEntryIntelligence: React.FC<{ guide: MidTradeGuidance }> = ({ guide }
       )}
     </div>
   );
-};
-
-const SCALP_PATTERN_LABELS: Record<string, string> = {
-  momentum_breakout: 'Momentum Breakout',
-  bos_retest: 'BOS Retest',
-  ema_rejection: 'EMA Rejection',
-  double_bottom: 'Double Bottom',
-  double_top: 'Double Top',
-  range_breakout: 'Range Breakout',
-  liquidity_sweep: 'Liquidity Sweep',
-  engulfing_at_structure: 'Engulfing @ Structure',
-  trend_pullback_ema: 'Trend Pullback EMA',
-  none: 'No Named Structure',
 };
 
 const SCALP_SUBMODE_LABELS: Record<string, string> = {

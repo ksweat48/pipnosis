@@ -53,23 +53,15 @@ export function AlphaBrainDashboard({ userId }: AlphaBrainDashboardProps) {
     );
   }
 
-  const getTrendIcon = (trend: 'improving' | 'declining' | 'stable') => {
-    if (trend === 'improving') return <TrendingUp className="w-5 h-5 text-emerald-400" />;
-    if (trend === 'declining') return <TrendingDown className="w-5 h-5 text-red-400" />;
-    return <Minus className="w-5 h-5 text-gray-400" />;
+  type Trend = 'improving' | 'declining' | 'stable';
+  const TREND_CONFIG: Record<Trend, { icon: React.ReactNode; color: string; bg: string }> = {
+    improving: { icon: <TrendingUp className="w-5 h-5 text-emerald-400" />, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
+    declining: { icon: <TrendingDown className="w-5 h-5 text-red-400" />,  color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/30' },
+    stable:    { icon: <Minus className="w-5 h-5 text-gray-400" />,        color: 'text-gray-400',    bg: 'bg-gray-500/10 border-gray-500/30' },
   };
-
-  const getTrendColor = (trend: 'improving' | 'declining' | 'stable') => {
-    if (trend === 'improving') return 'text-emerald-400';
-    if (trend === 'declining') return 'text-red-400';
-    return 'text-gray-400';
-  };
-
-  const getTrendBg = (trend: 'improving' | 'declining' | 'stable') => {
-    if (trend === 'improving') return 'bg-emerald-500/10 border-emerald-500/30';
-    if (trend === 'declining') return 'bg-red-500/10 border-red-500/30';
-    return 'bg-gray-500/10 border-gray-500/30';
-  };
+  const getTrendIcon  = (t: Trend) => TREND_CONFIG[t].icon;
+  const getTrendColor = (t: Trend) => TREND_CONFIG[t].color;
+  const getTrendBg    = (t: Trend) => TREND_CONFIG[t].bg;
 
   const getBrokerBadgeColor = (classification: string) => {
     switch (classification) {
