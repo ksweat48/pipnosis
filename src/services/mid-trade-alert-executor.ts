@@ -122,6 +122,13 @@ class MidTradeAlertExecutor {
       });
 
       const recommendation = alert.recommendation_data?.recommendation;
+
+      // Entry zone reached — execute the deferred entry intent
+      if (recommendation === 'EXECUTE_ENTRY' || alert.type === 'entry_zone_reached') {
+        await this.executeEntryIntent(alert);
+        return;
+      }
+
       const tradeId = alert.trade_context?.trade_id || alert.data?.trade_id;
 
       if (!tradeId) {
@@ -165,6 +172,86 @@ class MidTradeAlertExecutor {
       }
     } catch (error) {
       logger.error('[AlertExecutor] Exception executing alert:', error);
+      await this.markAlertAsFailed(alert.id, `Exception: ${error}`);
+    }
+  }
+
+  /**
+   * Execute a deferred entry intent when the pullback zone is reached.
+   *
+   * Sets a manual_trigger flag in the intent's market_context so the
+   * autonomous-entry-monitor Netlify function bypasses EQS checks and
+   * calls executeIntent() in its next 1-minute cycle.
+   */
+  private async executeEntryIntent(alert: any): Promise<void> {
+    try {
+      const intentId = alert.recommendation_data?.intent_id
+        || alert.data?.intent_id
+        || alert.trade_context?.intent_id;
+
+      if (!intentId) {
+        logger.error('[AlertExecutor] No intent_id found in entry_zone_reached alert:', alert);
+        await this.markAlertAsFailed(alert.id, 'No intent_id found');
+        return;
+      }
+
+      logger.info('[AlertExecutor] Triggering entry intent execution:', { intent_id: intentId });
+
+      // Verify the intent is still in monitoring state
+      const { data: intent, error: intentError } = await supabase
+        .from('entry_intents')
+        .select('id, status, symbol, direction, market_context')
+        .eq('id', intentId)
+        .maybeSingle();
+
+      if (intentError || !intent) {
+        logger.error('[AlertExecutor] Intent not found:', { intent_id: intentId, error: intentError });
+        await this.markAlertAsFailed(alert.id, 'Intent not found');
+        return;
+      }
+
+      if (intent.status !== 'monitoring') {
+        logger.warn('[AlertExecutor] Intent is no longer monitoring:', {
+          intent_id: intentId,
+          status: intent.status
+        });
+        await this.markAlertAsExecuted(alert.id, `Intent already ${intent.status}`);
+        return;
+      }
+
+      // Merge manual_trigger flag into market_context.
+      // The autonomous-entry-monitor checks for this flag and skips EQS/zone checks,
+      // calling executeIntent() directly on the next 1-minute cycle.
+      const updatedContext = {
+        ...(intent.market_context || {}),
+        manual_trigger: true,
+        manual_trigger_at: new Date().toISOString()
+      };
+
+      const { error: updateError } = await supabase
+        .from('entry_intents')
+        .update({
+          market_context: updatedContext,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', intentId)
+        .eq('status', 'monitoring');
+
+      if (updateError) {
+        logger.error('[AlertExecutor] Failed to set manual_trigger on intent:', updateError);
+        await this.markAlertAsFailed(alert.id, `Failed to update intent: ${updateError.message}`);
+        return;
+      }
+
+      await this.markAlertAsExecuted(alert.id, 'Entry intent manual trigger set — server monitor will execute on next cycle');
+
+      logger.info('[AlertExecutor] Entry intent manual_trigger set:', {
+        intent_id: intentId,
+        symbol: intent.symbol,
+        direction: intent.direction
+      });
+    } catch (error) {
+      logger.error('[AlertExecutor] Exception in executeEntryIntent:', error);
       await this.markAlertAsFailed(alert.id, `Exception: ${error}`);
     }
   }

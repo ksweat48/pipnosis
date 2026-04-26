@@ -436,6 +436,28 @@ export const handler: Handler = async (event, context) => {
           timeAdjustedThreshold
         );
 
+        // CCIP-2026-0426A: Manual trigger — user pressed ENTER NOW in the UI.
+        // The browser-side mid-trade-alert-executor sets market_context.manual_trigger = true.
+        // When this flag is present, skip EQS and zone checks and execute immediately.
+        const isManualTrigger = intent.market_context?.manual_trigger === true;
+
+        if (isManualTrigger) {
+          console.log(`[Entry Monitor] ⚡ MANUAL TRIGGER detected for ${intent.symbol} — bypassing EQS and zone checks`);
+          const manualPrice = intent.current_price ?? (intent.entry_zone_min + intent.entry_zone_max) / 2;
+          const executed = await executeIntent(intent, manualPrice, 100);
+          if (executed) {
+            executedCount++;
+            successCount++;
+            console.log(`[Entry Monitor] ✅ Manual trigger trade executed for ${intent.symbol}`);
+            results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: true, action: 'manual_trigger', price: manualPrice });
+          } else {
+            errorCount++;
+            console.error(`[Entry Monitor] ❌ Manual trigger execution FAILED for ${intent.symbol}`);
+            results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: false, action: 'manual_trigger_failed' });
+          }
+          continue;
+        }
+
         // Execution decision: Price in zone AND EQS meets threshold
         console.log(`[Entry Monitor] 🎯 EXECUTION CHECK for ${intent.symbol}:`);
         console.log(`  - Price in zone: ${isInZoneWithPhase} (price: ${intent.current_price}, zone: ${intent.entry_zone_min}-${intent.entry_zone_max}, tolerance: ${zoneTolerancePips}p)`);

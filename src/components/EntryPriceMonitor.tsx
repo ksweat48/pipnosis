@@ -10,14 +10,17 @@
  * - Advisory only - never blocks or modifies trade execution
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Target, CheckCircle, ArrowUp, ArrowDown, Minus,
-  Clock, MapPin, AlertCircle, TrendingUp, TrendingDown, Loader2
+  Clock, MapPin, AlertCircle, TrendingUp, TrendingDown, Loader2, Zap
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
 import { formatCurrencyPrice } from '@/utils/currencyHelpers';
+import { logger } from '@/lib/logger';
+
+const ENTRY_COUNTDOWN_SECONDS = 30;
 
 interface ActiveGoalSession {
   id: string;
@@ -377,6 +380,132 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
     }
   }, [isPullbackExpected, pullbackState, onLiveStateChange]);
 
+  // ─── Entry zone countdown + auto-execute trigger ─────────────────────────
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const notificationFiredRef = useRef(false);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
+
+  const fireEntryNotification = useCallback(async (intentId: string, sessionId: string, userId: string) => {
+    if (notificationFiredRef.current) return;
+    notificationFiredRef.current = true;
+
+    try {
+      const autoExecuteAt = new Date(Date.now() + ENTRY_COUNTDOWN_SECONDS * 1000).toISOString();
+      const { error } = await supabase.from('goal_notifications').insert({
+        user_id: userId,
+        goal_session_id: sessionId,
+        type: 'entry_zone_reached',
+        title: 'Entry Zone Reached',
+        message: `Price has entered the target zone. Auto-executing in ${ENTRY_COUNTDOWN_SECONDS}s.`,
+        requires_user_alert: true,
+        executed: false,
+        auto_execute_at: autoExecuteAt,
+        priority: 'critical',
+        data: { intent_id: intentId },
+        trade_context: { intent_id: intentId },
+        recommendation_data: {
+          recommendation: 'EXECUTE_ENTRY',
+          intent_id: intentId,
+          reasoning: 'Price reached the pullback zone. Executing deferred entry.'
+        }
+      });
+
+      if (error) {
+        logger.error('[EntryPriceMonitor] Failed to insert entry notification:', error);
+        notificationFiredRef.current = false;
+      } else {
+        logger.info('[EntryPriceMonitor] Entry zone notification fired for intent', intentId);
+      }
+    } catch (err) {
+      logger.error('[EntryPriceMonitor] Exception firing entry notification:', err);
+      notificationFiredRef.current = false;
+    }
+  }, []);
+
+  // Start countdown when zone is REACHED, reset when it is not
+  useEffect(() => {
+    const zoneReached = isPullbackExpected && pullbackState === 'REACHED';
+
+    if (!zoneReached) {
+      // Zone no longer reached — cancel and reset
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+      setCountdown(null);
+      notificationFiredRef.current = false;
+      return;
+    }
+
+    // Zone reached — start countdown if not already running
+    if (countdownRef.current) return;
+
+    setCountdown(ENTRY_COUNTDOWN_SECONDS);
+
+    countdownRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(countdownRef.current!);
+          countdownRef.current = null;
+
+          if (!notificationFiredRef.current && intent?.id && intent?.session_id && intent?.user_id) {
+            fireEntryNotification(intent.id, intent.session_id, intent.user_id);
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+    };
+  }, [isPullbackExpected, pullbackState, intent?.id, intent?.session_id, intent?.user_id, fireEntryNotification]);
+
+  const handleEnterNow = useCallback(async () => {
+    if (!intent?.id || !intent?.session_id || !intent?.user_id) return;
+    // Cancel the countdown
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setCountdown(0);
+    // Fire immediately — set auto_execute_at to now
+    notificationFiredRef.current = false;
+    try {
+      const { error } = await supabase.from('goal_notifications').insert({
+        user_id: intent.user_id,
+        goal_session_id: intent.session_id,
+        type: 'entry_zone_reached',
+        title: 'Entry Zone Reached — Manual Trigger',
+        message: 'User requested immediate entry execution.',
+        requires_user_alert: true,
+        executed: false,
+        auto_execute_at: new Date().toISOString(),
+        priority: 'critical',
+        data: { intent_id: intent.id, manual: true },
+        trade_context: { intent_id: intent.id },
+        recommendation_data: {
+          recommendation: 'EXECUTE_ENTRY',
+          intent_id: intent.id,
+          reasoning: 'User pressed ENTER NOW — immediate execution requested.'
+        }
+      });
+      if (error) {
+        logger.error('[EntryPriceMonitor] Manual entry notification failed:', error);
+      } else {
+        notificationFiredRef.current = true;
+        logger.info('[EntryPriceMonitor] Manual entry fired for intent', intent.id);
+      }
+    } catch (err) {
+      logger.error('[EntryPriceMonitor] Exception in handleEnterNow:', err);
+    }
+  }, [intent?.id, intent?.session_id, intent?.user_id]);
+  // ─── end countdown logic ──────────────────────────────────────────────────
+
   const formatPrice = useCallback((price: number): string => {
     return formatCurrencyPrice(symbol, price);
   }, [symbol]);
@@ -424,7 +553,11 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
       ) : isWaitHigherEdge ? (
         <WaitHigherEdgeBanner />
       ) : isGoodEntry ? (
-        <GoodEntryBanner pullbackReached={isPullbackExpected && pullbackState === 'REACHED'} />
+        <GoodEntryBanner
+          pullbackReached={isPullbackExpected && pullbackState === 'REACHED'}
+          countdown={countdown}
+          onEnterNow={handleEnterNow}
+        />
       ) : (
         <PullbackExpectedBanner
           pullbackZoneMin={pullbackZoneMin}
@@ -484,32 +617,78 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
 
 interface GoodEntryBannerProps {
   pullbackReached: boolean;
+  countdown: number | null;
+  onEnterNow: () => void;
 }
 
-const GoodEntryBanner: React.FC<GoodEntryBannerProps> = ({ pullbackReached }) => (
-  <div className={`rounded-lg border overflow-hidden ${
-    pullbackReached
-      ? 'bg-emerald-900/30 border-emerald-500/50'
-      : 'bg-emerald-900/20 border-emerald-500/35'
-  }`}>
-    <div className="px-3 py-2.5 flex items-center gap-2.5">
-      <CheckCircle className={`w-4 h-4 text-emerald-400 flex-shrink-0 ${pullbackReached ? 'animate-pulse' : ''}`} />
-      <span className="text-sm font-semibold text-emerald-300">
-        {pullbackReached ? 'Pullback Zone Reached' : 'Good Entry'}
-      </span>
-      <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold ml-auto">
-        {pullbackReached ? 'ENTER NOW' : 'CONFIRMED'}
-      </span>
-    </div>
-    {pullbackReached && (
+const GoodEntryBanner: React.FC<GoodEntryBannerProps> = ({ pullbackReached, countdown, onEnterNow }) => {
+  const isCountingDown = pullbackReached && countdown !== null && countdown > 0;
+  const isFired = pullbackReached && countdown === 0;
+  const progress = isCountingDown ? ((ENTRY_COUNTDOWN_SECONDS - countdown) / ENTRY_COUNTDOWN_SECONDS) * 100 : (isFired ? 100 : 100);
+
+  if (!pullbackReached) {
+    return (
+      <div className="rounded-lg border bg-emerald-900/20 border-emerald-500/35">
+        <div className="px-3 py-2.5 flex items-center gap-2.5">
+          <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-emerald-300">Good Entry</span>
+          <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold ml-auto">
+            CONFIRMED
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-lg border overflow-hidden ${
+      isFired
+        ? 'bg-emerald-900/40 border-emerald-400/70'
+        : 'bg-emerald-900/30 border-emerald-500/50'
+    }`}>
+      <div className="px-3 py-2.5 flex items-center gap-2.5">
+        <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0 animate-pulse" />
+        <div className="flex-1 min-w-0">
+          <span className="text-sm font-semibold text-emerald-300">Pullback Zone Reached</span>
+          {isCountingDown && (
+            <p className="text-xs text-emerald-400/70 mt-0.5">
+              Auto-executing in {countdown}s
+            </p>
+          )}
+          {isFired && (
+            <p className="text-xs text-emerald-400/70 mt-0.5">
+              Executing entry...
+            </p>
+          )}
+        </div>
+        {!isFired ? (
+          <button
+            onClick={onEnterNow}
+            className="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white text-xs font-bold transition-colors duration-150 shadow-lg shadow-emerald-500/30 flex-shrink-0"
+          >
+            <Zap className="w-3 h-3" />
+            ENTER NOW
+            {isCountingDown && (
+              <span className="ml-1 opacity-80 font-mono">{countdown}s</span>
+            )}
+          </button>
+        ) : (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-bold flex-shrink-0">
+            EXECUTING
+          </span>
+        )}
+      </div>
       <div className="h-1 w-full bg-gray-700/40">
-        <div className="h-full bg-emerald-400 w-full relative overflow-hidden">
+        <div
+          className="h-full bg-emerald-400 relative overflow-hidden transition-all duration-1000"
+          style={{ width: `${progress}%` }}
+        >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-200/40 to-transparent animate-[shimmer_1.5s_ease-in-out_infinite]" />
         </div>
       </div>
-    )}
-  </div>
-);
+    </div>
+  );
+};
 
 const WaitHigherEdgeBanner: React.FC = () => (
   <div className="px-3 py-2.5 rounded-lg border bg-amber-900/15 border-amber-500/30 flex items-center gap-2.5">
