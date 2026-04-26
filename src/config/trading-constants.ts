@@ -234,7 +234,7 @@ export const SPREAD_ESTIMATES: Record<string, number> = {
   SPX500: 1.0,
   US500:  1.0,
   BTCUSD: 5.0,
-  ETHUSD: 1.5,  // 1 pip = $1. Real spread $0.50–$2.00 — 1.5 is conservative.
+  ETHUSD: 1.0,  // 1 pip = $1. Real spread $0.50–$2.00 — 1.0 reflects the low-end baseline for scalp geometry. CCIP-2026-0426C.
 } as const;
 
 /**

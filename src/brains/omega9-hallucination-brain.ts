@@ -29,7 +29,7 @@ import type { Omega9ValidationResult, OmegaVote } from '../types/omega';
 import type { AlphaDecision } from './coordinator-alpha';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { type ATRValue } from '../types/atr';
-import { TRADING_CONSTANTS, getEstimatedSpreadPips } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getEstimatedSpreadPips, getMinSlDistancePips } from '../config/trading-constants';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -130,14 +130,15 @@ class Omega9HallucinationBrain {
       };
     }
 
-    if (slDistancePips < spreadPips * 1.5) {
-      console.error(`[Omega-9] HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} < ${(spreadPips * 1.5).toFixed(1)})`);
+    const minSlPips = getMinSlDistancePips(marketContext.symbol);
+    if (slDistancePips < minSlPips) {
+      console.error(`[Omega-9] HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} < ${minSlPips.toFixed(1)})`);
       return {
         pass: false,
         flags: ['HARD_BLOCK_STOP_INSIDE_SPREAD'],
         confidence_adjustment: 0,
         corrections: NO_CORRECTIONS,
-        reasoning: `HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} pips < ${(spreadPips * 1.5).toFixed(1)} pips minimum)`
+        reasoning: `HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} pips < ${minSlPips.toFixed(1)} pips minimum)`
       };
     }
 

@@ -4032,7 +4032,7 @@ MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Current Market Price (${marketContext.symbol}): ${(marketContext.livePrice ?? marketContext.price).toFixed(pipInfoForLegend.decimalPlaces)} ← USE THIS as your entry/SL/TP anchor
   Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} | ${volatilityRegime.recommendation}
-  Spread (${marketContext.symbol}): ~${getEstimatedSpreadPips(marketContext.symbol).toFixed(1)} pips | Minimum viable SL: ${(getEstimatedSpreadPips(marketContext.symbol) * 1.5).toFixed(1)} pips (1.5x spread — SL below this will be hard-blocked)
+  Spread (${marketContext.symbol}): ~${getEstimatedSpreadPips(marketContext.symbol).toFixed(1)} pips | Minimum viable SL: ${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips (1.5x spread — SL below this will be hard-blocked)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -4066,7 +4066,7 @@ MICRO_INTRADAY / INTRADAY: minimum 1.0:1 net of spread applies.
 
 MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step before outputting JSON):
   Step A: Calculate my SL distance in pips — abs(entry - stopLoss).
-  Step B: Verify SL distance >= minimum viable SL shown above (${(getEstimatedSpreadPips(marketContext.symbol) * 1.5).toFixed(1)} pips for ${marketContext.symbol}). If my SL distance is below this floor, the position cannot survive the spread — widen the SL to the next structural level that clears this floor. If no structural anchor exists at or beyond the floor, I output NO_TRADE. Applies to ALL styles.
+  Step B: Verify SL distance >= minimum viable SL shown above (${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips for ${marketContext.symbol}). If my SL distance is below this floor, the position cannot survive the spread — widen the SL to the next structural level that clears this floor. If no structural anchor exists at or beyond the floor, I output NO_TRADE. Applies to ALL styles.
   Step C: Calculate my TP distance in pips — abs(takeProfit - entry).
   Step D (MICRO_INTRADAY and INTRADAY only — NOT applicable to SCALP): Verify TP distance >= SL distance. If TP distance < SL distance, I have constructed a direction, not a trade. This geometry does not qualify as a trade candidate. I select the next structural level further from entry that satisfies TP >= SL distance. If no such level exists after a genuine structural search, I output NO_TRADE with the specific structural reason.
   Step D (SCALP only): No minimum R:R floor. I place TP at the M5 structural exhaustion point. Whatever R:R results is my trade. I do NOT inflate TP beyond the M5 exhaustion point to satisfy a ratio.
