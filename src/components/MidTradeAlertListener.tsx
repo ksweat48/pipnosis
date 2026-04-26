@@ -18,6 +18,8 @@ export function MidTradeAlertListener({ userId }: MidTradeAlertListenerProps) {
     // Fetch any existing unexecuted alerts
     const fetchPendingAlerts = async () => {
       try {
+        // CCIP-2026-0426E: entry_zone_reached is handled directly by EntryPriceMonitor
+        // via manual_trigger flag — no longer routed through this listener.
         const { data: pendingAlerts } = await supabase
           .from('goal_notifications')
           .select('*')
@@ -25,6 +27,7 @@ export function MidTradeAlertListener({ userId }: MidTradeAlertListenerProps) {
           .eq('requires_user_alert', true)
           .eq('executed', false)
           .eq('viewed', false)
+          .neq('type', 'entry_zone_reached')
           .order('created_at', { ascending: false })
           .limit(1);
 
@@ -62,6 +65,11 @@ export function MidTradeAlertListener({ userId }: MidTradeAlertListenerProps) {
         },
         async (payload) => {
           const notification = payload.new as any;
+
+          // CCIP-2026-0426E: Skip entry_zone_reached — handled directly by EntryPriceMonitor
+          if (notification.type === 'entry_zone_reached') {
+            return;
+          }
 
           // Only show if requires user alert and not yet executed
           if (notification.requires_user_alert && !notification.executed && !notification.viewed) {

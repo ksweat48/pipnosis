@@ -379,36 +379,75 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
     }
   }, [isPullbackExpected, pullbackState, onLiveStateChange]);
 
-  // ─── Entry zone immediate trigger (CCIP-2026-0426D: no countdown, execute on zone entry) ─
-  const notificationFiredRef = useRef(false);
+  // ─── Entry zone immediate trigger (CCIP-2026-0426E: direct manual_trigger, no notification chain) ─
+  // When the zone is reached, set the manual_trigger flag directly on the intent and
+  // immediately ping the autonomous-entry-monitor Netlify function so executeIntent()
+  // runs within seconds (instead of waiting up to 60s for the next scheduled cycle).
+  const triggerFiredRef = useRef(false);
 
-  const fireEntryNotification = useCallback(async (intentId: string, sessionId: string, userId: string) => {
-    if (notificationFiredRef.current) return;
-    notificationFiredRef.current = true;
+  const triggerExecution = useCallback(async (intentId: string, manual: boolean) => {
+    if (triggerFiredRef.current) return;
+    triggerFiredRef.current = true;
 
     try {
-      const { error } = await supabase.from('goal_notifications').insert({
-        user_id: userId,
-        goal_session_id: sessionId,
-        type: 'entry_zone_reached',
-        title: 'Entry Zone Reached',
-        message: 'Price has entered the target zone. Executing entry now.',
-        priority: 'critical',
-        requires_user_alert: true,
-        auto_execute_at: new Date().toISOString(),
-        recommendation_data: { recommendation: 'EXECUTE_ENTRY', intent_id: intentId },
-        metadata: { intent_id: intentId }
+      const { data: existing, error: readError } = await supabase
+        .from('entry_intents')
+        .select('market_context, status')
+        .eq('id', intentId)
+        .maybeSingle();
+
+      if (readError || !existing) {
+        logger.error('[EntryPriceMonitor] Failed to read intent before trigger:', readError);
+        triggerFiredRef.current = false;
+        return;
+      }
+
+      if (existing.status !== 'monitoring') {
+        logger.info('[EntryPriceMonitor] Intent no longer monitoring, skipping trigger', {
+          intent_id: intentId,
+          status: existing.status
+        });
+        return;
+      }
+
+      const updatedContext = {
+        ...(existing.market_context || {}),
+        manual_trigger: true,
+        manual_trigger_at: new Date().toISOString(),
+        manual_trigger_source: manual ? 'user_enter_now' : 'zone_reached_auto'
+      };
+
+      const { error: updateError } = await supabase
+        .from('entry_intents')
+        .update({ market_context: updatedContext })
+        .eq('id', intentId)
+        .eq('status', 'monitoring');
+
+      if (updateError) {
+        logger.error('[EntryPriceMonitor] Failed to set manual_trigger:', updateError);
+        triggerFiredRef.current = false;
+        return;
+      }
+
+      logger.info('[EntryPriceMonitor] manual_trigger set on intent, pinging server monitor', {
+        intent_id: intentId,
+        manual
       });
 
-      if (error) {
-        logger.error('[EntryPriceMonitor] Failed to insert entry notification:', error);
-        notificationFiredRef.current = false;
-      } else {
-        logger.info('[EntryPriceMonitor] Entry zone notification fired for intent', intentId);
+      // Fire-and-forget ping to the Netlify monitor for immediate execution.
+      // The function runs every minute on schedule; this just triggers it now.
+      try {
+        await fetch('/.netlify/functions/autonomous-entry-monitor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ intent_id: intentId, source: 'browser_trigger' })
+        });
+      } catch (pingErr) {
+        logger.warn('[EntryPriceMonitor] Server ping failed (will run on next cycle):', pingErr);
       }
     } catch (err) {
-      logger.error('[EntryPriceMonitor] Exception firing entry notification:', err);
-      notificationFiredRef.current = false;
+      logger.error('[EntryPriceMonitor] Exception in triggerExecution:', err);
+      triggerFiredRef.current = false;
     }
   }, []);
 
@@ -417,41 +456,20 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
     const zoneReached = isPullbackExpected && pullbackState === 'REACHED';
 
     if (!zoneReached) {
-      notificationFiredRef.current = false;
+      triggerFiredRef.current = false;
       return;
     }
 
-    if (!notificationFiredRef.current && intent?.id && intent?.session_id && intent?.user_id) {
-      fireEntryNotification(intent.id, intent.session_id, intent.user_id);
+    if (!triggerFiredRef.current && intent?.id) {
+      triggerExecution(intent.id, false);
     }
-  }, [isPullbackExpected, pullbackState, intent?.id, intent?.session_id, intent?.user_id, fireEntryNotification]);
+  }, [isPullbackExpected, pullbackState, intent?.id, triggerExecution]);
 
   const handleEnterNow = useCallback(async () => {
-    if (!intent?.id || !intent?.session_id || !intent?.user_id) return;
-    notificationFiredRef.current = false;
-    try {
-      const { error } = await supabase.from('goal_notifications').insert({
-        user_id: intent.user_id,
-        goal_session_id: intent.session_id,
-        type: 'entry_zone_reached',
-        title: 'Entry Zone Reached — Manual Trigger',
-        message: 'User requested immediate entry execution.',
-        priority: 'critical',
-        requires_user_alert: true,
-        auto_execute_at: new Date().toISOString(),
-        recommendation_data: { recommendation: 'EXECUTE_ENTRY', intent_id: intent.id, manual: true },
-        metadata: { intent_id: intent.id, manual: true }
-      });
-      if (error) {
-        logger.error('[EntryPriceMonitor] Manual entry notification failed:', error);
-      } else {
-        notificationFiredRef.current = true;
-        logger.info('[EntryPriceMonitor] Manual entry fired for intent', intent.id);
-      }
-    } catch (err) {
-      logger.error('[EntryPriceMonitor] Exception in handleEnterNow:', err);
-    }
-  }, [intent?.id, intent?.session_id, intent?.user_id]);
+    if (!intent?.id) return;
+    triggerFiredRef.current = false;
+    await triggerExecution(intent.id, true);
+  }, [intent?.id, triggerExecution]);
   // ─── end entry trigger logic ──────────────────────────────────────────────
 
   const formatPrice = useCallback((price: number): string => {

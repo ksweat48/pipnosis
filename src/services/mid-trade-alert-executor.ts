@@ -228,11 +228,11 @@ class MidTradeAlertExecutor {
         manual_trigger_at: new Date().toISOString()
       };
 
+      // entry_intents has no updated_at column — only set market_context.
       const { error: updateError } = await supabase
         .from('entry_intents')
         .update({
-          market_context: updatedContext,
-          updated_at: new Date().toISOString()
+          market_context: updatedContext
         })
         .eq('id', intentId)
         .eq('status', 'monitoring');
