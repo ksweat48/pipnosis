@@ -354,9 +354,17 @@ export class TradeClosureEventProcessor {
       .in('status', ['monitoring', 'pending', 'active']);
 
     if (openTradeCount === 0 && activeIntentCount === 0) {
+      // CCIP-2026-0427K: Tag the cancel reason so audit trails distinguish a
+      // post-trade-closure cleanup from a silent failure. Previously this wrote
+      // canceled_reason=NULL, masking the executor-crash failure mode entirely.
       await supabase
         .from('entry_intents')
-        .update({ status: 'canceled', canceled_at: new Date().toISOString(), conditions_changed_at: new Date().toISOString() })
+        .update({
+          status: 'canceled',
+          canceled_at: new Date().toISOString(),
+          canceled_reason: 'session_closed_after_trade',
+          conditions_changed_at: new Date().toISOString(),
+        })
         .eq('session_id', event.goal_session_id)
         .not('status', 'in', '("canceled","expired_no_entry")');
 

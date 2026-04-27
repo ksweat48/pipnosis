@@ -436,14 +436,24 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
         manual
       });
 
-      // Fire-and-forget ping to the Netlify monitor for immediate execution.
-      // The function runs every minute on schedule; this just triggers it now.
+      // CCIP-2026-0427K: Surface server response. Previously fire-and-forget meant a 500
+      // from the executor crash was silently discarded and the UI kept saying "Executing
+      // entry now..." while the trade never landed. Now we read the body and log it; the
+      // server-side fast-path still owns persistence, so we don't change UI on response.
       try {
-        await fetch('/.netlify/functions/autonomous-entry-monitor', {
+        const pingResp = await fetch('/.netlify/functions/autonomous-entry-monitor', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ intent_id: intentId, source: 'browser_trigger' })
         });
+        if (!pingResp.ok) {
+          const bodyText = await pingResp.text().catch(() => '<no body>');
+          logger.error('[EntryPriceMonitor] Server monitor returned non-2xx', {
+            status: pingResp.status,
+            body: bodyText.slice(0, 500),
+            intent_id: intentId
+          });
+        }
       } catch (pingErr) {
         logger.warn('[EntryPriceMonitor] Server ping failed (will run on next cycle):', pingErr);
       }

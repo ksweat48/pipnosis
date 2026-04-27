@@ -979,9 +979,26 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       regimeSnapshot: marketContext?.regime_snapshot
     };
 
-    // Execute trade via AlphaTradeExecutor (SSOT)
-    const { AlphaTradeExecutor } = await import('../../src/services/alpha-trade-executor.js');
-    const executor = new AlphaTradeExecutor();
+    // Execute trade via AlphaTradeExecutor singleton (SSOT)
+    // CCIP-2026-0427K: import the exported singleton, not a non-exported class.
+    // Previously destructured `AlphaTradeExecutor` which is not exported -> `new undefined()`
+    // threw `TypeError: ... is not a constructor` and silently killed every execution cycle.
+    const executorModule = await import('../../src/services/alpha-trade-executor.js');
+    const executor = executorModule.alphaTradeExecutor;
+    if (!executor || typeof executor.execute !== 'function') {
+      const importKeys = Object.keys(executorModule || {});
+      const failureMsg = `alphaTradeExecutor singleton not available. Module keys: [${importKeys.join(', ')}]`;
+      console.error(`[Entry Monitor] ❌ ${failureMsg}`);
+      if (auditId) {
+        await supabase.rpc('fail_execution_audit', {
+          p_audit_id: auditId,
+          p_failure_step: 'EXECUTOR_IMPORT',
+          p_failure_reason: failureMsg,
+          p_error_details: { module_keys: importKeys }
+        });
+      }
+      return false;
+    }
 
     const executionResult = await executor.execute({
       decision: alphaDecision,
