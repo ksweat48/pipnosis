@@ -322,15 +322,8 @@ class RiskPreflightGate {
       return { valid: false, reason: 'SELL TP must be below entry' };
     }
 
-    const slDistance = Math.abs(entry - stopLoss);
-    const tpDistance = Math.abs(takeProfit - entry);
-    const rrRatio = slDistance > 0 ? tpDistance / slDistance : 0;
-    const minRR = getMinRRForStyle(style);
-
-    if (rrRatio < minRR) {
-      return { valid: false, reason: `R:R ${rrRatio.toFixed(2)} below minimum ${minRR} for ${style || 'default'}` };
-    }
-
+    // CCIP-2026-0427L: R:R floor REMOVED. Alpha owns R:R judgement.
+    // Geometry direction checks above remain (physics, not strategy).
     return { valid: true };
   }
 

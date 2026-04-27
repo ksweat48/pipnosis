@@ -260,10 +260,12 @@ class GoalIntelligenceClassifier {
       );
     }
 
+    // CCIP-2026-0427L: R:R floor demoted to advisory. Alpha owns R:R judgement.
     const [minRR, maxRR] = classification.targetRiskRewardRange;
     if (proposedTrade.riskReward < minRR) {
-      violations.push(
-        `R:R ${proposedTrade.riskReward.toFixed(1)} below ${classification.mode} mode minimum (${minRR})`
+      warnings.push(
+        `R:R ${proposedTrade.riskReward.toFixed(1)} below ${classification.mode} mode typical (${minRR}). ` +
+        `Verify Alpha provided structural justification.`
       );
     }
 

@@ -1043,7 +1043,7 @@ BUY or SELL:
     "range_position": "Where price sits in the ${controlTF} range and what that implies for direction probability",
     "Q_DIR": "Which direction does structure and momentum favour — one sentence with evidence.",
     "Q_RANGE": "How many pips can price realistically travel before a structural wall? Name the wall.",
-    "Q_EDGE": "YES — I verified: my SL is [X] pips from entry and my TP is [Y] pips from entry. R:R is [Z]:1. The structural distance to my named target is what the market produces — I select the TP level the structure offers, not a ratio I engineer toward. I state the R:R honestly. If the structural TP is closer than my SL, I name why (momentum continuation, tight structural stop, scalp precision) or find a better TP level. I do not fabricate a TP to clear a ratio."
+    "Q_EDGE": "YES — I verified: my SL is [X] pips from entry and my TP is [Y] pips from entry. R:R is [Z]:1. The structural distance to my named target is what the market produces — I select the TP level the structure offers, not a ratio I engineer toward. I state the R:R honestly. If the structural TP is closer than my SL (R:R below 1:1), I MUST name a specific structural reason it is still worth taking — momentum continuation off a freshly-reclaimed level, an exceptionally tight structural stop, scalp precision into an immediate liquidity pocket, or trapped-participant fuel. A sub-1:1 setup without an explicit structural justification is a setup I do not take. I do not fabricate a TP to clear a ratio, and I do not take a poor R:R because the trade was 'close enough'."
   },
   "counter_thesis": "Single most credible structural failure reason — named specifically.",
   "counter_thesis_probability": <0-100>,

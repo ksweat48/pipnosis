@@ -12,8 +12,11 @@
  * - Zero distance (SL or TP at entry)
  * - Stop inside spread (impossible to survive)
  * - TP within spread (profit consumed before realisation)
- * - R:R below catastrophic threshold
- * - R:R below minimum profitable floor (1:1)
+ *
+ * CCIP-2026-0427L: R:R floors REMOVED. Alpha owns R:R judgement. Per Pipnosis
+ * engineering law ("Improve Alpha's Brain, Not His Constraints"), the
+ * remediation for poor R:R is in alpha-identity.ts where Alpha must justify
+ * any sub-1:1 setup with a structural reason — not a hard gate here.
  *
  * WHAT OMEGA-9 DOES NOT DO:
  * - No confidence adjustments
@@ -29,7 +32,7 @@ import type { Omega9ValidationResult, OmegaVote } from '../types/omega';
 import type { AlphaDecision } from './coordinator-alpha';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { type ATRValue } from '../types/atr';
-import { TRADING_CONSTANTS, getEstimatedSpreadPips, getMinSlDistancePips } from '../config/trading-constants';
+import { getEstimatedSpreadPips, getMinSlDistancePips } from '../config/trading-constants';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -103,32 +106,10 @@ class Omega9HallucinationBrain {
     const tpDistancePips = calculatePipDistance(marketContext.symbol, entry, tp);
     const spreadPips = getEstimatedSpreadPips(marketContext.symbol);
 
-    // R:R CHECKS RUN FIRST — before spread check — so Alpha receives the correct
-    // feedback when it submits TP pips < SL pips. The spread check firing first
-    // masked the real R:R failure and gave Alpha the wrong rejection reason.
-    const minRR = input.safetyRules.minRR;
-    if (rr < minRR) {
-      console.error(`[Omega-9] HARD BLOCK: R:R below 1:1 floor — TP ${tpDistancePips.toFixed(1)} pips < SL ${slDistancePips.toFixed(1)} pips (R:R ${rr.toFixed(3)}:1 < ${minRR}:1 minimum)`);
-      return {
-        pass: false,
-        flags: ['HARD_BLOCK_RR_BELOW_MINIMUM'],
-        confidence_adjustment: 0,
-        corrections: NO_CORRECTIONS,
-        reasoning: `HARD BLOCK: R:R ${rr.toFixed(3)}:1 is below the ${minRR}:1 minimum. TP is ${tpDistancePips.toFixed(1)} pips from entry but SL is ${slDistancePips.toFixed(1)} pips — TP must be >= SL pips for a 1:1 trade. Risking more than you can make produces guaranteed negative expectancy.`
-      };
-    }
-
-    const CATASTROPHIC_RR = TRADING_CONSTANTS.RISK_REWARD_RATIOS.CATASTROPHIC_THRESHOLD;
-    if (rr <= CATASTROPHIC_RR) {
-      console.error(`[Omega-9] HARD BLOCK: R:R catastrophic (${rr.toFixed(2)} <= ${CATASTROPHIC_RR})`);
-      return {
-        pass: false,
-        flags: ['HARD_BLOCK_RR_CATASTROPHIC'],
-        confidence_adjustment: 0,
-        corrections: NO_CORRECTIONS,
-        reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 <= ${CATASTROPHIC_RR}:1 minimum)`
-      };
-    }
+    // CCIP-2026-0427L: R:R hard blocks removed. Alpha owns R:R judgement.
+    // Previous code blocked at rr < minRR and at rr <= CATASTROPHIC_RR (0.5).
+    // Both constrained Alpha's strategy rather than catching catastrophic
+    // execution-pipeline corruption, which violates the dual-arena mandate.
 
     const minSlPips = getMinSlDistancePips(marketContext.symbol);
     if (slDistancePips < minSlPips) {
