@@ -1,52 +1,41 @@
 /**
- * CCIP-2026-0425B: Simplified Alpha Confidence Tier System (4-tier rewrite)
+ * CCIP-2026-0427F-ALWAYS-EXECUTE: Four-tier confidence vocabulary (rebrand).
  *
- * GOVERNANCE PRINCIPLE:
- * Alpha outputs a TEXT TIER — never a raw number. This eliminates numeric anchoring.
+ * GOVERNANCE PRINCIPLE
+ * ────────────────────
+ * Alpha outputs a TEXT TIER — never a raw number. The tier-to-number conversion
+ * is INTERNAL ONLY for downstream systems (TPS, PCPE, learning engine).
  *
- * The tier-to-number conversion is INTERNAL ONLY. Alpha never sees the number.
- * The user sees both the text Alpha chose and its numeric equivalent.
- * All downstream systems (TPS, PCPE, learning engine) receive a number as before.
+ * Alpha must ALWAYS produce a directional decision (BUY or SELL). NO_TRADE has
+ * been eliminated from the vocabulary. Quality below 60% is expressed via the
+ * 'low_quality' tier — the user, not Alpha, decides whether to execute.
  *
- * FOUR-TIER MODEL:
- * ─────────────────────────────────────────────────────────────────────────────
- * no_read           → Answer sheet is genuinely blank. No patterns, no named
- *                     levels, no sweeps, no BOS, no directional lean. NO_TRADE
- *                     is the only valid output. This tier is rare.
+ * ACTIVE FOUR-TIER MODEL
+ * ──────────────────────
+ *  low_quality          (<60%, midpoint 50)  Best-effort read with limited evidence.
+ *                                            Surfaced to the user for manual judgement.
+ *  confident            (60–69%, midpoint 65) Solid structure, direction named, stop
+ *                                             anchored, path credible.
+ *  very_confident       (70–79%, midpoint 75) Strong structure with named evidence
+ *                                             across structure, momentum, and liquidity.
+ *  extremely_confident  (80%+,   midpoint 88) Near-perfect alignment across all
+ *                                             dimensions. Execute now only.
  *
- * confident         → Solid structure. Direction named. Stop anchored. Path
- *                     credible. Some unknowns remain. Execute now or wait intent.
- *
- * very_confident    → Strong structure. Named evidence stack across structure,
- *                     momentum, and liquidity. Clear directional case. Execute
- *                     now or wait intent.
- *
- * extremely_confident → Near-perfect alignment across all dimensions. All
- *                       evidence converges on the same conclusion. Rare. Execute
- *                       now only — waiting surrenders the edge.
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * DECISION MODEL (CCIP-2026-0425B):
- * Alpha follows a sequential decision process:
- *   1. Can I execute NOW? → BUY/SELL + execute_now + confident/very_confident/extremely_confident
- *   2. Can I set a wait intent? → BUY/SELL + wait_pullback/push_confirmation + confident/very_confident
- *   3. Only if BOTH fail AND answer sheet is genuinely blank → NO_TRADE (no_read)
- *
- * PATTERN-DETECTED LOCK: If ANY pattern field is populated, no_read is forbidden.
- * Alpha MUST output BUY or SELL. The only question remaining is entry timing.
- *
- * LEGACY TIERS (low, cautious, moderate, high, very_high, extreme):
- * Retained in numberToTier() and VALID_CONFIDENCE_TIERS for display of historical
- * database records only. Alpha no longer outputs these tiers. Any Alpha output of
- * these tiers is a schema violation and will be normalised by the coordinator.
+ * LEGACY TIERS
+ * ────────────
+ * Historical records may still display legacy tier strings (no_read, low,
+ * cautious, moderate, high, very_high, extreme). These are normalised on read
+ * via numberToTier() / display via formatConfidenceTier(). Alpha is no longer
+ * permitted to emit any legacy tier.
  */
 
 export type ConfidenceTier =
-  | 'no_read'
+  | 'low_quality'
   | 'confident'
   | 'very_confident'
   | 'extremely_confident'
-  // Legacy tiers — historical records only, not valid Alpha outputs
+  // Legacy tiers retained for type compatibility with historical records only
+  | 'no_read'
   | 'low'
   | 'cautious'
   | 'moderate'
@@ -55,27 +44,45 @@ export type ConfidenceTier =
   | 'extreme';
 
 /**
- * Tiers Alpha is permitted to output for BUY/SELL decisions.
- * CCIP-2026-0425B: Only the 3 actionable tiers (confident → extremely_confident).
+ * Tiers Alpha is permitted to output. Always-execute model: Alpha must pick one
+ * of these four for every BUY/SELL decision.
  */
 export const ACTIONABLE_CONFIDENCE_TIERS = new Set<string>([
+  'low_quality',
   'confident',
   'very_confident',
   'extremely_confident',
 ]);
 
 /**
- * Fixed midpoint conversion: ConfidenceTier → numeric (0–100).
- * INTERNAL ONLY. Alpha never sees these numbers.
- * Legacy tiers retained for historical record display.
+ * Tiers Alpha is permitted to output in the current schema. Identical to
+ * ACTIONABLE_CONFIDENCE_TIERS now that NO_TRADE has been retired.
+ */
+export const ACTIVE_CONFIDENCE_TIERS = new Set<string>([
+  'low_quality',
+  'confident',
+  'very_confident',
+  'extremely_confident',
+]);
+
+/**
+ * Recommended-execution floor. Trades at or above this midpoint are flagged in
+ * the UI as recommended; below it the user is shown a "Low Quality" badge.
+ */
+export const RECOMMENDED_CONFIDENCE_FLOOR = 60;
+
+/**
+ * Fixed midpoint conversion: ConfidenceTier -> numeric (0-100). INTERNAL ONLY.
+ * Alpha never sees these numbers.
  */
 export const CONFIDENCE_TIER_TO_NUMBER: Record<ConfidenceTier, number> = {
-  // Active tiers (CCIP-2026-0425B)
-  no_read:              10,
-  confident:            60,
-  very_confident:       80,
-  extremely_confident:  95,
+  // Active tiers
+  low_quality:         50,
+  confident:           65,
+  very_confident:      75,
+  extremely_confident: 88,
   // Legacy tiers (historical display only)
+  no_read:   10,
   low:       25,
   cautious:  40,
   moderate:  55,
@@ -84,16 +91,14 @@ export const CONFIDENCE_TIER_TO_NUMBER: Record<ConfidenceTier, number> = {
   extreme:   90,
 };
 
-/**
- * Human-readable label shown in the UI alongside the numeric equivalent.
- */
 export const CONFIDENCE_TIER_LABELS: Record<ConfidenceTier, string> = {
   // Active tiers
-  no_read:              'No Read',
-  confident:            'Confident',
-  very_confident:       'Very Confident',
-  extremely_confident:  'Extremely Confident',
+  low_quality:         'Low Quality',
+  confident:           'Confident',
+  very_confident:      'Very Confident',
+  extremely_confident: 'Extremely Confident',
   // Legacy tiers
+  no_read:   'No Read',
   low:       'Low',
   cautious:  'Cautious',
   moderate:  'Moderate',
@@ -102,26 +107,11 @@ export const CONFIDENCE_TIER_LABELS: Record<ConfidenceTier, string> = {
   extreme:   'Extreme',
 };
 
-/**
- * All valid tier strings — used for parsing Alpha output and display.
- * Includes legacy tiers for backward compatibility with historical records.
- */
 export const VALID_CONFIDENCE_TIERS = new Set<string>(Object.keys(CONFIDENCE_TIER_TO_NUMBER));
 
 /**
- * Active tiers Alpha may output in the current schema.
- * Used for schema violation detection.
- */
-export const ACTIVE_CONFIDENCE_TIERS = new Set<string>([
-  'no_read',
-  'confident',
-  'very_confident',
-  'extremely_confident',
-]);
-
-/**
- * Convert Alpha's text tier to the numeric confidence used by all downstream systems.
- * Returns 0 if the tier is unrecognized (signals a schema violation).
+ * Convert Alpha's text tier to the numeric confidence used by all downstream
+ * systems. Returns 0 if the tier is unrecognised (signals a schema violation).
  */
 export function tierToNumber(tier: string | undefined | null): number {
   if (!tier) return 0;
@@ -129,34 +119,57 @@ export function tierToNumber(tier: string | undefined | null): number {
 }
 
 /**
- * Convert a numeric confidence (from the database or legacy records) back to the
- * nearest tier label for display purposes. Maps to new 4-tier system for recent
- * records, legacy tier names for older records.
+ * Convert a numeric confidence back to the nearest active tier label for
+ * display. Used when the database row only carries a numeric confidence
+ * (legacy records) and the UI needs a tier badge.
  */
 export function numberToTier(confidence: number): ConfidenceTier {
-  if (confidence >= 90) return 'extremely_confident';
+  if (confidence >= 80) return 'extremely_confident';
   if (confidence >= 70) return 'very_confident';
-  if (confidence >= 55) return 'confident';
-  // Legacy fallbacks for old records stored below 55
-  if (confidence >= 48) return 'moderate';
-  if (confidence >= 33) return 'cautious';
-  if (confidence >= 17) return 'low';
-  return 'no_read';
+  if (confidence >= 60) return 'confident';
+  return 'low_quality';
 }
 
 /**
- * Format a tier for user display: "Confident (60%)"
+ * Normalise any (possibly legacy) tier string to the active four-tier
+ * vocabulary. Used at every read boundary so the UI never has to think about
+ * legacy values.
  */
-export function formatConfidenceTier(tier: ConfidenceTier | string | null | undefined, numericFallback?: number | null): string {
+export function normalizeTier(tier: string | undefined | null): ConfidenceTier {
+  if (!tier) return 'low_quality';
+  if (ACTIVE_CONFIDENCE_TIERS.has(tier)) return tier as ConfidenceTier;
+  // Map legacy strings via their numeric midpoint
+  const numeric = CONFIDENCE_TIER_TO_NUMBER[tier as ConfidenceTier];
+  if (typeof numeric === 'number') return numberToTier(numeric);
+  return 'low_quality';
+}
+
+/**
+ * Format a tier for user display: "Confident (65%)".
+ */
+export function formatConfidenceTier(
+  tier: ConfidenceTier | string | null | undefined,
+  numericFallback?: number | null
+): string {
   if (tier && VALID_CONFIDENCE_TIERS.has(tier)) {
-    const label = CONFIDENCE_TIER_LABELS[tier as ConfidenceTier];
-    const pct = CONFIDENCE_TIER_TO_NUMBER[tier as ConfidenceTier];
+    const active = normalizeTier(tier);
+    const label = CONFIDENCE_TIER_LABELS[active];
+    const pct = CONFIDENCE_TIER_TO_NUMBER[active];
     return `${label} (${pct}%)`;
   }
   if (numericFallback != null) {
-    const derivedTier = numberToTier(numericFallback);
-    const label = CONFIDENCE_TIER_LABELS[derivedTier];
+    const derived = numberToTier(numericFallback);
+    const label = CONFIDENCE_TIER_LABELS[derived];
     return `${label} (${numericFallback}%)`;
   }
   return 'N/A';
+}
+
+/**
+ * True when the tier represents a recommended-execution trade (>= 60%).
+ */
+export function isRecommendedTier(tier: ConfidenceTier | string | null | undefined): boolean {
+  if (!tier) return false;
+  const active = normalizeTier(tier);
+  return CONFIDENCE_TIER_TO_NUMBER[active] >= RECOMMENDED_CONFIDENCE_FLOOR;
 }

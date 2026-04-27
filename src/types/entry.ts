@@ -571,8 +571,15 @@ export type StyleDisplayName = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 /**
  * Alpha decision action types
+ *
+ * CCIP-2026-0427F-ALWAYS-EXECUTE: NO_TRADE has been retired. Alpha must always
+ * produce a directional decision (BUY or SELL). When the user's Entry Monitor
+ * toggle is OFF, low-quality reads still execute now (gated only by user
+ * judgement via the Low Quality badge in the UI). When the toggle is ON,
+ * Alpha may fall back to a wait intent (entry_mode wait_pullback /
+ * push_confirmation) instead of a NO_TRADE.
  */
-export type AlphaAction = 'BUY' | 'SELL' | 'NO_TRADE';
+export type AlphaAction = 'BUY' | 'SELL';
 
 /**
  * Alpha output format - standardized response structure

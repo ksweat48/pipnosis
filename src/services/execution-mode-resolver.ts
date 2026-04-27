@@ -47,14 +47,13 @@ export async function resolveExecutionMode(
     symbol?: string;
     confidence_tier?: string;
     reasoning?: { wait_reasoning?: string } | string;
+    [key: string]: unknown;
   },
   userId: string,
   sessionId: string
 ): Promise<ExecutionModeResult> {
-  if (alphaDecision.action === 'NO_TRADE') {
-    return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
-  }
-
+  // CCIP-2026-0427F-ALWAYS-EXECUTE: NO_TRADE no longer reaches this resolver.
+  // Alpha always produces BUY or SELL; routing now depends solely on entry_mode.
   const alphaWantsToWait =
     alphaDecision.entry_mode === 'wait_pullback'
     || alphaDecision.entry_mode === 'push_confirmation';
