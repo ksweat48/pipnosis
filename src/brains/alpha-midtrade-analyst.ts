@@ -511,13 +511,31 @@ export function buildAlphaWatchContract(params: {
   } = params;
 
   const keyLevels: AlphaWatchContract['key_levels'] = [];
-  const resolvedInvalidation = invalidationPrice ?? stopLoss;
+
+  // CCIP-2026-0427I: invalidation_price is the trade-level thesis-failure price for THIS
+  // trade — which is the executed stop loss. Pattern-level invalidation points can sit far
+  // beyond the SL (deeper structural levels) and using them here causes "near_sl" triggers
+  // to evaluate against a price the trade will never reach before SL is hit. The pattern
+  // invalidation is preserved as a separate key_level so the audit retains it.
+  const resolvedInvalidation = stopLoss;
 
   keyLevels.push({
     price: resolvedInvalidation,
     type: 'invalidation',
-    label: invalidationPrice ? 'Pattern invalidation' : 'Stop loss',
+    label: 'Stop loss',
   });
+
+  if (
+    invalidationPrice !== null &&
+    Number.isFinite(invalidationPrice) &&
+    Math.abs(invalidationPrice - stopLoss) > 0.0001
+  ) {
+    keyLevels.push({
+      price: invalidationPrice,
+      type: 'invalidation',
+      label: 'Pattern invalidation',
+    });
+  }
 
   const escalateOn: string[] = ['near_sl', 'severe_drawdown', 'moderate_drawdown'];
 
