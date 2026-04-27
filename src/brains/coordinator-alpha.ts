@@ -4932,6 +4932,65 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // SSOT: Alpha's entry_mode and wait_condition are passed downstream unchanged.
       // alpha-identity.ts LEGITIMATE_BLOCK_CONDITIONS is the exhaustive gate registry.
 
+      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-0427H-IN-ZONE-COLLAPSE: SSOT geometric consistency rule.
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // INVARIANT: A wait whose target zone is already satisfied by current price
+      // is geometrically not a wait — it is an immediate execution.
+      //
+      // This is NOT a trading-judgment override of Alpha's entry_mode. It is
+      // enforcement of internal SSOT consistency between two fields Alpha
+      // produced together: entry_mode=wait_pullback and a wait_condition zone
+      // that current price already sits inside. Those two facts contradict
+      // each other. The fix is to honour the geometry (price IS in the zone)
+      // and convert to execute_now. The wait_condition is then meaningless
+      // and stripped, matching CCIP-2026-0319C semantics for execute_now.
+      //
+      // WHY: Without this, Alpha-emitted wait_pullback decisions whose zone
+      // is already satisfied get routed to MONITORED mode, where the entry
+      // monitor sees price in zone and either fires anyway (creating racey
+      // double-paths) or expires the intent silently. Either is a defect.
+      if (
+        (resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation') &&
+        resolvedWaitCondition != null
+      ) {
+        const livePrice = marketContext?.livePrice ?? marketContext?.price;
+        const zoneMin = Math.min(
+          resolvedWaitCondition.target_entry_zone_min,
+          resolvedWaitCondition.target_entry_zone_max
+        );
+        const zoneMax = Math.max(
+          resolvedWaitCondition.target_entry_zone_min,
+          resolvedWaitCondition.target_entry_zone_max
+        );
+        if (typeof livePrice === 'number' && livePrice >= zoneMin && livePrice <= zoneMax) {
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0427H-IN-ZONE-COLLAPSE: wait zone already satisfied. ` +
+            `currentPrice=${livePrice} inside zone ${zoneMin}-${zoneMax}. ` +
+            `Converting entry_mode=${resolvedEntryMode} → execute_now and stripping wait_condition. Symbol=${symbol}.`
+          );
+          logViolation({
+            violationType: 'IN_ZONE_WAIT_PULLBACK_COLLAPSE',
+            symbol,
+            attemptedOperation: 'in_zone_collapse',
+            callLocation: 'coordinator-alpha.in_zone_collapse',
+            blocked: false,
+            errorDetails: {
+              original_entry_mode: resolvedEntryMode,
+              corrected_entry_mode: 'execute_now',
+              current_price: livePrice,
+              zone_min: zoneMin,
+              zone_max: zoneMax,
+              sessionId: goalContext?.sessionId || null,
+              userId: userId || null,
+            }
+          }).catch(() => {});
+          resolvedEntryMode = 'execute_now';
+          resolvedWaitCondition = undefined;
+        }
+      }
+
       // CCIP-2026-0328B: Breakout contradiction guard REMOVED.
       // Alpha has full authority over entry_mode. Q6 and Q4 are answer_sheet audit
       // fields that Alpha already accounts for in his reasoning. Code must not

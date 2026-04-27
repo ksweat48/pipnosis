@@ -192,7 +192,36 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // Check if price data is stale — only applies to automatic monitoring (manual trigger bypassed above)
+        // CCIP-2026-0427H: Fallback live-price fetch.
+        // The RPC filters realtime_prices to rows newer than 90s. If that filter
+        // returned nothing, current_price will be NULL. Before abandoning the cycle,
+        // try one direct lookup for the most recent row (regardless of age) and let
+        // the 120s staleness check below decide whether it is usable. This prevents
+        // a polling hiccup from silently expiring an intent that just hit its zone.
+        if (!intent.current_price || !intent.price_updated_at) {
+          const { data: fallbackPriceRow } = await supabase
+            .from('realtime_prices')
+            .select('bid, ask, mid, created_at')
+            .eq('symbol', intent.symbol)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (fallbackPriceRow) {
+            const fallbackPrice = intent.direction === 'long'
+              ? Number(fallbackPriceRow.ask)
+              : intent.direction === 'short'
+                ? Number(fallbackPriceRow.bid)
+                : Number(fallbackPriceRow.mid);
+            if (Number.isFinite(fallbackPrice) && fallbackPrice > 0) {
+              const fallbackAgeSec = Math.round((Date.now() - new Date(fallbackPriceRow.created_at).getTime()) / 1000);
+              console.log(`[Entry Monitor] ↻ Fallback price for ${intent.symbol}: ${fallbackPrice} (age=${fallbackAgeSec}s)`);
+              intent.current_price = fallbackPrice;
+              intent.price_updated_at = fallbackPriceRow.created_at;
+            }
+          }
+        }
+
         if (!intent.current_price || !intent.price_updated_at) {
           console.log(`[Entry Monitor] ⚠️ No price data for ${intent.symbol}, skipping`);
           await updateServerState(intent.intent_id, intent.user_id, null, null, 'no_price_data', 'Price data unavailable');

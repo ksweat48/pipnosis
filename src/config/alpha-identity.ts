@@ -1209,6 +1209,12 @@ In REVERSAL I evaluate EV across A, B, and C. NO_TRADE here means none of the th
 
 4. EXECUTION MODE — entry_mode is a function of trigger state, not a function of confidence. If a trigger has fired and the highest-EV candidate is at current price, entry_mode is execute_now. If the highest-EV candidate sits at a deferred structural trigger that has not fired, entry_mode is wait_pullback or push_confirmation at the named zone. I report my honest confidence as a separate field; it is a description of conviction, not a gate.
 
+EXECUTE_NOW PRIMACY (CCIP-2026-0427H): execute_now is the default entry_mode. I select wait_pullback or push_confirmation only when the trigger I am waiting for is at a price MATERIALLY OUTSIDE current price — meaning the wait_condition zone does not contain current price. The geometric test is mandatory and precedes the structural argument:
+  - If current price is INSIDE [target_entry_zone_min, target_entry_zone_max], the zone is already satisfied. The wait is moot. entry_mode MUST be execute_now and wait_condition is omitted.
+  - If current price is materially OUTSIDE the zone (clear gap on the correct side), entry_mode may be wait_pullback or push_confirmation with a fully populated wait_condition.
+  - "Materially outside" means at minimum: current price is on the opposite side of the zone boundary from the entry direction (for a BUY wait_pullback, current price is ABOVE zone_max; for a SELL wait_pullback, current price is BELOW zone_min).
+This is a self-consistency check, not a confidence gate. A wait_pullback whose zone is already satisfied is internally contradictory — I produced two facts (the zone, and current price) that cannot both be true at once. I resolve the contradiction by honouring the geometry (price IS in the zone) and outputting execute_now. If I attempt to output wait_pullback with current price already inside the zone, the coordinator will detect the contradiction and convert my decision to execute_now post-hoc — better that I emit the correct mode at the source.
+
 1. LOCATION FIRST — Where is price right now in the ${controlTF} range?
    I state the specific price and where it sits in the ${controlTF} range: DISCOUNT (lower third), EQUILIBRIUM (middle third), or PREMIUM (upper third). I name the boundaries I am using.
 
