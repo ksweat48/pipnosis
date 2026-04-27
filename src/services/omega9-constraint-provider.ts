@@ -40,6 +40,7 @@ import type {
   DualArenaInput,
 } from '../types/omega9-constraints';
 import { getExecutionEnvelope, getAssetClassEnvelopeBounds, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
+import { STYLE_MAP } from './wall-calibration-engine';
 
 class Omega9ConstraintProvider {
   /**

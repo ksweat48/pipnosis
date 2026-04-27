@@ -85,6 +85,20 @@ class AlphaLearningTracker {
     sessionId?: string
   ): Promise<string | null> {
     try {
+      // CCIP-2026-0427G-ALWAYS-EXECUTE: NO_TRADE is no longer a valid action under the always-execute model.
+      // The DB CHECK constraint refuses any non-directional row. Until coordinator-alpha is refactored to
+      // never synthesise NO_TRADE on failure, swallow these here so a single STYLE_MAP/runtime error does
+      // not produce a 23514 flood that terminates the session. Real BUY/SELL decisions log normally.
+      if (decision.action === 'NO_TRADE') {
+        console.warn(
+          '[Alpha Learning] CCIP-2026-0427G: Skipping log for synthetic NO_TRADE decision (DB constraint forbids non-directional rows). symbol=',
+          decision.symbol || marketContext?.symbol,
+          'reason=',
+          (decision as any).block_reason ?? (decision as any).decision_origin ?? decision.reasoning?.slice?.(0, 120)
+        );
+        return null;
+      }
+
       const alpha_override = this.determineOverride(decision, omegaConsensus);
       const override_reason = alpha_override ? this.explainOverride(decision, omegaConsensus, omegaVotes) : undefined;
 

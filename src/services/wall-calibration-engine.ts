@@ -91,7 +91,8 @@ export interface WallCalibrationResult {
 }
 
 // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — all canonicals collapse to MICRO_INTRADAY.
-const STYLE_MAP: Record<TradeStyle, 'MICRO_INTRADAY'> = {
+// CCIP-2026-0427G-HOTFIX: Exported so omega9-constraint-provider can share the same SSOT mapping.
+export const STYLE_MAP: Record<TradeStyle, 'MICRO_INTRADAY'> = {
   micro: 'MICRO_INTRADAY',
 };
 
