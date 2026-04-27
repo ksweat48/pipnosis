@@ -30,27 +30,14 @@ export interface StyleConfig {
   maxChaseDistance: number;
 }
 
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
 const STYLE_CONFIGS: Record<CanonicalStyle, StyleConfig> = {
-  SCALP: {
-    canonical: 'SCALP',
-    displayName: 'Scalp',
-    pollIntervalMs: 2000,
-    timeoutMinutes: 3,
-    maxChaseDistance: 5
-  },
   MICRO_INTRADAY: {
     canonical: 'MICRO_INTRADAY',
     displayName: 'Micro Intraday',
     pollIntervalMs: 3000,
     timeoutMinutes: 5,
     maxChaseDistance: 10
-  },
-  INTRADAY: {
-    canonical: 'INTRADAY',
-    displayName: 'Intraday',
-    pollIntervalMs: 5000,
-    timeoutMinutes: 15,
-    maxChaseDistance: 15
   }
 };
 
@@ -76,7 +63,8 @@ export class TradeStyleRegistry {
   }
 
   getAllCanonicalStyles(): CanonicalStyle[] {
-    return ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    return ['MICRO_INTRADAY'];
   }
 
   isValid(style: string): boolean {

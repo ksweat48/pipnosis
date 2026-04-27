@@ -98,8 +98,8 @@ class MultiTimeframePatternIntelligence {
       direction: input.tradeDirection,
     });
 
-    // CCIP-STYLE-TF-2026: Derive timeframes from trade style, not risk mode
-    const canonicalStyle = resolveCanonicalStyle(input.tradeStyle, 'SCALP');
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+    const canonicalStyle = resolveCanonicalStyle(input.tradeStyle, 'MICRO_INTRADAY');
     const config = getStyleMTFConfig(canonicalStyle);
 
     // Fetch candles for all three layers with retry logic

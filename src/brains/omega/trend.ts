@@ -25,6 +25,9 @@ import {
 import { analyzeMomentum, formatMomentumEvidence } from '../../lib/technical-math/momentum';
 import { TREND_THRESHOLDS } from '../../config/omega-thresholds';
 
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+// Type retains legacy union members purely for back-compat with snapshot inputs;
+// at runtime tradeStyle is ALWAYS 'MICRO_INTRADAY' — SCALP/INTRADAY branches are dead.
 export type OmegaTradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 export interface TrendSnapshot {
@@ -43,7 +46,8 @@ export interface TrendSnapshot {
 
 class OmegaTrendBrain {
   evaluate(snapshot: TrendSnapshot): OmegaVote {
-    const { p, e20, e50, e200, mom, sensors, previousEma20, atr, tradeStyle = 'SCALP' } = snapshot;
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: tradeStyle is ALWAYS MICRO_INTRADAY at runtime.
+    const { p, e20, e50, e200, mom, sensors, previousEma20, atr, tradeStyle = 'MICRO_INTRADAY' } = snapshot;
 
     const emaAlignment = calculateEMAAlignment(p, e20, e50, e200);
     const emaSlope = calculateEMASlope(e20, previousEma20 || e20, atr || 1);

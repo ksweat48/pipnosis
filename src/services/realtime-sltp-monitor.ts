@@ -347,14 +347,14 @@ class RealtimeSLTPMonitor {
       // CCIP-2026-BE001: Re-fetch tp1_breakeven_price from the DB immediately after markTP1Hit
       // succeeds to check if the trigger already handled it. In-memory position.tp1_breakeven_price
       // is always null at this point (the in-memory copy predates the trigger's UPDATE).
-      // CCIP-2026-BE002: SCALP never moves SL to break-even.
-      // Trigger closes a SCALP position at TP1 (close_reason=take_profit_1).
-      // Skip the entire BE backup path when the user requested SCALP.
-      const styleUpper = (position.requested_style || '').toUpperCase();
-      const isScalp = styleUpper === 'SCALP';
+      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+      // MICRO_INTRADAY ALWAYS moves SL to break-even on TP1 hit (TP1 = fast scalp partial,
+      // TP2 = full intraday target — protect P/L runner via BE on partial fill).
+      void position.requested_style;
+      const isScalp = false;
 
       if (isScalp) {
-        console.log(`[RealtimeSLTPMonitor] SCALP style — TP1 close owned by DB trigger, skipping BE backup`);
+        console.log(`[RealtimeSLTPMonitor] (legacy SCALP path retained but unreachable)`);
       } else {
         const { data: freshTrade } = await import('@/lib/supabase').then(m =>
           m.supabase

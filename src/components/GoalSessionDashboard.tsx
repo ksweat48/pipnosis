@@ -256,13 +256,13 @@ export const GoalSessionDashboard: React.FC = () => {
 
           if (!tp1JustHit) return;
 
-          // CCIP GOVERNANCE (2026-03-12 SCALP-TP-FIX): Scalp trades have tp2_price = NULL.
-          // The TP1 modal must only fire for dual-TP trades (MICRO_INTRADAY / INTRADAY).
-          // For scalp trades the position is already closing via the legacy single-TP path;
-          // showing a TP1 modal with TP2 language would be incorrect and confusing.
+          // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — every trade is
+          // dual-TP MICRO_INTRADAY. Legacy single-TP rows from before consolidation may
+          // still exist in the DB with tp2_price = NULL; suppress the TP1 modal for those
+          // since the trade is closing on its single TP without a TP2 decision point.
           const tp2Price = payload.new.tp2_price != null ? parseFloat(payload.new.tp2_price) : null;
           if (tp2Price === null) {
-            console.log('[GoalSessionDashboard] TP1 hit on single-TP trade (scalp) — suppressing TP1 modal, trade is closing normally');
+            console.log('[GoalSessionDashboard] TP1 hit on legacy single-TP trade — suppressing TP1 modal, trade is closing normally');
             return;
           }
 
@@ -343,10 +343,10 @@ export const GoalSessionDashboard: React.FC = () => {
       if (cancelled || !openTP1Trade) return;
       if (processedTP1Hits.current.has(openTP1Trade.id)) return;
 
-      // CCIP GOVERNANCE (2026-03-12 SCALP-TP-FIX): Suppress TP1 modal for single-TP (scalp) trades.
+      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Suppress TP1 modal for legacy single-TP rows.
       const recoveredTP2Price = openTP1Trade.tp2_price != null ? parseFloat(openTP1Trade.tp2_price) : null;
       if (recoveredTP2Price === null) {
-        console.log('[GoalSessionDashboard] Recovered TP1 event is for single-TP trade — suppressing modal');
+        console.log('[GoalSessionDashboard] Recovered TP1 event is for legacy single-TP trade — suppressing modal');
         return;
       }
 

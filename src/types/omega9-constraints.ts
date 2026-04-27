@@ -118,10 +118,11 @@ export interface ConstraintFeasibilityStatus {
 }
 
 /**
- * INTRADAY-ONLY TRADE STYLES
- * NO SWING TRADES ALLOWED - Pipnosis is intraday-only
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+ * Pipnosis is single-style — only `micro` (canonical name) remains.
+ * Legacy 'scalper' and 'intraday' values normalize to 'micro' upstream.
  */
-export type TradeStyle = 'scalper' | 'micro' | 'intraday';
+export type TradeStyle = 'micro';
 
 export type LegacyRiskMode = 'low' | 'medium' | 'high';
 

@@ -154,7 +154,8 @@ class AlphaOmegaOrchestrator {
     // CCIP-STYLE-TF-2026: Style is the SSOT for entry timeframe.
     // Risk mode controls financial exposure only — never timeframe or style selection.
     const riskMode: RiskMode = goalContext?.riskMode || 'medium';
-    const resolvedOmegaStyle = resolveCanonicalStyle(goalContext?.tradeStyle, 'SCALP');
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+    const resolvedOmegaStyle = resolveCanonicalStyle(goalContext?.tradeStyle, 'MICRO_INTRADAY');
     const styleMTFConfig = getStyleMTFConfig(resolvedOmegaStyle);
     const entryTimeframe: Timeframe = styleMTFConfig.entryTimeframe;
 
@@ -570,7 +571,8 @@ class AlphaOmegaOrchestrator {
         stopLoss: decision.stopLoss,
         direction: decision.action as 'BUY' | 'SELL',
         rr_ceiling_override: decision.rr_ceiling_override,
-        tradeStyle: decision.resolvedStyle ?? 'SCALP',
+        // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+        tradeStyle: (decision.resolvedStyle as any) ?? 'micro',
       });
       console.log(`[CCIP-ALPHA-GOV-001] ${rrAudit.auditNote}`);
     }

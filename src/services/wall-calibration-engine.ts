@@ -90,10 +90,9 @@ export interface WallCalibrationResult {
   };
 }
 
-const STYLE_MAP: Record<TradeStyle, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
-  scalper: 'SCALP',
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — all canonicals collapse to MICRO_INTRADAY.
+const STYLE_MAP: Record<TradeStyle, 'MICRO_INTRADAY'> = {
   micro: 'MICRO_INTRADAY',
-  intraday: 'INTRADAY',
 };
 
 class WallCalibrationEngine {
@@ -116,7 +115,7 @@ class WallCalibrationEngine {
     const pipInfo = getCurrencyPipInfo(input.symbol);
     const assetCategory = assetClassifier.getAssetCategory(input.symbol);
     const assetClass = this.mapAssetClass(assetCategory);
-    const envelopeStyle = STYLE_MAP[input.tradeStyle] || 'INTRADAY';
+    const envelopeStyle = STYLE_MAP[input.tradeStyle] || 'MICRO_INTRADAY';
 
     calibrationLog.push(`[WallCalibration] ${input.symbol} | Style: ${envelopeStyle} | Session: ${input.currentSession} (${input.sessionTimeRemainingMinutes}min)`);
 

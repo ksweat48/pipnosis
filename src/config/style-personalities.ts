@@ -45,43 +45,16 @@ export interface StylePersonality {
   };
 }
 
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
 export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
-  SCALP: {
-    displayName: 'SCALP',
-    mindset: 'Precision execution — fresh structure, defined trigger, minimal heat',
-    description: 'Fast trades targeting quick profits with tight risk management',
-    durationBand: {
-      minHours: 0.33,
-      maxHours: 2.0,
-      targetHours: 1.0,
-    },
-    entryBias: {
-      preferredEntryType: 'immediate',
-      aggressionLevel: 'high',
-      waitTolerance: 'low',
-    },
-    rewards: {
-      withinBandBonus: 5,
-      belowBandBonus: 10,
-      exceedsBandPenalty: 0,
-    },
-    referenceRanges: {
-      primaryTimeframe: 'M1',
-      atrTimeframe: 'M5',
-      typicalTPPips: { low: 10, mid: 18, high: 25 },
-      typicalSLPips: { low: 10, mid: 14, high: 18 },
-      sessionAdjustment: true,
-    },
-  },
-
   MICRO_INTRADAY: {
     displayName: 'MICRO_INTRADAY',
-    mindset: 'Structural trade — M15-confirmed direction, M5 entry timing, measured patience',
-    description: 'Medium-term trades exploiting structural moves with measured risk',
+    mindset: 'Hunter on M5 — TP1 captures fast scalp partial; TP2 captures full intraday target',
+    description: 'Intraday trades. M5 entry, TP1 = M5 leg exhaustion partial, TP2 = full intraday target',
     durationBand: {
-      minHours: 1.0,
-      maxHours: 6.0,
-      targetHours: 3.0,
+      minHours: 0.33,
+      maxHours: 4.0,
+      targetHours: 2.0,
     },
     entryBias: {
       preferredEntryType: 'pullback',
@@ -96,37 +69,9 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
     referenceRanges: {
       primaryTimeframe: 'M5',
       atrTimeframe: 'M5',
-      typicalTPPips: { low: 50, mid: 80, high: 120 },
-      typicalSLPips: { low: 20, mid: 28, high: 35 },
+      typicalTPPips: { low: 30, mid: 60, high: 120 },
+      typicalSLPips: { low: 15, mid: 25, high: 40 },
       sessionAdjustment: true,
-    },
-  },
-
-  INTRADAY: {
-    displayName: 'INTRADAY',
-    mindset: 'Campaign positioning — H1-validated bias, M15 structural entry, full-conviction execution across every session',
-    description: 'Longer intraday trades capturing larger structural moves with decisive positioning',
-    durationBand: {
-      minHours: 2.0,
-      maxHours: 10.0,
-      targetHours: 5.0,
-    },
-    entryBias: {
-      preferredEntryType: 'confirmation',
-      aggressionLevel: 'medium',
-      waitTolerance: 'medium',
-    },
-    rewards: {
-      withinBandBonus: 5,
-      belowBandBonus: 5,
-      exceedsBandPenalty: 0,
-    },
-    referenceRanges: {
-      primaryTimeframe: 'M15',
-      atrTimeframe: 'M15',
-      typicalTPPips: { low: 50, mid: 80, high: 120 },
-      typicalSLPips: { low: 35, mid: 48, high: 60 },
-      sessionAdjustment: false,
     },
   },
 } as const;

@@ -1,15 +1,15 @@
 /**
- * SMART GOAL PANEL - Trade Styles System
+ * SMART GOAL PANEL - Single-Style Platform
  *
- * INTRADAY-ONLY PLATFORM: All trades close before market close
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION:
+ * Pipnosis is now a single-style platform (MICRO_INTRADAY).
+ * The style picker step is removed; users land directly on the amount step.
  *
- * NEW ARCHITECTURE: 2-Step Goal Creation Flow
- *
- * Step 1: Choose Trading Style (scalper, micro, intraday)
- * Step 2: Pick Dollar Amount to risk per trade
+ * Goal Creation Flow:
+ *   - Style is fixed to the only entry in TRADE_STYLES (micro)
+ *   - User picks dollar amount to risk per trade
  *
  * RISK POLICY: Risk up to 10% per trade, 20% total exposure
- * - Style determines trade duration and patience
  * - Dollar amount determines position sizing
  * - Alpha Brain handles everything else intelligently
  *
@@ -18,7 +18,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, Coins, Crown, Lock, Sparkles } from 'lucide-react';
+import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, Coins, Crown, Lock } from 'lucide-react';
 import { smartGoalSessionManager } from '../services/smart-goal-session-manager';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
@@ -37,14 +37,15 @@ const STYLE_ICONS = {
   Clock,
 };
 
-type Step = 'style' | 'amount';
-
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+// The style picker step is removed; selectedStyle is locked to the only entry
+// in TRADE_STYLES (micro) and the panel renders the amount step directly.
 export const SmartGoalPanel: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [currentStep, setCurrentStep] = useState<Step>('style');
-  const [selectedStyle, setSelectedStyle] = useState<TradeStyle | null>(null);
+  const defaultStyle = (Object.keys(TRADE_STYLES)[0] as TradeStyle);
+  const [selectedStyle] = useState<TradeStyle>(defaultStyle);
   const [customAmount, setCustomAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -61,26 +62,24 @@ export const SmartGoalPanel: React.FC = () => {
   const [userMembership, setUserMembership] = useState<UserMembership | null | undefined>(undefined);
 
   useEffect(() => {
-    const styleParam = searchParams.get('style') as TradeStyle | null;
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: The `style` URL param is ignored —
+    // single-style platform. We still honour the `symbol` deep-link so
+    // "Focus on X" pre-population continues to work from card hand-offs.
     const symbolParam = searchParams.get('symbol');
-    if (styleParam && TRADE_STYLES[styleParam]) {
-      setSelectedStyle(styleParam);
-      setCurrentStep('amount');
-      if (symbolParam) {
-        setCustomInstructions(`Focus on ${symbolParam}`);
-        try {
-          const raw = sessionStorage.getItem('im_card_signal');
-          if (raw) {
-            const signal = JSON.parse(raw) as Record<string, unknown>;
-            if (signal.symbol && typeof signal.symbol === 'string') {
-              setPendingSymbol(signal.symbol);
-              setPendingCardSignal(signal);
-            }
-            sessionStorage.removeItem('im_card_signal');
+    if (symbolParam) {
+      setCustomInstructions(`Focus on ${symbolParam}`);
+      try {
+        const raw = sessionStorage.getItem('im_card_signal');
+        if (raw) {
+          const signal = JSON.parse(raw) as Record<string, unknown>;
+          if (signal.symbol && typeof signal.symbol === 'string') {
+            setPendingSymbol(signal.symbol);
+            setPendingCardSignal(signal);
           }
-        } catch {
           sessionStorage.removeItem('im_card_signal');
         }
+      } catch {
+        sessionStorage.removeItem('im_card_signal');
       }
       setSearchParams({}, { replace: true });
       window.dispatchEvent(new CustomEvent('smart-goal-panel-scroll-to-top'));
@@ -211,41 +210,8 @@ export const SmartGoalPanel: React.FC = () => {
     return validateDollarAmount(amount, accountBalance);
   }, [customAmount, accountBalance]);
 
-  const handleStyleSelection = (style: TradeStyle) => {
-    // SSOT: Enforce minimum account balance
-    if (accountBalance < MINIMUM_ACCOUNT_BALANCE) {
-      toast.error(
-        'Insufficient Account Balance',
-        `Minimum account balance of $${MINIMUM_ACCOUNT_BALANCE} required. Please update your balance to start trading.`,
-        8000
-      );
-      setError(`Minimum account balance of $${MINIMUM_ACCOUNT_BALANCE} required`);
-      return;
-    }
-
-    // SSOT Credit Gate: Block non-admin users who lack minimum credits before any session flow begins.
-    // Multi-trade mode requires up to 30 credits (10 × 3 trades); single-trade requires 10.
-    const requiredForMode = TOKENOMICS.CREDITS.minBalanceForSession(multiTradeEnabled ? 3 : 1);
-    if (!isAdminUser && creditBalance !== null && creditBalance < requiredForMode) {
-      setShowInsufficientCreditsModal(true);
-      return;
-    }
-
-    setSelectedStyle(style);
-    setCurrentStep('amount');
-    setCustomAmount('');
-    setError('');
-  };
-
   const handleAmountSelection = (amount: number) => {
     setCustomAmount(amount.toString());
-  };
-
-  const handleBack = () => {
-    setCurrentStep('style');
-    setSelectedStyle(null);
-    setCustomAmount('');
-    setError('');
   };
 
   const handleCreateSession = async () => {
@@ -387,9 +353,9 @@ export const SmartGoalPanel: React.FC = () => {
 
       if (session) {
         window.dispatchEvent(new CustomEvent('goal-session-created', { detail: session }));
-        setSelectedStyle(null);
+        // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — style stays
+        // locked to the only available style; we only reset the amount + handoff state.
         setCustomAmount('');
-        setCurrentStep('style');
         setPendingSymbol(null);
         setPendingCardSignal(null);
 
@@ -422,8 +388,10 @@ export const SmartGoalPanel: React.FC = () => {
     }
   };
 
-  const selectedConfig = selectedStyle ? TRADE_STYLES[selectedStyle] : null;
-  const IconComponent = selectedConfig ? STYLE_ICONS[selectedConfig.icon as keyof typeof STYLE_ICONS] : null;
+  // CCIP-2026-0427E-STYLE-CONSOLIDATION: selectedStyle is non-nullable on
+  // the single-style platform; selectedConfig and IconComponent always resolve.
+  const selectedConfig = TRADE_STYLES[selectedStyle];
+  const IconComponent = STYLE_ICONS[selectedConfig.icon as keyof typeof STYLE_ICONS];
 
   const showLowCreditBanner = !isAdminUser && creditBalance !== null && creditBalance < TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION;
   const showLowCreditWarning = !isAdminUser && creditBalance !== null && !showLowCreditBanner && creditBalance < TOKENOMICS.CREDITS.BASE_TRADE_COST * 2;
@@ -498,138 +466,56 @@ export const SmartGoalPanel: React.FC = () => {
           </div>
         )}
 
-        {/* Step 1: Choose Trading Style */}
-        {currentStep === 'style' && (
-          <div className="space-y-4">
-            <div className="text-center mb-6">
-              {/* Club Level Badge + Execution Mode Indicator — SSOT: derived from clubMembershipService + trading_preferences */}
-              {userMembership !== undefined && (
-                <div className="flex items-center justify-center gap-2 mb-3">
-                  {/* Membership tier pill */}
-                  {(() => {
-                    const pillCta = getMembershipCTA(userMembership);
-                    const c = pillCta.color;
-                    return userMembership && userMembership.status === 'active' ? (
-                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${c.pill} border ${c.pillBorder}`}>
-                        <Crown className={`w-3 h-3 ${c.iconText}`} />
-                        <span className={`text-xs font-bold ${c.pillText} tracking-wide`}>{userMembership.tierName}</span>
-                      </div>
-                    ) : (
-                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${c.pill} border ${c.pillBorder}`}>
-                        <Lock className={`w-3 h-3 ${c.iconText}`} />
-                        <span className={`text-xs font-bold ${c.pillText}`}>Not Yet A Club Member</span>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Execution mode indicator pill — reflects current trading_preferences.multi_trade_enabled */}
-                  {multiTradeEnabled ? (
-                    <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 transition-all duration-300">
-                      <Zap className="w-3 h-3 text-emerald-400" />
-                      <span className="text-xs font-bold text-emerald-400 tracking-wide">Multi</span>
+        {/* CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — only the
+            amount step is rendered. The style picker has been removed; tier +
+            execution-mode indicators are shown above the amount controls. */}
+        <div className="space-y-4">
+          <div className="text-center mb-2">
+            {/* Club Level Badge + Execution Mode Indicator — SSOT: derived from clubMembershipService + trading_preferences */}
+            {userMembership !== undefined && (
+              <div className="flex items-center justify-center gap-2 mb-3">
+                {/* Membership tier pill */}
+                {(() => {
+                  const pillCta = getMembershipCTA(userMembership);
+                  const c = pillCta.color;
+                  return userMembership && userMembership.status === 'active' ? (
+                    <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${c.pill} border ${c.pillBorder}`}>
+                      <Crown className={`w-3 h-3 ${c.iconText}`} />
+                      <span className={`text-xs font-bold ${c.pillText} tracking-wide`}>{userMembership.tierName}</span>
                     </div>
                   ) : (
-                    <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-500/40 transition-all duration-300">
-                      <CheckCircle className="w-3 h-3 text-blue-400" />
-                      <span className="text-xs font-bold text-blue-400 tracking-wide">Single</span>
+                    <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${c.pill} border ${c.pillBorder}`}>
+                      <Lock className={`w-3 h-3 ${c.iconText}`} />
+                      <span className={`text-xs font-bold ${c.pillText}`}>Not Yet A Club Member</span>
                     </div>
-                  )}
-                </div>
-              )}
-              <h3 className="text-lg font-bold text-white mb-2">Choose Your Trading Style</h3>
-            </div>
+                  );
+                })()}
 
-            <div className="grid grid-cols-1 gap-4">
-              {(Object.keys(TRADE_STYLES) as TradeStyle[]).map((style) => {
-                const config = TRADE_STYLES[style];
-                const Icon = STYLE_ICONS[config.icon as keyof typeof STYLE_ICONS];
-
-                return (
-                  <button
-                    key={style}
-                    onClick={() => handleStyleSelection(style)}
-                    disabled={loadingPreferences}
-                    className="group relative px-6 py-5 bg-gradient-to-br from-gray-700/50 to-gray-800/50 hover:from-gray-600/50 hover:to-gray-700/50 backdrop-blur-sm rounded-xl text-left transition-all duration-300 border border-gray-600/50 hover:border-emerald-500/50 hover:shadow-lg hover:shadow-emerald-500/10 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/0 to-blue-500/0 group-hover:from-emerald-500/5 group-hover:to-blue-500/5 rounded-xl transition-all duration-300" />
-                    <div className="relative flex items-start gap-4">
-                      <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-emerald-500/20 to-blue-500/20 flex items-center justify-center group-hover:from-emerald-500/30 group-hover:to-blue-500/30 transition-all">
-                        <Icon className="w-6 h-6 text-emerald-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-base font-bold text-white group-hover:text-emerald-300 transition-colors mb-1">
-                          {config.displayName}
-                        </div>
-                        <div className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">
-                          {config.description}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Club CTA Banner — always visible on style step */}
-            {(() => {
-              const cta = getMembershipCTA(userMembership);
-              const c = cta.color;
-              return (
-                <div className={`relative mt-2 overflow-hidden rounded-xl border ${c.bannerBorder}`}>
-                  <div className={`absolute inset-0 ${c.bannerBg}`} />
-                  <div className="relative p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${c.iconBg}`}>
-                        {cta.isFounder ? (
-                          <Crown className={`w-4 h-4 ${c.iconText}`} />
-                        ) : (
-                          <Sparkles className={`w-4 h-4 ${c.iconText}`} />
-                        )}
-                      </div>
-                      {cta.isFounder ? (
-                        <div className={`px-3 py-1.5 rounded-lg ${c.btnBg} border ${c.bannerBorder} ${c.headingText} text-xs font-bold whitespace-nowrap`}>
-                          Edge 100%
-                        </div>
-                      ) : (
-                        <a
-                          href="/club"
-                          className={`px-3 py-1.5 rounded-lg ${c.btnBg} ${c.btnHover} text-white text-xs font-semibold transition-colors whitespace-nowrap`}
-                        >
-                          {cta.label}
-                        </a>
-                      )}
-                    </div>
-                    <p className={`text-sm font-bold ${c.headingText} mb-1`}>Improve Your Edge</p>
-                    <p className="text-xs text-gray-400 leading-relaxed">
-                      {cta.isFounder
-                        ? 'You have unlocked maximum trading intelligence and the full power of the Pipnosis ecosystem.'
-                        : 'Unlock advanced trading tools, deeper AI analysis, and exclusive features as a Club Member.'}
-                    </p>
+                {/* Execution mode indicator pill — reflects current trading_preferences.multi_trade_enabled */}
+                {multiTradeEnabled ? (
+                  <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 transition-all duration-300">
+                    <Zap className="w-3 h-3 text-emerald-400" />
+                    <span className="text-xs font-bold text-emerald-400 tracking-wide">Multi</span>
                   </div>
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
-        {/* Step 2: Choose Dollar Amount */}
-        {currentStep === 'amount' && selectedConfig && IconComponent && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 mb-4">
-              <button
-                onClick={handleBack}
-                className="p-2 hover:bg-gray-700/50 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5 text-gray-400 hover:text-white" />
-              </button>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <IconComponent className="w-5 h-5 text-emerald-400" />
-                  <h3 className="text-lg font-bold text-white">{selectedConfig.displayName} Style</h3>
-                </div>
-                <p className="text-sm text-gray-400">{selectedConfig.description}</p>
+                ) : (
+                  <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-500/40 transition-all duration-300">
+                    <CheckCircle className="w-3 h-3 text-blue-400" />
+                    <span className="text-xs font-bold text-blue-400 tracking-wide">Single</span>
+                  </div>
+                )}
               </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <IconComponent className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-lg font-bold text-white">{selectedConfig.displayName}</h3>
+              </div>
+              <p className="text-sm text-gray-400">{selectedConfig.description}</p>
             </div>
+          </div>
 
             <div className="bg-gray-700/30 rounded-lg p-4 mb-4">
               <div className="text-sm text-gray-300 mb-2">
@@ -842,8 +728,7 @@ export const SmartGoalPanel: React.FC = () => {
                 )}
               </button>
             </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
     </>

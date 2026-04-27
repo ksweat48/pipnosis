@@ -9,9 +9,7 @@
  * - HIGH: 1-3% risk per trade (Aggressive capital deployment)
  *
  * TRADE STYLE controls TIME PREFERENCE (Duration, NOT Risk):
- * - SCALP: 20min - 2hrs (fast entries/exits)
- * - MICRO_INTRADAY: 1hr - 6hrs (short day trades)
- * - INTRADAY: 2hrs - 10hrs (full day trades)
+ * - MICRO_INTRADAY: 20min - 4hrs (CCIP-2026-0427E-STYLE-CONSOLIDATION: sole style)
  *
  * CRITICAL SEPARATION:
  * - Risk mode NEVER determines style
@@ -22,10 +20,10 @@
  *   3. User preference (if specified)
  *   4. User preference (style is IMMUTABLE once chosen - no auto-upgrade)
  *
- * VALID COMBINATIONS (ALL SUPPORTED):
- * - "Low risk + SCALP" = Small position, fast exit
- * - "High risk + INTRADAY" = Large position, patient hold
- * - "Medium risk + MICRO_INTRADAY" = Balanced position and duration
+ * VALID COMBINATIONS (CCIP-2026-0427E-STYLE-CONSOLIDATION: single style):
+ * - "Low risk + MICRO_INTRADAY" = Small position, intraday hold
+ * - "Medium risk + MICRO_INTRADAY" = Balanced position
+ * - "High risk + MICRO_INTRADAY" = Aggressive position
  *
  * Risk profiles define ONLY:
  * - Position sizing parameters
@@ -42,8 +40,7 @@
  * pip floors constrain his output. The style envelope percentage bounds (price-dynamic)
  * remain as structural reference in the prompt; they are advisory, not blocking.
  *
- * Alpha independently determines style using time-to-fill calculator
- * and style progression system (SCALP → MICRO → INTRADAY).
+ * Alpha plans within MICRO_INTRADAY (single style; CCIP-2026-0427E-STYLE-CONSOLIDATION).
  */
 
 export interface RiskStrategyProfile {
@@ -311,37 +308,21 @@ export function getExpectedDuration(riskMode: 'low' | 'medium' | 'high'): { min:
 }
 
 /**
- * STYLE-DIFFERENTIATED ATR TIMEFRAME MAP (CCIP 2026-03)
+ * STYLE-DIFFERENTIATED ATR TIMEFRAME MAP
  *
- * The SL calculator uses ATR to determine stop width. ATR must come from the
- * SAME timeframe the trade is managed on — not always H1.
- *
- * SCALP trades managed on M5 → use M5 ATR (short, tight — matches M5 structure)
- * MICRO_INTRADAY trades managed on M15 → use M15 ATR (medium — matches M15 structure)
- * INTRADAY trades managed on H1 → use H1 ATR (wide — matches H1 structure)
- *
- * The corresponding ATR multiplier ranges are calibrated for each timeframe's
- * typical pip range so that SL distances remain structurally appropriate.
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+ * MICRO_INTRADAY is managed on M5 → uses M5 ATR (matches the M5 entry/structure timeframe).
+ * Multiplier range is calibrated for M5 pip ranges so SL distances remain structurally appropriate.
  */
-export const STYLE_ATR_TIMEFRAME_MAP: Record<'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY', {
+export const STYLE_ATR_TIMEFRAME_MAP: Record<'MICRO_INTRADAY', {
   preferredTimeframe: string;
   atrField: 'atr20' | 'atr' | 'atr100';
   multiplierRange: { min: number; max: number };
 }> = {
-  SCALP: {
+  MICRO_INTRADAY: {
     preferredTimeframe: 'M5',
     atrField: 'atr20',
-    multiplierRange: { min: 0.5, max: 1.0 },
-  },
-  MICRO_INTRADAY: {
-    preferredTimeframe: 'M15',
-    atrField: 'atr',
     multiplierRange: { min: 0.8, max: 1.3 },
-  },
-  INTRADAY: {
-    preferredTimeframe: 'H1',
-    atrField: 'atr100',
-    multiplierRange: { min: 1.0, max: 1.5 },
   },
 };
 
@@ -349,10 +330,12 @@ export const STYLE_ATR_TIMEFRAME_MAP: Record<'SCALP' | 'MICRO_INTRADAY' | 'INTRA
  * Get stop loss width range in ATR multiples.
  * When tradeStyle is provided, returns style-calibrated multipliers instead of risk-mode defaults.
  * This ensures SL width is appropriate for the ATR timeframe of the active style.
+ *
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
  */
 export function getStopLossMultiplierRange(
   riskMode: 'low' | 'medium' | 'high',
-  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'
+  tradeStyle?: 'MICRO_INTRADAY'
 ): { min: number; max: number } {
   if (tradeStyle && STYLE_ATR_TIMEFRAME_MAP[tradeStyle]) {
     return STYLE_ATR_TIMEFRAME_MAP[tradeStyle].multiplierRange;

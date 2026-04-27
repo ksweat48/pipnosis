@@ -1227,7 +1227,8 @@ class GoalSessionLiveEngine {
           const candidate: TPSCandidate = {
             symbol: snapshot.symbol,
             direction: decision.action === 'SELL' ? 'SELL' : 'BUY',
-            style: decision.style || 'INTRADAY',
+            // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+            style: decision.style || 'MICRO_INTRADAY',
             tradeConfidence: decision.confidence || 0,
             eqsNow: decision.entryQualityScore || 40,
             eqsRequired: 40,
@@ -1645,7 +1646,8 @@ class GoalSessionLiveEngine {
       };
 
       const styleResolution = executionStyleResolver.resolve({
-        requestedStyle: decision.resolvedStyle || 'INTRADAY',
+        // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+        requestedStyle: (decision.resolvedStyle as any) || 'MICRO_INTRADAY',
         riskMode: goalContext.riskMode?.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH',
         atrPercent,
         sessionType: sessionTypeMap[currentSession]
@@ -3887,7 +3889,8 @@ This learning will carry forward to improve future sessions!
     omegaDecisions: Map<string, any>,
     _snapshots: SymbolSnapshot[]
   ): NoTradeRejectionContext {
-    const currentStyle = this.config?.tradeStyle?.toUpperCase() || 'SCALP';
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    const currentStyle = this.config?.tradeStyle?.toUpperCase() || 'MICRO_INTRADAY';
     let hasWeakConsensus = false;
     const symbolReasons: NoTradeRejectionContext['symbolReasons'] = [];
 

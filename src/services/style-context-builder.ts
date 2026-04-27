@@ -250,7 +250,9 @@ export function validateTPSLForStyle(
     adjustments.push(`Consider increasing TP to at least ${typicalTPPips.mid} pips`);
   } else if (tpPips > typicalTPPips.high) {
     warnings.push(`TP (${tpPips} pips) exceeds typical range for ${normalizedStyle} (${typicalTPPips.low}-${typicalTPPips.high})`);
-    adjustments.push(`Consider ${normalizedStyle === 'SCALP' ? 'reducing TP or upgrading style' : 'confirming structural justification'}`);
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — style is immutable.
+    void normalizedStyle;
+    adjustments.push(`Consider confirming structural justification or selecting a closer in-band target`);
   }
 
   // Check SL

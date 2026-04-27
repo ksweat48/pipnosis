@@ -641,7 +641,9 @@ describe('Architectural Compliance - Confidence-Dominant Selection', () => {
         violations.push('ExecutionEligibilityInput must include tradeConfidence field');
       }
 
-      if (!/style\?:.*SCALP.*MICRO_INTRADAY.*INTRADAY/.test(content)) {
+      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — only check
+      // that the input retains a style field (typed to MICRO_INTRADAY).
+      if (!/style\?:.*MICRO_INTRADAY/.test(content)) {
         violations.push('ExecutionEligibilityInput must include style field');
       }
 

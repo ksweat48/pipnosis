@@ -422,22 +422,23 @@ class BestSymbolSelector {
     // TPS score (0-100, if available)
     const tpsScore = tpsScores?.get(snapshot.symbol) || 50; // Default neutral if not available
 
-    // EQS score (only for non-SCALP styles)
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — EQS always weighted.
     const style = (omegaDecision.style || 'MICRO_INTRADAY') as StyleDisplayName;
-    const eqsScore = style === 'SCALP' ? 0 : (omegaDecision.entryQualityScore || 40);
+    void style;
+    const eqsScore = omegaDecision.entryQualityScore || 40;
 
     // Weighted combination (execution-focused, not market re-evaluation)
     const combinedScore =
       entryDistanceScore * 0.30 + // 30%: Entry proximity
       spreadRiskScore * 0.25 +     // 25%: Spread conditions
       tpsScore * 0.30 +             // 30%: TPS urgency
-      (style === 'SCALP' ? 0 : eqsScore * 0.15); // 15%: EQS (non-SCALP only)
+      eqsScore * 0.15;             // 15%: EQS
 
     return {
       entryDistance,
       spreadRisk: currentSpread / avgSpread,
       tpsScore,
-      eqsScore: style === 'SCALP' ? undefined : eqsScore,
+      eqsScore,
       combinedScore,
     };
   }

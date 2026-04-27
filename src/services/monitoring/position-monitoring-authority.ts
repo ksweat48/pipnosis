@@ -529,13 +529,9 @@ class PositionMonitoringAuthority {
     requestedStyle?: string | null
   ): Promise<{ success: boolean; newSL?: number; skipped?: 'scalp'; error?: string }> {
     try {
-      // CCIP-2026-BE002: SCALP style never moves SL to break-even.
-      // SCALP closes at TP1 (handled by trigger). This guard protects the
-      // backup/fallback path from writing a BE SL for a scalp trade.
-      const styleNormalized = (requestedStyle || '').toUpperCase();
-      if (styleNormalized === 'SCALP') {
-        return { success: true, skipped: 'scalp' };
-      }
+      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+      // MICRO_INTRADAY ALWAYS supports BE SL on TP1 hit (TP1 = partial, TP2 = full target).
+      void requestedStyle;
 
       const newSL = calculateTP1BreakevenSL(direction, entryPrice, atr);
       const now = new Date().toISOString();

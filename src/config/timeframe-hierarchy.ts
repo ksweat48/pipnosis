@@ -19,11 +19,16 @@ export type RiskMode = 'low' | 'medium' | 'high';
 export type AnalysisDepth = 'quick' | 'moderate' | 'deep';
 
 /**
- * CCIP-STYLE-TF-2026: Canonical trade style type.
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION: Canonical trade style type.
  * Style is the SSOT for entry timeframe selection.
  * Risk mode controls financial exposure ONLY — never timeframe or style selection.
+ *
+ * Pipnosis is now a single-style platform: MICRO_INTRADAY.
+ * - The "scalp" use case is fulfilled by TP1 (fast partial).
+ * - The "intraday" use case is fulfilled by TP2 (full target).
+ * Legacy aliases ('scalp', 'scalper', 'intraday', 'day', 'micro') all resolve to MICRO_INTRADAY.
  */
-export type CanonicalTradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+export type CanonicalTradeStyle = 'MICRO_INTRADAY';
 
 export const ALL_TIMEFRAMES: readonly Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const;
 
@@ -229,28 +234,19 @@ export function getMTFConfig(riskMode: RiskMode): MultiTimeframeConfig {
 }
 
 /**
- * CCIP-STYLE-TF-2026: Style-driven MTF configuration (SSOT).
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style MTF configuration (SSOT).
  *
  * Trade style is the authoritative source for which timeframes to analyze.
  * Risk mode MUST NOT influence timeframe selection — it only controls financial exposure.
  *
- * CCIP-2026-04-22: SCALP restored to M1 entry with M5 direction.
- * ATR/feasibility precompute gates and style qualification blocks that previously
- * prevented Alpha from trading on M1 have been removed. Alpha's block conditions
- * are now pure data integrity gates (staleness, broken feed, missing candles) —
- * not market condition judgments. M1 gives Alpha faster pattern visibility for
- * tight scalps; M5 provides the directional structural context.
- * SCALP:          Entry M1  | Trend M5  | Context H1
- * MICRO_INTRADAY: Entry M5  | Trend M15 | Context H1
- * INTRADAY:       Entry M15 | Trend H1  | Context H4
+ * Pipnosis is now MICRO_INTRADAY only:
+ * MICRO_INTRADAY: Entry M5 | Trend M15 | Context H1
  *
- * ATR NOTE: SCALP stop sizing uses M1 ATR (atr20) at this timeframe.
- * See alpha-omega-orchestrator.ts styleAtrTimeframe logic.
+ * The scalp use case is captured by TP1 (fast partial).
+ * The intraday use case is captured by TP2 (full target).
  */
 export const STYLE_MTF_CONFIGS: Record<CanonicalTradeStyle, MultiTimeframeConfig> = {
-  SCALP:          { entryTimeframe: 'M1',  trendTimeframe: 'M5',  contextTimeframe: 'H1'  },
   MICRO_INTRADAY: { entryTimeframe: 'M5',  trendTimeframe: 'M15', contextTimeframe: 'H1'  },
-  INTRADAY:       { entryTimeframe: 'M15', trendTimeframe: 'H1',  contextTimeframe: 'H1'  },
 } as const;
 
 export function getStyleMTFConfig(tradeStyle: CanonicalTradeStyle): MultiTimeframeConfig {
@@ -305,32 +301,13 @@ export function getMTFMinCandles(utcHour?: number): MTFMinCandles {
 }
 
 /**
- * CCIP-STYLE-ALIAS-2026: Resolves any user-facing or legacy style string to CanonicalTradeStyle.
- * This is the SSOT style resolver — all components must use this instead of local maps.
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION: All style aliases resolve to MICRO_INTRADAY.
  *
- * Aliases covered:
- *   SCALP:          'scalp', 'scalper', 'SCALP', 'SCALPER'
- *   MICRO_INTRADAY: 'micro', 'micro_intraday', 'MICRO', 'MICRO_INTRADAY'
- *   INTRADAY:       'intraday', 'day', 'INTRADAY', 'DAY'
+ * Pipnosis is single-style. Legacy aliases ('scalp', 'scalper', 'intraday', 'day', 'micro')
+ * exist only for backward compatibility with historical DB rows and are normalised here.
  */
-const CANONICAL_STYLE_ALIAS_MAP: Record<string, CanonicalTradeStyle> = {
-  'scalp': 'SCALP',
-  'scalper': 'SCALP',
-  'SCALP': 'SCALP',
-  'SCALPER': 'SCALP',
-  'micro': 'MICRO_INTRADAY',
-  'micro_intraday': 'MICRO_INTRADAY',
-  'MICRO': 'MICRO_INTRADAY',
-  'MICRO_INTRADAY': 'MICRO_INTRADAY',
-  'intraday': 'INTRADAY',
-  'day': 'INTRADAY',
-  'INTRADAY': 'INTRADAY',
-  'DAY': 'INTRADAY',
-};
-
-export function resolveCanonicalStyle(tradeStyle?: string | null, defaultStyle: CanonicalTradeStyle = 'SCALP'): CanonicalTradeStyle {
-  if (!tradeStyle) return defaultStyle;
-  return CANONICAL_STYLE_ALIAS_MAP[tradeStyle] ?? CANONICAL_STYLE_ALIAS_MAP[tradeStyle.toLowerCase()] ?? defaultStyle;
+export function resolveCanonicalStyle(_tradeStyle?: string | null, _defaultStyle: CanonicalTradeStyle = 'MICRO_INTRADAY'): CanonicalTradeStyle {
+  return 'MICRO_INTRADAY';
 }
 
 export function getPrimaryTimeframe(riskMode: RiskMode): Timeframe {

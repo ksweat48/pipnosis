@@ -63,7 +63,8 @@ export type ExecutionMode = 'IMMEDIATE' | 'PENDING' | 'MONITORED';
 type CanonicalStyle = CanonicalTradeStyle;
 
 function normalizeToCanonicalStyle(input: string): CanonicalStyle {
-  return resolveCanonicalStyle(input, 'SCALP');
+  // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+  return resolveCanonicalStyle(input, 'MICRO_INTRADAY');
 }
 
 /**
@@ -945,7 +946,8 @@ class AlphaTradeExecutor {
     const plannedStopDistance = Math.abs(plannedEntry - decision.stopLoss);
     const pipInfo = getCurrencyPipInfo(decision.symbol);
     const reasoningPipSize = pipInfo.pipValue;
-    const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    const styleUpper = (params.canonicalStyle || 'MICRO_INTRADAY').toUpperCase();
     const decisionTimestamp = new Date().toISOString();
 
     const classifyTier = (fill: number): { tier: 'A' | 'B' | 'C'; ratio: number; crossedTp: boolean; crossedSl: boolean } => {
@@ -2159,10 +2161,11 @@ class AlphaTradeExecutor {
       }
     }
 
-    // CCIP GOVERNANCE (2026-02-16): Defensive guard — scalp trades never have TP2
-    // coordinator-alpha.ts is SSOT, but executor enforces as defensive layer
-    const isScalpTrade = canonicalStyle === 'SCALP';
-    const finalTP2 = isScalpTrade ? null : decision.tp2Price;
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+    // MICRO_INTRADAY ALWAYS supports TP1 (fast scalp partial) + TP2 (full intraday target).
+    void canonicalStyle;
+    const isScalpTrade = false;
+    const finalTP2 = decision.tp2Price;
 
     // CCIP-2026-0320B: TP1 Midpoint Governance Safety Net
     // Alpha is SOLE authority for TP placement (CCIP-2026-02-16).
@@ -2765,7 +2768,8 @@ class AlphaTradeExecutor {
 
   /**
    * SSOT guard for entry_intents.style_intent DB constraint.
-   * Allowed DB values: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'
+   * CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+   * Allowed DB value: 'MICRO_INTRADAY' (legacy 'SCALP'/'INTRADAY' upserts collapse to MICRO_INTRADAY).
    * Any unrecognised or missing LLM output degrades to null rather than
    * violating the check constraint and blocking trade execution.
    *
@@ -2775,10 +2779,10 @@ class AlphaTradeExecutor {
    */
   private toSafeStyleIntent(
     rawValue: string | undefined | null
-  ): 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | null {
+  ): 'MICRO_INTRADAY' | null {
     const VALID: ReadonlyArray<string> = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
     if (rawValue && VALID.includes(rawValue)) {
-      return rawValue as 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+      return 'MICRO_INTRADAY';
     }
     return null;
   }

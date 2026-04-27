@@ -189,7 +189,8 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
         blockers: allBlockers,
         tryAlternatives: {
           betterVolatilityNeeded: false,
-          suggestedMinAtrPercent: getAtrGate(input.assetClass, 'INTRADAY')
+          // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+          suggestedMinAtrPercent: getAtrGate(input.assetClass, 'MICRO_INTRADAY')
         },
         diagnostics: {
           requestedStyleValid: styleValid,
@@ -361,11 +362,12 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     }
 
     // REPAIR 3: Bounded SL Relaxation (CRYPTO HIGH only)
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
     if (
       input.policy.allowBoundedSlRelaxation &&
       input.assetClass === 'CRYPTO' &&
       currentRiskMode === 'HIGH' &&
-      currentStyle === 'INTRADAY'
+      currentStyle === 'MICRO_INTRADAY'
     ) {
       const relaxedSlMin = Math.max(0.25, 2.5 * input.atrPercent); // Floor: max(0.25%, 2.5×ATR%)
       const tpCeiling = input.atrPercent * tpMaxMultiple;

@@ -64,42 +64,22 @@ export interface StyleViolation {
 
 /**
  * Style Execution Contracts — reference documentation only.
- * These define typical pip and duration ranges per style as informational
+ * These define typical pip and duration ranges as informational
  * reference. They are NOT used in any execution or validation path.
+ *
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
  */
 const STYLE_CONTRACTS = {
-  SCALP: {
-    name: 'M5 Momentum Scalp',
-    minFillTimeMinutes: 5,
-    maxFillTimeMinutes: 60,
-    typicalDurationMinutes: '15-60',
-    minTargetPips: { FOREX: 10, CRYPTO: 30, METAL: 10, INDEX: 15 },
-    maxTargetPips: { FOREX: 25, CRYPTO: 150, METAL: 60, INDEX: 80 },
-    minStopPips: { FOREX: 5, CRYPTO: 15, METAL: 5, INDEX: 8 },
-    maxStopPips: { FOREX: 25, CRYPTO: 80, METAL: 25, INDEX: 35 },
-    description: 'M5 chart execution, captures ONE M5 swing leg, 3-5 candles'
-  },
   MICRO_INTRADAY: {
-    name: 'M15/H1 Structure',
-    minFillTimeMinutes: 30,
+    name: 'M5/M15 Structure',
+    minFillTimeMinutes: 5,
     maxFillTimeMinutes: 240,
-    typicalDurationMinutes: '60-240',
-    minTargetPips: { FOREX: 30, CRYPTO: 80, METAL: 30, INDEX: 40 },
+    typicalDurationMinutes: '30-240',
+    minTargetPips: { FOREX: 10, CRYPTO: 30, METAL: 10, INDEX: 15 },
     maxTargetPips: { FOREX: 120, CRYPTO: 300, METAL: 120, INDEX: 150 },
-    minStopPips: { FOREX: 15, CRYPTO: 40, METAL: 15, INDEX: 20 },
+    minStopPips: { FOREX: 5, CRYPTO: 15, METAL: 5, INDEX: 8 },
     maxStopPips: { FOREX: 50, CRYPTO: 150, METAL: 50, INDEX: 70 },
-    description: 'M15/H1 structure, 2-3 M15 swings, 1-4 hours'
-  },
-  INTRADAY: {
-    name: 'H1 Price Action',
-    minFillTimeMinutes: 120,
-    maxFillTimeMinutes: 600,
-    typicalDurationMinutes: '120-600',
-    minTargetPips: { FOREX: 50, CRYPTO: 150, METAL: 50, INDEX: 60 },
-    maxTargetPips: { FOREX: 200, CRYPTO: 500, METAL: 200, INDEX: 250 },
-    minStopPips: { FOREX: 25, CRYPTO: 80, METAL: 25, INDEX: 30 },
-    maxStopPips: { FOREX: 80, CRYPTO: 250, METAL: 80, INDEX: 100 },
-    description: 'H1 chart execution, full H1 swing or liquidity pool, 2-10 hours'
+    description: 'M5 entry, TP1 = M5 leg exhaustion partial; TP2 = full intraday target. 30 minutes - 4 hours.'
   }
 } as const;
 

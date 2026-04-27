@@ -80,8 +80,9 @@ class Omega9ConstraintProvider {
       atr,
     });
 
-    const STYLE_MAP: Record<string, string> = { 'scalper': 'SCALP', 'micro': 'MICRO_INTRADAY', 'intraday': 'INTRADAY' };
-    const mappedStyle = STYLE_MAP[tradeStyle] || tradeStyle;
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — all canonical styles map to MICRO_INTRADAY.
+    void tradeStyle;
+    const mappedStyle = 'MICRO_INTRADAY';
     const noiseFloor = riskAwareStopCalculator.calculateNoiseFloor(symbol, entry, atr, mappedStyle);
 
     // Calculate feasible travel distance (used for all styles, applied differently)
@@ -791,13 +792,10 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
     return sections.join('\n');
   }
 
-  private mapTradeStyleToEnvelopeStyle(tradeStyle: string): 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' {
-    switch (tradeStyle) {
-      case 'scalper': return 'SCALP';
-      case 'micro': return 'MICRO_INTRADAY';
-      case 'intraday': return 'INTRADAY';
-      default: return 'INTRADAY';
-    }
+  // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+  private mapTradeStyleToEnvelopeStyle(tradeStyle: string): 'MICRO_INTRADAY' {
+    void tradeStyle;
+    return 'MICRO_INTRADAY';
   }
 
   private mapAssetCategoryToEnvelope(category: string): EnvelopeAssetClass {

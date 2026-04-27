@@ -35,7 +35,8 @@ import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 import { PCVL_CONFIG } from '../config/pcvl-config';
 import { logViolation } from './ssot-violation-logger';
 
-export type URATradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+export type URATradeStyle = 'MICRO_INTRADAY';
 
 export interface RiskAssessmentInputs {
   tradeContext?: TradeContext;

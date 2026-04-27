@@ -3,7 +3,8 @@ import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
 
-export type KellyTradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+export type KellyTradeStyle = 'MICRO_INTRADAY';
 
 export interface KellyInputs {
   winRate: number; // 0-1 (e.g., 0.55 for 55%)

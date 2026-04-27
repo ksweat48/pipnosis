@@ -22,36 +22,33 @@ import { TRADING_CONSTANTS } from './trading-constants';
 // SSOT: Minimum account balance required to trade
 export const MINIMUM_ACCOUNT_BALANCE = 50;
 
-export type TradeStyle = 'scalper' | 'micro' | 'intraday';
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+export type TradeStyle = 'micro';
 
-export type StyleDisplayName = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+export type StyleDisplayName = 'MICRO_INTRADAY';
 
 export const STYLE_DISPLAY_NAMES: Record<TradeStyle, StyleDisplayName> = {
-  scalper: 'SCALP',
   micro: 'MICRO_INTRADAY',
-  intraday: 'INTRADAY',
 } as const;
 
 export const STYLE_FROM_DISPLAY_NAME: Record<StyleDisplayName, TradeStyle> = {
-  SCALP: 'scalper',
   MICRO_INTRADAY: 'micro',
-  INTRADAY: 'intraday',
 } as const;
 
-export function getDisplayNameFromStyle(style: TradeStyle): StyleDisplayName {
-  return STYLE_DISPLAY_NAMES[style];
+export function getDisplayNameFromStyle(_style: TradeStyle): StyleDisplayName {
+  return 'MICRO_INTRADAY';
 }
 
-export function getStyleFromDisplayName(displayName: StyleDisplayName): TradeStyle {
-  return STYLE_FROM_DISPLAY_NAME[displayName];
+export function getStyleFromDisplayName(_displayName: StyleDisplayName): TradeStyle {
+  return 'micro';
 }
 
 export function isValidDisplayName(name: string): name is StyleDisplayName {
-  return name === 'SCALP' || name === 'MICRO_INTRADAY' || name === 'INTRADAY';
+  return name === 'MICRO_INTRADAY';
 }
 
 export function isValidTradeStyle(style: string): style is TradeStyle {
-  return style === 'scalper' || style === 'micro' || style === 'intraday';
+  return style === 'micro';
 }
 
 export interface TradeStyleConfig {
@@ -66,35 +63,15 @@ export interface TradeStyleConfig {
 }
 
 export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
-  scalper: {
-    name: 'scalper',
-    displayName: 'Scalper',
-    icon: 'Zap',
-    description: 'Fast trades, estimate 2min-15min',
-    durationMin: 2,
-    durationMax: 15,
-    suggestedMultipliers: [0.01, 0.02, 0.05], // 1%, 2%, 5%
-    maxDollarAmount: 5000, // Cap for 5% max
-  },
   micro: {
     name: 'micro',
-    displayName: 'Micro',
+    displayName: 'Micro Intraday',
     icon: 'Target',
-    description: 'Medium trades, estimate 15min-1.5hr',
-    durationMin: 15,
-    durationMax: 90,
-    suggestedMultipliers: [0.02, 0.05, 0.07], // 2%, 5%, 7%
-    maxDollarAmount: 7000, // Cap for 7% max
-  },
-  intraday: {
-    name: 'intraday',
-    displayName: 'Intraday',
-    icon: 'Clock',
-    description: 'Longer intraday, estimate 1hr-4hr',
-    durationMin: 60,
+    description: 'Intraday trades. TP1 captures fast partial; TP2 captures full target.',
+    durationMin: 5,
     durationMax: 240,
-    suggestedMultipliers: [0.03, 0.07, 0.10], // 3%, 7%, 10%
-    maxDollarAmount: 10000, // Cap for 10% max
+    suggestedMultipliers: [0.02, 0.05, 0.07],
+    maxDollarAmount: 7000,
   },
 };
 
@@ -195,32 +172,15 @@ export function validateDollarAmount(
   return { valid: true };
 }
 
-export function mapLegacyRiskModeToStyle(riskMode: string): TradeStyle {
-  switch (riskMode.toLowerCase()) {
-    case 'high':
-      return 'scalper';
-    case 'medium':
-      return 'micro';
-    case 'low':
-      return 'intraday';
-    default:
-      return 'micro';
-  }
+export function mapLegacyRiskModeToStyle(_riskMode: string): TradeStyle {
+  return 'micro';
 }
 
 export function getStyleFromDuration(durationMinutes: number): TradeStyle {
-  // INTRADAY ONLY: All durations max at 10 hours (600 minutes)
   if (durationMinutes > 240) {
     throw new Error('SWING TRADES NOT ALLOWED: Pipnosis is intraday-only. Max duration is 4 hours.');
   }
-
-  if (durationMinutes <= 15) {
-    return 'scalper';
-  } else if (durationMinutes <= 90) {
-    return 'micro';
-  } else {
-    return 'intraday';
-  }
+  return 'micro';
 }
 
 // SSOT: Import risk limits from trading-constants.ts

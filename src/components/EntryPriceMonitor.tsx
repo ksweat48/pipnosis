@@ -212,7 +212,8 @@ const EntryExecutedState: React.FC<EntryExecutedStateProps> = ({ intent, current
   const symbol = intent.symbol || '';
   const executionPrice = intent.actual_entry_price || intent.execution_price || intent.entry_zone_min || null;
   const alphaConfidence = intent.alpha_confidence || intent.market_context?.confidence || null;
-  const style = intent.style || intent.market_context?.style || 'SCALP';
+  // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+  const style = intent.style || intent.market_context?.style || 'MICRO_INTRADAY';
 
   const formatPrice = useCallback((price: number): string => {
     return formatCurrencyPrice(symbol, price);
@@ -318,7 +319,8 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   const symbol = intent.symbol || '';
   const alphaEntry = intent.actual_entry_price || intent.execution_price || intent.entry_zone_min || null;
   const alphaConfidence = intent.alpha_confidence || intent.market_context?.confidence || null;
-  const style = intent.style || intent.market_context?.style || 'SCALP';
+  // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+  const style = intent.style || intent.market_context?.style || 'MICRO_INTRADAY';
 
   const entryMode: string = intent.entry_mode || 'wait_pullback';
   const intentMode: string = intent.intent_mode || 'pullback_to_zone';

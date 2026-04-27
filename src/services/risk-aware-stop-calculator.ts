@@ -84,8 +84,9 @@ export interface StopCalculatorInputs {
   marketVolatility?: 'low' | 'normal' | 'high';
   /** Optional: Liquidity sweep context from Omega-8. When present, enables sweep-aware stop placement. */
   sweepContext?: SweepContext;
-  /** Trade style — used to calibrate sweep buffer depth per style */
-  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+  /** Trade style — used to calibrate sweep buffer depth per style.
+   * CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform; only MICRO_INTRADAY remains. */
+  tradeStyle?: 'MICRO_INTRADAY';
 }
 
 class RiskAwareStopCalculator {
@@ -118,9 +119,8 @@ class RiskAwareStopCalculator {
 
     const profile = getRiskStrategyProfile(riskMode);
     const pipInfo = getCurrencyPipInfo(symbol);
-    // CCIP 2026-03: Use style-calibrated ATR multiplier when tradeStyle is available.
-    // SCALP uses M5 ATR (tight), MICRO_INTRADAY uses M15 ATR (medium), INTRADAY uses H1 ATR (wide).
-    // Each style has multiplier ranges pre-calibrated for its ATR timeframe.
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    // MICRO_INTRADAY uses M5 ATR; multiplier ranges are pre-calibrated for M5.
     const atrMultiplierRange = getStopLossMultiplierRange(riskMode, inputs.tradeStyle);
 
     const styleLabel = inputs.tradeStyle ? ` [${inputs.tradeStyle}]` : '';
@@ -410,9 +410,7 @@ class RiskAwareStopCalculator {
 
     // CCIP (2026-02-17): Noise floor is now advisory-only market intelligence.
     // Envelope percentage bounds are the sole style wall authority.
-    // Style-aware ATR caps (SCALP 3x, MICRO 4x) removed -- they were bandaids
-    // to prevent the noise floor from triggering constraint sandwiches.
-    // With noise floor no longer acting as a wall, the caps serve no purpose.
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single style (MICRO_INTRADAY).
     const noiseFloorPips = Math.max(percentFloorPips, atrFloorPips);
     const controllingMethod = percentFloorPips > atrFloorPips ? 'price-based' : 'volatility-based';
 
@@ -430,17 +428,14 @@ class RiskAwareStopCalculator {
   }
 
   /**
-   * SWEEP-AWARE STOP PLACEMENT — SSOT for all 3 trade styles
+   * SWEEP-AWARE STOP PLACEMENT — SSOT (CCIP-2026-0427E-STYLE-CONSOLIDATION: single style)
    *
    * When a liquidity sweep is detected, the ATR-calculated stop may land INSIDE
    * the swept zone — exactly where smart money targets retail stops for the next run.
    * This method computes whether the calculated stop is inside the sweep zone and,
-   * if so, relocates it beyond the sweep extreme with a style-calibrated buffer.
+   * if so, relocates it beyond the sweep extreme with a calibrated buffer.
    *
-   * Buffer depth by trade style:
-   *   SCALP:          0.2 ATR — tight buffer, M5 precision
-   *   MICRO_INTRADAY: 0.3 ATR — moderate buffer, M15 structure awareness
-   *   INTRADAY:       0.4 ATR — wider buffer, H1 structure tolerance
+   * Buffer depth: 0.30 ATR (MICRO_INTRADAY default) — moderate buffer, M5 structure awareness.
    *
    * The stop is only adjusted when:
    *   1. A sweep context is provided with a valid sweep extreme price
@@ -459,7 +454,7 @@ class RiskAwareStopCalculator {
     calculatedStopPips: number;
     pipInfo: { pipValue: number; decimalPlaces: number };
     sweepContext?: SweepContext;
-    tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+    tradeStyle?: 'MICRO_INTRADAY';
     atrValue: number;
     profileMaxPips: number;
   }): {
@@ -532,13 +527,10 @@ class RiskAwareStopCalculator {
       };
     }
 
-    // Style-calibrated buffer depth in ATR units
-    const bufferByStyle: Record<string, number> = {
-      SCALP:          0.20,
-      MICRO_INTRADAY: 0.30,
-      INTRADAY:       0.40
-    };
-    const bufferMultiplier = bufferByStyle[tradeStyle ?? 'SCALP'] ?? 0.25;
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    // MICRO_INTRADAY buffer = 0.30 ATR.
+    void tradeStyle;
+    const bufferMultiplier = 0.30;
     let bufferPips = (atrValue / pipInfo.pipValue) * bufferMultiplier;
 
     // SWEEP BUFFER MINIMUM PIP FLOOR (CCIP 2026-03-02)
@@ -599,8 +591,8 @@ class RiskAwareStopCalculator {
     const wasCapped = cappedStopPips < sweepAwareStopPips;
 
     const reason = wasCapped
-      ? `Sweep-aware stop capped at profile max (${profileMaxPips.toFixed(1)}p). Sweep extreme @ ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)} + ${bufferPips.toFixed(1)}p buffer [${tradeStyle ?? 'SCALP'}]`
-      : `Stop relocated beyond sweep ${sweepContext.type} extreme @ ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)} + ${bufferPips.toFixed(1)}p buffer [${tradeStyle ?? 'SCALP'}, BOS:${sweepContext.has_bos}]`;
+      ? `Sweep-aware stop capped at profile max (${profileMaxPips.toFixed(1)}p). Sweep extreme @ ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)} + ${bufferPips.toFixed(1)}p buffer [${tradeStyle ?? 'MICRO_INTRADAY'}]`
+      : `Stop relocated beyond sweep ${sweepContext.type} extreme @ ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)} + ${bufferPips.toFixed(1)}p buffer [${tradeStyle ?? 'MICRO_INTRADAY'}, BOS:${sweepContext.has_bos}]`;
 
     console.log(`[Sweep-Aware Stop] ${inputs.symbol} ${direction.toUpperCase()}: ATR stop ${calculatedStopPips.toFixed(1)}p → Sweep-aware ${cappedStopPips.toFixed(1)}p (extreme: ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)}, buffer: ${bufferPips.toFixed(1)}p)`);
 

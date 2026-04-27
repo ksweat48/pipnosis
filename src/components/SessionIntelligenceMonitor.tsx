@@ -43,6 +43,8 @@ import { supabase } from '@/lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform. Type kept as a
+// union for back-compat with legacy DB rows; runtime is always MICRO_INTRADAY.
 type TradingStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 type HuntState = 'live' | 'ready' | 'not_ready';
 type PhaseLabel = 'ACCUMULATION' | 'EXPANSION' | 'DISTRIBUTION' | 'RETRACEMENT' | 'REVERSAL' | 'UNCLEAR';
@@ -96,36 +98,19 @@ interface StyleTabConfig {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — only MICRO_INTRADAY
+// is rendered. SCALP and INTRADAY entries removed; multi-style tabs collapse to a
+// single tab so users do not see meaningless empty tabs for retired styles.
 const STYLE_TAB_CONFIG: StyleTabConfig[] = [
   {
-    key: 'SCALP',
-    label: 'Scalp',
-    tf: 'M1',
-    primaryColor: 'text-sky-400',
-    headerColor: 'text-sky-400',
-    badgeBg: 'bg-sky-500/15 border-sky-500/40',
-    badgeText: 'text-sky-300',
-    badgeBorder: 'border-sky-500/40',
-  },
-  {
     key: 'MICRO_INTRADAY',
-    label: 'Micro',
+    label: 'Micro Intraday',
     tf: 'M5',
     primaryColor: 'text-amber-400',
     headerColor: 'text-amber-400',
     badgeBg: 'bg-amber-500/15 border-amber-500/40',
     badgeText: 'text-amber-300',
     badgeBorder: 'border-amber-500/40',
-  },
-  {
-    key: 'INTRADAY',
-    label: 'Intraday',
-    tf: 'M15',
-    primaryColor: 'text-emerald-400',
-    headerColor: 'text-emerald-400',
-    badgeBg: 'bg-emerald-500/15 border-emerald-500/40',
-    badgeText: 'text-emerald-300',
-    badgeBorder: 'border-emerald-500/40',
   },
 ];
 
@@ -549,7 +534,8 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
   // Tab counts — live + ready combined
   const getTabCounts = () => {
-    const counts: Record<string, number> = { SCALP: 0, MICRO_INTRADAY: 0, INTRADAY: 0 };
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — only MICRO_INTRADAY counted.
+    const counts: Record<string, number> = { MICRO_INTRADAY: 0 };
     for (const row of huntableRows) {
       if (counts[row.style] !== undefined) counts[row.style]++;
     }

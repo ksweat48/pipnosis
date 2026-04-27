@@ -24,7 +24,8 @@ describe('Thesis Evaluation System', () => {
       stopLoss: 1.0920,
       takeProfit: 1.1000,
       takeProfit2: 1.1050,
-      style: 'INTRADAY',
+      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+      style: 'MICRO_INTRADAY',
     },
     marketContext: {
       volatility: 'medium',
@@ -64,9 +65,8 @@ describe('Thesis Evaluation System', () => {
     });
 
     test('should estimate expected duration based on trade style', () => {
-      // INTRADAY style = 120 minutes
-      expect(mockAlphaDecision.tradeSpec.style).toBe('INTRADAY');
-      // Duration calculation: INTRADAY = 120 minutes
+      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+      expect(mockAlphaDecision.tradeSpec.style).toBe('MICRO_INTRADAY');
       const expectedDuration = 120;
       expect(expectedDuration).toBeGreaterThan(0);
     });

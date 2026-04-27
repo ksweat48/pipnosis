@@ -1,80 +1,27 @@
 /**
  * Style Execution Envelopes - SSOT for Trade Style Boundaries
  *
+ * CCIP-2026-0427E-STYLE-CONSOLIDATION: Pipnosis is single-style.
+ * Only MICRO_INTRADAY remains. The scalp use case is handled by TP1 (fast partial),
+ * the intraday use case by TP2 (full target). All legacy style strings normalise to MICRO_INTRADAY.
+ *
  * GOVERNANCE PRINCIPLE:
  * Alpha chooses direction and execution intent.
- * The SYSTEM defines the allowable execution envelope per style.
+ * The SYSTEM defines the allowable execution envelope (entry timeframe, TP/SL bounds,
+ * candle horizon). Alpha cannot redefine the envelope — that is style identity enforcement.
  *
- * Alpha does NOT get to redefine:
- * - Timeframe
- * - Swing size
- * - Candle horizon
- * - TP/SL ranges
+ * DYNAMIC BOUNDS:
+ * All TP/SL bounds are PERCENTAGE-BASED, computed dynamically from current price.
+ * pipBound = (currentPrice * percentBound / 100) / pipValue
  *
- * That's not "authority removal" -- that's style identity enforcement.
+ * INDEX PRICE-TIER SCALING:
+ * INDEX envelopes use price-tier-scaled percentages so walls remain structurally
+ * meaningful regardless of nominal index price level.
+ * Authority: wall-calibration-config.ts INDEX_PRICE_TIERS.
  *
- * CRITICAL DISTINCTION:
- * - Authority WITHIN a style: Alpha decides
- * - Authority to REDEFINE a style: System enforces
- *
- * DYNAMIC BOUNDS (CCIP-2026-02-15):
- * All TP/SL bounds are now PERCENTAGE-BASED, computed dynamically from current price.
- * This eliminates static pip limits that break when asset prices change.
- * Formula: pipBound = (currentPrice * percentBound / 100) / pipValue
- *
- * INDEX PRICE-TIER SCALING (CCIP-2026-03-11):
- * INDEX envelopes now use price-tier-scaled percentages so walls remain structurally
- * meaningful regardless of nominal index price level. At US30 $47,000 the old 0.15%
- * floor produced 70 pips — far too wide for SCALP. At NAS100 $25,000 it was 37 pips.
- * The new tiered percentages target 15-30 pips SL floor across ALL index price levels.
- * SSOT authority: wall-calibration-config.ts INDEX_PRICE_TIERS constant.
- * The static INDEX assetClassPercentBounds inside each envelope remain as the
- * base/fallback only (used when currentPrice is not supplied).
- *
- * SCALP FOREX TP CAP (CCIP-2026-02-19):
- * SCALP FOREX tpPips.max reduced from 60 to 25 and tpPercent.max from 0.60% to 0.21%.
- * Rationale: One M5 swing leg over 3-5 candles at typical EURUSD ATR of 3-5 pips/candle
- * produces 9-25 pips of realistic movement. A 60-pip SCALP TP implied INTRADAY duration
- * (480 min observed fill time), which violates SCALP style identity.
- * The 25-pip ceiling naturally constrains fill time to the 15-60 min SCALP contract window.
- * SSOT pair: style-qualification-gate.ts STYLE_CONTRACTS.SCALP.maxTargetPips.FOREX = 25
- *
- * SCALP CRYPTO TP FLOOR FIX (CCIP-2026-02-20):
- * SCALP CRYPTO tpPercent.min lowered from 0.50% to 0.35%.
- * Root cause: ETHUSD at ~$2,500 with 0.50% floor produces a 12.5-pip wall minimum.
- * ETHUSD M5 ATR in low/normal volatility sessions is 8-12 pips, so Alpha's realistic
- * TP proposals of 9-11 pips were being blocked by the floor on every scan.
- * At 0.35%, wall minimum at $2,500 = 8.75 pips, which aligns with M5 crypto scalp reality.
- * BTCUSD at ~$90,000 with 0.35% floor = 315 pips minimum — appropriate for BTC scalps.
- * The slPercent.min of 0.30% is unchanged (noise floor governance compliance maintained).
- *
- * CEILING ALIGNMENT — MICRO_INTRADAY & INTRADAY (CCIP-2026-03-10):
- * tpPercent.max must be >= slPercent.max × maxRR for the style, otherwise the envelope
- * ceiling itself clips the ATR-derived TP maximum before the wall comparison runs,
- * compressing the valid corridor from above and blocking structural targets.
- *
- * MICRO_INTRADAY (MAXIMUM_MICRO_INTRADAY = 2.0):
- *   CRYPTO: slPercent.max 2.50% × 2.0 = 5.00% — was exactly equal to old tpPercent.max,
- *   leaving zero headroom for ATR-ceiling calculations. Raised to 6.00%.
- *   FOREX, METAL, INDEX: slPercent.max × 2.0 already fits inside existing tpPercent.max.
- *
- * INTRADAY (MAXIMUM_INTRADAY = 3.0):
- *   ALL 4 asset classes: slPercent.max × 3.0 exceeded old tpPercent.max:
- *   FOREX:  0.80% × 3.0 = 2.40% > 2.00% → raised to 2.50%
- *   CRYPTO: 4.00% × 3.0 = 12.00% > 10.00% → raised to 13.00%
- *   METAL:  3.20% × 3.0 = 9.60% > 8.00% → raised to 10.00%
- *   INDEX:  0.40% × 3.0 = 1.20% > 0.80% → raised to 1.30%
- *
- * The ceiling is not a preferred target — it is the hard upper bound so Alpha is never
- * blocked from placing a TP that is fully supported by the ATR and R:R band.
- *
- * NOISE FLOOR ALIGNMENT (CCIP-2026-02-18):
- * All slPercent.min values MUST be >= the noise floor percentage for the asset class.
- * Noise floor percentages (from risk-aware-stop-calculator.ts):
- *   INDEX: 0.15%, CRYPTO: 0.20%, METAL (XAUUSD): 0.20%, FOREX: 0.05%
- * If slPercent.min is below the noise floor, the wall allows SLs that are guaranteed
- * to be stopped out by normal market noise. This is the SOLE style wall authority --
- * if the wall is wrong, the noise floor advisory is meaningless.
+ * NOISE FLOOR ALIGNMENT:
+ * slPercent.min values MUST be >= the noise floor for the asset class:
+ *   INDEX: 0.15%, CRYPTO: 0.20%, METAL: 0.20%, FOREX: 0.05%
  */
 
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
@@ -93,7 +40,7 @@ export interface AssetClassPercentBounds {
 }
 
 export interface StyleExecutionEnvelope {
-  style: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING';
+  style: 'MICRO_INTRADAY';
   timeframe: string;
   validationTimeframes: string[];
 
@@ -114,81 +61,13 @@ export interface StyleExecutionEnvelope {
 }
 
 /**
- * SCALP - M1 Momentum Execution
- *
- * Identity:
- * - Captures ONE M1 swing leg
- * - Typically 3-5 candles
- * - M1 structure ONLY
- * - HTF is validation, not execution anchor
- * - Entry = NOW or NO TRADE
- * - ATR for stop sizing uses M5 (not M1 — M1 ATR is too noisy for stop placement)
- *
- * CCIP-2026-04-08: Cascade shift — entry moved from M5 to M1.
- * Trend confirmation M15→M5, context H1→M15.
- */
-export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
-  style: 'SCALP',
-  timeframe: 'M1',
-  validationTimeframes: ['M5', 'M15'],
-
-  targetCandles: { min: 3, max: 5 },
-
-  // CCIP-2026-03-10: tpPips.max raised from 25 to 50 (fallback only — price-derived bounds are
-  // the authoritative source when currentPrice is supplied). The base tpPips envelope is used
-  // as a fallback when no price is available. With MAXIMUM_SCALP=2.0 and SL up to 20 pips,
-  // TP can reach 40 pips — the old 25-pip max would incorrectly cap it in fallback mode.
-  tpPips: { min: 12, max: 50 },
-  slPips: { min: 8, max: 20 },
-
-  assetClassPercentBounds: {
-    // CCIP-2026-03-10: FOREX tpPercent.max raised from 0.21% to 0.50%.
-    // With MAXIMUM_SCALP=2.0, TP=2×SL. At SL=0.25% (max), TP=0.50%. The old 0.21%
-    // ceiling would block TP at the upper SL range. At SL=0.05% (min), TP=0.10% — fits.
-    FOREX: { tpPercent: { min: 0.08, max: 0.50 }, slPercent: { min: 0.05, max: 0.25 } },
-    CRYPTO: { tpPercent: { min: 0.35, max: 3.00 }, slPercent: { min: 0.30, max: 1.50 } },
-    METAL: { tpPercent: { min: 0.30, max: 2.50 }, slPercent: { min: 0.20, max: 1.00 } },
-    // CCIP-2026-03-10: INDEX tpPercent.max raised from 0.80% to 1.00%.
-    // With MAXIMUM_SCALP=2.0, TP = 2×SL. At SL=0.35% (max), TP=0.70% < 1.00% — fits.
-    // At SL=0.15% (min), TP=0.30% — tight but valid. Ceiling raised to 1.00% to ensure
-    // the ATR ceiling (tpMaxAtrMultiple path) can never be blocked by the percentage cap
-    // in volatile conditions where SL touches its max bound.
-    // Noise floor compliance: SL min 0.15% unchanged (governance maintained).
-    INDEX: { tpPercent: { min: 0.20, max: 1.00 }, slPercent: { min: 0.15, max: 0.35 } },
-  },
-
-  atrTimeframe: 'M5',
-
-  typicalDuration: { min: 15, max: 60 },
-
-  entryMode: 'IMMEDIATE',
-  requiresHighEQS: false,
-};
-
-/**
- * MICRO_INTRADAY - M5 Tactical Execution
+ * MICRO_INTRADAY - M5 Tactical Execution (sole style)
  *
  * Identity:
  * - Captures structural M5 moves
  * - Typically 4-8 M5 candles
- * - M5 structure primary, M15 for validation
- * - Pullback entry preferred
- *
- * CCIP (2026-02-17): Recalibrated percentage bounds to prevent permanent infeasibility.
- * Previous bounds were set too aggressively, causing ALL 9 symbols to be envelope-blocked
- * during low/normal volatility conditions:
- * - FOREX SL min 0.12% produced ~14 pip minimum vs ATR-based stops of ~5-10 pips
- * - INDEX SL max 0.12% was BELOW the 0.15% noise floor, creating permanent sandwiches
- * - METAL SL min 0.50% produced ~25 pip minimum vs ATR-based stops of ~10 pips
- * - CRYPTO SL min 0.80% produced ~542 pip minimum for BTCUSD vs ~339 pip ATR stops
- *
- * New bounds maintain style hierarchy (wider than SCALP, tighter than INTRADAY)
- * while being achievable in normal market conditions.
- *
- * CCIP (2026-03-10): CRYPTO tpPercent.max raised from 5.00% to 6.00%.
- * slPercent.max 2.50% × MAXIMUM_MICRO_INTRADAY 2.0 = 5.00%, which was exactly equal to
- * the old ceiling — zero headroom for the ATR ceiling path. 6.00% provides the required
- * clearance (actual R:R ceiling 5.00% sits safely inside 6.00%).
+ * - M5 structure primary, M15 for validation, H1 for context
+ * - TP1 = scalp partial; TP2 = full intraday target
  */
 export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   style: 'MICRO_INTRADAY',
@@ -202,7 +81,6 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
 
   assetClassPercentBounds: {
     FOREX:   { tpPercent: { min: 0.12, max: 1.20 }, slPercent: { min: 0.06, max: 0.50 } },
-    // CCIP-2026-03-10: tpPercent.max raised 5.00% → 6.00% (slMax 2.50% × 2.0 = 5.00% headroom fix)
     CRYPTO:  { tpPercent: { min: 0.75, max: 6.00 }, slPercent: { min: 0.40, max: 2.50 } },
     METAL:   { tpPercent: { min: 0.50, max: 5.00 }, slPercent: { min: 0.25, max: 2.00 } },
     INDEX:   { tpPercent: { min: 0.25, max: 1.00 }, slPercent: { min: 0.15, max: 0.35 } },
@@ -216,103 +94,8 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   requiresHighEQS: false,
 };
 
-/**
- * INTRADAY - M15 Swing Execution
- *
- * Identity:
- * - Captures multi-swing moves
- * - Typically 6-12 M15 candles
- * - M15 structure primary, H1 for validation
- * - Can wait for optimal entry
- *
- * CCIP (2026-03-10): tpPercent.max raised for all four asset classes.
- * With MAXIMUM_INTRADAY = 3.0, a trade at maximum SL must be able to reach
- * TP = slPercent.max × 3.0 before the envelope ceiling clips the ATR path:
- *   FOREX:  0.80% × 3.0 = 2.40% > old 2.00% → raised to 2.50%
- *   CRYPTO: 4.00% × 3.0 = 12.00% > old 10.00% → raised to 13.00%
- *   METAL:  3.20% × 3.0 = 9.60% > old 8.00% → raised to 10.00%
- *   INDEX:  0.40% × 3.0 = 1.20% > old 0.80% → raised to 1.30%
- * The ceiling is not a preferred target — it is the hard upper bound so the
- * ATR-derived TP maximum is never clipped below the structural R:R range.
- * tpPercent.min values, slPercent bounds, and noise floor compliance are unchanged.
- */
-export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
-  style: 'INTRADAY',
-  timeframe: 'M15',
-  validationTimeframes: ['H1', 'H4'],
-
-  targetCandles: { min: 6, max: 12 },
-
-  tpPips: { min: 60, max: 150 },
-  slPips: { min: 30, max: 60 },
-
-  assetClassPercentBounds: {
-    // CCIP-2026-03-10: tpPercent.max raised 2.00% → 2.50% (slMax 0.80% × 3.0 = 2.40% headroom fix)
-    FOREX:   { tpPercent: { min: 0.40, max: 2.50 }, slPercent: { min: 0.20, max: 0.80 } },
-    // CCIP-2026-03-10: tpPercent.max raised 10.00% → 13.00% (slMax 4.00% × 3.0 = 12.00% headroom fix)
-    CRYPTO:  { tpPercent: { min: 3.00, max: 13.00 }, slPercent: { min: 1.50, max: 4.00 } },
-    // CCIP-2026-03-10: tpPercent.max raised 8.00% → 10.00% (slMax 3.20% × 3.0 = 9.60% headroom fix)
-    METAL:   { tpPercent: { min: 1.60, max: 10.00 }, slPercent: { min: 0.80, max: 3.20 } },
-    // CCIP-2026-03-10: tpPercent.max raised 0.80% → 1.30% (slMax 0.40% × 3.0 = 1.20% headroom fix)
-    INDEX:   { tpPercent: { min: 0.35, max: 1.30 }, slPercent: { min: 0.15, max: 0.40 } },
-  },
-
-  atrTimeframe: 'M15',
-
-  typicalDuration: { min: 120, max: 720 },
-
-  entryMode: 'PATIENT',
-  requiresHighEQS: true,
-};
-
-/**
- * SWING - H4/D1 Position Execution
- *
- * Identity:
- * - Captures major trend legs
- * - Days to weeks holding
- * - D1 structure primary
- * - High patience required
- */
-export const SWING_ENVELOPE: StyleExecutionEnvelope = {
-  style: 'SWING',
-  timeframe: 'H4',
-  validationTimeframes: ['D1', 'W1'],
-
-  targetCandles: { min: 8, max: 20 },
-
-  tpPips: { min: 150, max: 500 },
-  slPips: { min: 60, max: 150 },
-
-  assetClassPercentBounds: {
-    FOREX: { tpPercent: { min: 1.20, max: 5.00 }, slPercent: { min: 0.50, max: 1.50 } },
-    CRYPTO: { tpPercent: { min: 5.00, max: 15.00 }, slPercent: { min: 3.00, max: 7.00 } },
-    METAL: { tpPercent: { min: 5.00, max: 20.00 }, slPercent: { min: 2.00, max: 6.00 } },
-    INDEX: { tpPercent: { min: 0.50, max: 3.00 }, slPercent: { min: 0.20, max: 1.00 } },
-  },
-
-  atrTimeframe: 'H4',
-
-  typicalDuration: { min: 1440, max: 10080 },
-
-  entryMode: 'PATIENT',
-  requiresHighEQS: true,
-};
-
-export function getExecutionEnvelope(style: string): StyleExecutionEnvelope {
-  switch (style.toUpperCase()) {
-    case 'SCALP':
-      return SCALP_ENVELOPE;
-    case 'MICRO_INTRADAY':
-      return MICRO_INTRADAY_ENVELOPE;
-    case 'INTRADAY':
-      return INTRADAY_ENVELOPE;
-    case 'SWING':
-      return SWING_ENVELOPE;
-    default:
-      console.warn(`[Style Envelope] Unknown style '${style}', defaulting to INTRADAY`);
-      return INTRADAY_ENVELOPE;
-  }
+export function getExecutionEnvelope(_style?: string): StyleExecutionEnvelope {
+  return MICRO_INTRADAY_ENVELOPE;
 }
 
 function computePipBounds(
@@ -333,34 +116,22 @@ function computePipBounds(
 }
 
 /**
- * Get asset-class-resolved TP/SL bounds for a style.
- *
- * SSOT: Bounds are computed dynamically from percentage-of-price.
- * This ensures envelopes scale automatically with asset price changes.
- *
- * When currentPrice is provided: computes dynamic pip bounds from percentages.
- * When currentPrice is NOT provided: returns base envelope defaults (fallback).
- *
- * INDEX SPECIAL CASE (CCIP-2026-03-11):
- * For INDEX assets with a currentPrice, uses price-tier-scaled percentages from
- * wall-calibration-config.ts to ensure walls are structurally sensible at any
- * nominal price level (US30 $47k, NAS100 $25k, SPX $6k, etc.).
+ * Get asset-class-resolved TP/SL bounds.
+ * INDEX uses price-tier-scaled percentages from wall-calibration-config.
  */
 export function getAssetClassEnvelopeBounds(
-  style: string,
+  _style: string | undefined,
   assetClass?: EnvelopeAssetClass,
   symbol?: string,
   currentPrice?: number
 ): AssetClassBounds {
-  const envelope = getExecutionEnvelope(style);
-  const canonicalStyle = style.toUpperCase() as 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING';
+  const envelope = MICRO_INTRADAY_ENVELOPE;
 
   if (currentPrice && currentPrice > 0 && assetClass) {
     const pipValue = symbol ? getCurrencyPipInfo(symbol).pipValue : 1.0;
 
-    // CCIP-2026-03-11: INDEX uses price-tier-scaled percentages (dynamic scaling SSOT)
     if (assetClass === 'INDEX') {
-      const tierBounds = getIndexPriceTierBounds(canonicalStyle, currentPrice);
+      const tierBounds = getIndexPriceTierBounds('MICRO_INTRADAY', currentPrice);
       if (tierBounds) {
         const result = computePipBounds(tierBounds, currentPrice, pipValue);
         console.log(
@@ -368,7 +139,7 @@ export function getAssetClassEnvelopeBounds(
           `SL ${tierBounds.slPercent.min}%-${tierBounds.slPercent.max}% = ` +
           `${result.slPips.min.toFixed(1)}-${result.slPips.max.toFixed(1)} pips | ` +
           `TP ${tierBounds.tpPercent.min}%-${tierBounds.tpPercent.max}% = ` +
-          `${result.tpPips.min.toFixed(1)}-${result.tpPips.max.toFixed(1)} pips (${canonicalStyle})`
+          `${result.tpPips.min.toFixed(1)}-${result.tpPips.max.toFixed(1)} pips (MICRO_INTRADAY)`
         );
         return result;
       }
@@ -380,59 +151,20 @@ export function getAssetClassEnvelopeBounds(
     }
   }
 
-  if (!assetClass) {
-    return {
-      tpPips: envelope.tpPips,
-      slPips: envelope.slPips,
-    };
-  }
-
-  const percentBounds = envelope.assetClassPercentBounds[assetClass];
-  if (!percentBounds) {
-    return {
-      tpPips: envelope.tpPips,
-      slPips: envelope.slPips,
-    };
-  }
-
   return {
     tpPips: envelope.tpPips,
     slPips: envelope.slPips,
   };
 }
 
-/**
- * Get the raw percentage bounds for a style and asset class.
- * Used by systems that need to communicate percentages directly (e.g., Intelligence Monitor).
- */
 export function getEnvelopePercentBounds(
-  style: string,
+  _style: string | undefined,
   assetClass: EnvelopeAssetClass
 ): AssetClassPercentBounds | null {
-  const envelope = getExecutionEnvelope(style);
-  return envelope.assetClassPercentBounds[assetClass] || null;
+  return MICRO_INTRADAY_ENVELOPE.assetClassPercentBounds[assetClass] || null;
 }
 
-/**
- * Validate TP/SL against style envelope (asset-class-aware, price-dynamic)
- *
- * Returns revision request if outside bounds.
- * When currentPrice is provided, uses dynamic percentage-based bounds.
- *
- * CCIP (2026-02-18): Floating-point tolerance applied to all boundary comparisons.
- * computePipBounds rounds wall values to 1dp; callers pass unrounded pip distances.
- *
- * CCIP (2026-03-06): Tolerance raised from 0.05 to 0.15 pips (in sync with
- * WALL_COMPARISON_EPSILON in coordinator-alpha.ts). The envelope bounds are computed
- * via the same Math.round(...* 10) / 10 formula as the arena walls, introducing up
- * to 0.05 pip of rounding on the bound side. The caller-supplied pip distance also
- * carries floating-point error. Combined two-sided rounding can reach 0.1 pips,
- * producing false advisory violations (e.g., "SL 10.3 below minimum 10.4") that
- * mislead Alpha on the next iteration. A tolerance of 0.15 pips absorbs both
- * rounding sources without meaningfully relaxing the envelope constraints.
- * Applies to ALL styles: SCALP, MICRO_INTRADAY, INTRADAY, SWING.
- */
-const ENVELOPE_COMPARISON_EPSILON = 0.15; // pips — absorbs two-sided floating-point rounding
+const ENVELOPE_COMPARISON_EPSILON = 0.15;
 
 export function validateTPSLAgainstEnvelope(
   style: string,
@@ -442,116 +174,84 @@ export function validateTPSLAgainstEnvelope(
   symbol?: string,
   currentPrice?: number
 ): { valid: boolean; violations: string[]; envelope: StyleExecutionEnvelope } {
-  const envelope = getExecutionEnvelope(style);
+  const envelope = MICRO_INTRADAY_ENVELOPE;
   const bounds = getAssetClassEnvelopeBounds(style, assetClass, symbol, currentPrice);
   const violations: string[] = [];
-  const boundsLabel = assetClass ? `${style} ${assetClass}` : style;
+  const boundsLabel = assetClass ? `MICRO_INTRADAY ${assetClass}` : 'MICRO_INTRADAY';
 
   if (tpPips < bounds.tpPips.min - ENVELOPE_COMPARISON_EPSILON) {
-    violations.push(
-      `TP ${tpPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.tpPips.min.toFixed(1)} pips`
-    );
+    violations.push(`TP ${tpPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.tpPips.min.toFixed(1)} pips`);
   }
-
   if (tpPips > bounds.tpPips.max + ENVELOPE_COMPARISON_EPSILON) {
-    violations.push(
-      `TP ${tpPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.tpPips.max.toFixed(1)} pips. ` +
-      `This is ${envelope.timeframe} ${style} trading, not ${tpPips > 150 ? 'SWING' : 'INTRADAY'}.`
-    );
+    violations.push(`TP ${tpPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.tpPips.max.toFixed(1)} pips.`);
   }
-
   if (slPips < bounds.slPips.min - ENVELOPE_COMPARISON_EPSILON) {
-    violations.push(
-      `SL ${slPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.slPips.min.toFixed(1)} pips (too tight)`
-    );
+    violations.push(`SL ${slPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.slPips.min.toFixed(1)} pips (too tight)`);
   }
-
   if (slPips > bounds.slPips.max + ENVELOPE_COMPARISON_EPSILON) {
-    violations.push(
-      `SL ${slPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.slPips.max.toFixed(1)} pips. ` +
-      `This is ${envelope.timeframe} ${style} trading, not wider timeframe.`
-    );
+    violations.push(`SL ${slPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.slPips.max.toFixed(1)} pips.`);
   }
 
-  return {
-    valid: violations.length === 0,
-    violations,
-    envelope,
-  };
+  return { valid: violations.length === 0, violations, envelope };
 }
 
 /**
- * Noise Floor Advisory (Diagnostic Only)
- *
- * CCIP (2026-02-17): Converted from blocker to advisory.
+ * Noise Floor Advisory (Diagnostic Only).
  * Detects when noise floor exceeds the style envelope SL cap.
- * Returns advisory information but NEVER blocks trading.
- * The envelope percentage bounds are the SOLE style wall authority.
- * Alpha sees the noise advisory and decides whether to proceed.
+ * Never blocks. Alpha decides whether to proceed.
  */
 export function detectConstraintSandwich(
-  style: string,
+  _style: string | undefined,
   assetClass: EnvelopeAssetClass,
   noiseFloorPips: number,
   symbol: string,
   currentPrice?: number
 ): { sandwiched: boolean; advisory: string | null; slMax?: number; noiseFloor?: number } {
-  const bounds = getAssetClassEnvelopeBounds(style, assetClass, symbol, currentPrice);
+  const bounds = getAssetClassEnvelopeBounds('MICRO_INTRADAY', assetClass, symbol, currentPrice);
   const slMax = bounds.slPips.max;
 
   if (noiseFloorPips > slMax) {
     const advisory =
       `High noise on ${symbol}: noise (${noiseFloorPips.toFixed(1)} pips) ` +
-      `exceeds ${style} ${assetClass} SL max (${slMax.toFixed(1)} pips). Consider wide stops.`;
-
+      `exceeds MICRO_INTRADAY ${assetClass} SL max (${slMax.toFixed(1)} pips). Consider wide stops.`;
     console.log(`[NOISE_ADVISORY] ${advisory}`);
-
     return { sandwiched: false, advisory, slMax, noiseFloor: noiseFloorPips };
   }
 
   return { sandwiched: false, advisory: null };
 }
 
-export function getRevisionPrompt(
-  style: string,
-  violations: string[]
-): string {
-  const envelope = getExecutionEnvelope(style);
-
+export function getRevisionPrompt(_style: string | undefined, violations: string[]): string {
+  const envelope = MICRO_INTRADAY_ENVELOPE;
   return `
 STYLE ENVELOPE VIOLATION
 
-You are trading ${style} mode on ${envelope.timeframe}.
+You are trading MICRO_INTRADAY mode on ${envelope.timeframe}.
 
 Violations:
 ${violations.map(v => `- ${v}`).join('\n')}
 
-REQUIRED BOUNDS for ${style}:
+REQUIRED BOUNDS for MICRO_INTRADAY:
 - TP: ${envelope.tpPips.min}-${envelope.tpPips.max} pips
 - SL: ${envelope.slPips.min}-${envelope.slPips.max} pips
 - Target: ${envelope.targetCandles.min}-${envelope.targetCandles.max} ${envelope.timeframe} candles
 - ATR Source: ${envelope.atrTimeframe} ONLY
 
-Please revise your TP/SL to match ${style} execution reality.
-Use ${envelope.timeframe} structure, not higher timeframe targets.
+Please revise your TP/SL to match MICRO_INTRADAY execution reality.
 `.trim();
 }
 
-export function requiresEQSGate(style: string): boolean {
-  const envelope = getExecutionEnvelope(style);
-  return envelope.requiresHighEQS;
+export function requiresEQSGate(_style?: string): boolean {
+  return MICRO_INTRADAY_ENVELOPE.requiresHighEQS;
 }
 
-export function getStyleATRTimeframe(style: string): string {
-  const envelope = getExecutionEnvelope(style);
-  return envelope.atrTimeframe;
+export function getStyleATRTimeframe(_style?: string): string {
+  return MICRO_INTRADAY_ENVELOPE.atrTimeframe;
 }
-
-const ALL_TRADEABLE_STYLES = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'] as const;
 
 /**
- * CCIP (2026-02-17): All styles are always viable. Envelope bounds define style identity.
- * Noise floor is advisory intelligence, not a style viability filter.
+ * All styles collapse to MICRO_INTRADAY. The list returned here is for legacy callers
+ * that iterate over "available styles" — there is exactly one.
  */
 export function getViableStyles(
   _symbol: string,
@@ -559,5 +259,5 @@ export function getViableStyles(
   _noiseFloorPips: number,
   _currentPrice?: number
 ): string[] {
-  return [...ALL_TRADEABLE_STYLES];
+  return ['MICRO_INTRADAY'];
 }

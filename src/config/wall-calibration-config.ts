@@ -207,16 +207,11 @@ export const INDEX_PRICE_TIERS: IndexPriceTier[] = [
  * Returns null if the price is not positive (falls back to static envelope).
  */
 export function getIndexPriceTierBounds(
-  style: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING',
+  _style: 'MICRO_INTRADAY',
   currentPrice: number
 ): IndexPriceTierBounds | null {
   if (!currentPrice || currentPrice <= 0) return null;
   const tier = INDEX_PRICE_TIERS.find(t => currentPrice <= t.maxPrice);
   if (!tier) return null;
-  switch (style) {
-    case 'SCALP': return tier.scalp;
-    case 'MICRO_INTRADAY': return tier.microIntraday;
-    case 'INTRADAY': return tier.intraday;
-    default: return tier.intraday;
-  }
+  return tier.microIntraday;
 }

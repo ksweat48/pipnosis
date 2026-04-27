@@ -114,7 +114,8 @@ class SessionConstraintCoordinator {
    */
   calculateSessionPenalty(
     _symbol: string,
-    _tradeStyle: 'SCALP' | 'INTRADAY' | 'SWING',
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    _tradeStyle: 'MICRO_INTRADAY',
     _sessionTimeRemainingMinutes: number,
     _estimatedDurationMinutes: number
   ): number {

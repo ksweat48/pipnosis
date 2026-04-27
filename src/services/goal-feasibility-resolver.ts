@@ -772,28 +772,13 @@ export class GoalFeasibilityResolver {
       };
     }
 
-    // Trade Style specific limits
-    const styleUpper = tradeStyle?.toUpperCase();
-    if (styleUpper?.includes('SCALP') && riskPercent > 5) {
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+    // All legacy styles normalize to MICRO_INTRADAY; advisory cap is 7%.
+    void tradeStyle;
+    if (riskPercent > 7) {
       return {
         valid: true,
-        warning: `Risk ${riskPercent.toFixed(2)}% exceeds Scalp style maximum of 5% (aggressive)`,
-        riskPercent
-      };
-    }
-
-    if (styleUpper?.includes('MICRO') && riskPercent > 7) {
-      return {
-        valid: true,
-        warning: `Risk ${riskPercent.toFixed(2)}% exceeds Micro style maximum of 7% (aggressive)`,
-        riskPercent
-      };
-    }
-
-    if (styleUpper?.includes('INTRADAY') && riskPercent > 10) {
-      return {
-        valid: true,
-        warning: `Risk ${riskPercent.toFixed(2)}% exceeds Intraday style maximum of 10% (aggressive)`,
+        warning: `Risk ${riskPercent.toFixed(2)}% exceeds MICRO_INTRADAY style maximum of 7% (aggressive)`,
         riskPercent
       };
     }

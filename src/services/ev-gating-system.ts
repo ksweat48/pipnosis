@@ -2,7 +2,8 @@ import { supabase } from '../lib/supabase';
 import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
 import { calculateDollarPerPip } from '../utils/currencyHelpers';
 
-export type EVTradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+// CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+export type EVTradeStyle = 'MICRO_INTRADAY';
 
 export interface SymbolEdgeData {
   style: string;
@@ -41,9 +42,11 @@ export interface EVGateResult {
 
 class EVGatingSystem {
   private getStyleThresholds(tradeStyle?: EVTradeStyle, slPips?: number) {
-    const style = tradeStyle || 'INTRADAY';
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    void tradeStyle;
+    const style: EVTradeStyle = 'MICRO_INTRADAY';
     const config = TRADE_CONSTRAINTS.positionSizing.expectedValue;
-    const styleConfig = config.styleThresholds[style] || config.styleThresholds['INTRADAY'];
+    const styleConfig = config.styleThresholds[style] || config.styleThresholds['MICRO_INTRADAY'];
     const sl = slPips && slPips > 0 ? slPips : 1;
 
     return {
@@ -121,7 +124,7 @@ class EVGatingSystem {
     } else if (!approved) {
       const neededRR = ((1 - winRate) / winRate);
       reasoning = `BLOCKED: EV ${adjustedEV.toFixed(2)} pips is below minimum ${thresholds.minimumEV.toFixed(2)} pips (3% of SL). `;
-      reasoning += `Your ${tradeStyle || 'INTRADAY'} win rate of ${(winRate * 100).toFixed(1)}% needs RR >= ${neededRR.toFixed(2)}:1 to break even. Current RR: ${rewardRiskRatio.toFixed(2)}:1. `;
+      reasoning += `Your ${tradeStyle || 'MICRO_INTRADAY'} win rate of ${(winRate * 100).toFixed(1)}% needs RR >= ${neededRR.toFixed(2)}:1 to break even. Current RR: ${rewardRiskRatio.toFixed(2)}:1. `;
       reasoning += `Adjust TP or SL to bring EV above ${thresholds.minimumEV.toFixed(2)} pips. `;
     } else {
       reasoning = `EV: ${adjustedEV.toFixed(2)} pips (near breakeven). `;

@@ -146,10 +146,11 @@ class SmartGoalSessionManager {
       effectiveRiskMode
     );
 
-    // CCIP GOVERNANCE (2026-02-16): Scalp sessions use TP1 only — no TP2 target
-    const isScalpStyle = config.tradeStyle === 'scalper' || config.tradeStyle === 'scalp'
-      || config.tradeStyle === 'SCALP' || config.tradeStyle === 'SCALPER';
-    const sessionTP2 = isScalpStyle ? null : dualTargets.tp2;
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
+    // MICRO_INTRADAY ALWAYS uses TP1 (fast partial) + TP2 (full intraday target).
+    void config.tradeStyle;
+    const isScalpStyle = false;
+    const sessionTP2 = dualTargets.tp2;
 
     console.log('[Smart Goal] Creating session with settings:', {
       sessionId,

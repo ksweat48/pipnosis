@@ -72,16 +72,17 @@ export const TRADE_CONSTRAINTS = {
   },
 
   styleValidity: {
-    // ATR% gates for style viability (advisory thresholds)
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    // ATR% gates for MICRO_INTRADAY viability (advisory thresholds).
     atrGates: {
-      FOREX: { SCALP: 0.05, MICRO_INTRADAY: 0.04, INTRADAY: 0.03, SWING: 0.02 },
-      CRYPTO: { SCALP: 0.20, MICRO_INTRADAY: 0.15, INTRADAY: 0.10, SWING: 0.05 },
-      METAL: { SCALP: 0.08, MICRO_INTRADAY: 0.06, INTRADAY: 0.05, SWING: 0.03 },
-      INDEX: { SCALP: 0.06, MICRO_INTRADAY: 0.05, INTRADAY: 0.04, SWING: 0.02 }
+      FOREX: { MICRO_INTRADAY: 0.04 },
+      CRYPTO: { MICRO_INTRADAY: 0.15 },
+      METAL: { MICRO_INTRADAY: 0.06 },
+      INDEX: { MICRO_INTRADAY: 0.05 }
     },
     authority: 'ADVISORY' as ConstraintAuthority,
-    description: 'ATR% minimums for each style - advisory only, Alpha may override with justification',
-    enforcementNote: 'These are volatility quality gates, not mathematical impossibilities'
+    description: 'ATR% minimum for MICRO_INTRADAY - advisory only, Alpha may override with justification',
+    enforcementNote: 'Volatility quality gate, not a mathematical impossibility'
   },
 
   positionSizing: {
@@ -100,21 +101,12 @@ export const TRADE_CONSTRAINTS = {
       minExcellent: 10,
       threshold: 0,
 
+      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
       styleThresholds: {
-        SCALP: {
-          minimumEvPercent: 0.03,
-          comfortableEvPercent: 0.10,
-          excellentEvPercent: 0.25
-        },
         MICRO_INTRADAY: {
           minimumEvPercent: 0.03,
           comfortableEvPercent: 0.12,
           excellentEvPercent: 0.28
-        },
-        INTRADAY: {
-          minimumEvPercent: 0.03,
-          comfortableEvPercent: 0.15,
-          excellentEvPercent: 0.30
         }
       } as Record<string, { minimumEvPercent: number; comfortableEvPercent: number; excellentEvPercent: number }>,
 
@@ -131,13 +123,14 @@ export const TRADE_CONSTRAINTS = {
   },
 
   sessionConstraints: {
-    applyHardConstraintsTo: ['SCALP'] as TradeStyle[],  // Only SCALP has hard session limits
-    applyAdvisoryTo: ['INTRADAY'] as TradeStyle[],      // INTRADAY gets advisory warnings
-    ignoreFor: ['SWING'] as TradeStyle[],               // SWING ignores session boundaries
-    exemptMarketSchedules: ['24/7'] as const,           // 24/7 markets (crypto) ignore ALL session constraints
-    feasibilityFactor: 0.8,                             // Use 80% of session time for feasibility
+    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
+    applyHardConstraintsTo: [] as TradeStyle[],            // No hard session blocks
+    applyAdvisoryTo: ['MICRO_INTRADAY'] as TradeStyle[],   // MICRO_INTRADAY gets advisory session warnings
+    ignoreFor: [] as TradeStyle[],
+    exemptMarketSchedules: ['24/7'] as const,              // 24/7 markets (crypto) ignore ALL session constraints
+    feasibilityFactor: 0.8,                                // Use 80% of session time for feasibility
     authority: 'ADVISORY' as ConstraintAuthority,
-    description: 'Session time management - SCALP constrained, INTRADAY advisory, SWING unconstrained. 24/7 markets (crypto) ALWAYS exempt.'
+    description: 'Session time management - MICRO_INTRADAY advisory only. 24/7 markets (crypto) ALWAYS exempt.'
   },
 
   goalFeasibility: {
