@@ -482,6 +482,47 @@ export interface AlphaDecision {
      * SSOT: alpha-identity.ts defines the format. coordinator-alpha.ts extracts for audit/learning.
      */
     session_sweep_status?: string;
+    /**
+     * Q_SWEEP_RECLAIM_STATUS: Sweep-reclaim lifecycle state.
+     * Values: NO_SWEEP_PENDING | NO_RECLAIM_PENDING | RECLAIM_CONFIRMED | N/A
+     *
+     * CCIP-2026-0422B: Single-sided NO_SWEEP_PENDING or NO_RECLAIM_PENDING mandates
+     * a directional wait_pullback output, not NO_TRADE. This field drives the
+     * CCIP-0422B-GATE upgrade logic in the coordinator.
+     */
+    Q_SWEEP_RECLAIM_STATUS?: string;
+    /**
+     * Q_TRAPPED_FUEL: Assessment of trapped participant energy available to drive the move.
+     * Present when Alpha identifies trapped longs/shorts that will amplify directional momentum.
+     */
+    Q_TRAPPED_FUEL?: string;
+    /**
+     * Q4B_realtime_participant_read: Live read of who is entering/exiting right now.
+     * Distinguishes informed flow from retail noise at the current price level.
+     */
+    Q4B_realtime_participant_read?: string;
+    /**
+     * Q_PRICED_IN: Assessment of whether the structural setup has already been discovered
+     * and partially exploited, reducing remaining edge.
+     */
+    Q_PRICED_IN?: string;
+    /**
+     * Q_LIQUIDITY_CASCADE: Directional cascade sequence when trapped participants are forced out.
+     * Named direction and sequence of expected liquidation flow.
+     * CCIP-2026-0422B: When present, the cascade direction overrides conflicting signals.
+     */
+    Q_LIQUIDITY_CASCADE?: string;
+    /**
+     * Q_WHO_IS_TRAPPED: Identity of the trapped participant group (retail longs, trapped shorts, etc.).
+     * CCIP-2026-0422D: Mandatory when trap_likely pattern fires. Missing = incomplete reasoning.
+     */
+    Q_WHO_IS_TRAPPED?: string;
+    /**
+     * Q_WHAT_DIRECTION_WHEN_THEY_RUN: Named direction trapped participants will move when stopped out.
+     * CCIP-2026-0422D: Mandatory when Q_WHO_IS_TRAPPED is populated.
+     * "trap likely but no directional bias" is a self-contradiction when this field can be derived.
+     */
+    Q_WHAT_DIRECTION_WHEN_THEY_RUN?: string;
   };
   // CCIP-2026-0321A: Alpha-owned entry deviation tolerance.
   // Max pips the live fill may drift from Alpha's planned entry before the setup is
@@ -5545,6 +5586,30 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // Extracted for audit trail. No code-layer hard gate — prompt-level enforcement.
         session_sweep_status: typeof rawAnswerSheet.session_sweep_status === 'string'
           ? rawAnswerSheet.session_sweep_status
+          : undefined,
+        // CCIP-2026-0422B: Sweep-reclaim lifecycle fields — previously extracted for audit logging
+        // only (discarded after the console.log block). Now preserved in the structured object so
+        // the CCIP-0422B-GATE upgrade logic and downstream consumers can use them.
+        Q_SWEEP_RECLAIM_STATUS: typeof rawAnswerSheet.Q_SWEEP_RECLAIM_STATUS === 'string'
+          ? rawAnswerSheet.Q_SWEEP_RECLAIM_STATUS
+          : undefined,
+        Q_TRAPPED_FUEL: typeof rawAnswerSheet.Q_TRAPPED_FUEL === 'string'
+          ? rawAnswerSheet.Q_TRAPPED_FUEL
+          : undefined,
+        Q4B_realtime_participant_read: typeof rawAnswerSheet.Q4B_realtime_participant_read === 'string'
+          ? rawAnswerSheet.Q4B_realtime_participant_read
+          : undefined,
+        Q_PRICED_IN: typeof rawAnswerSheet.Q_PRICED_IN === 'string'
+          ? rawAnswerSheet.Q_PRICED_IN
+          : undefined,
+        Q_LIQUIDITY_CASCADE: typeof rawAnswerSheet.Q_LIQUIDITY_CASCADE === 'string'
+          ? rawAnswerSheet.Q_LIQUIDITY_CASCADE
+          : undefined,
+        Q_WHO_IS_TRAPPED: typeof rawAnswerSheet.Q_WHO_IS_TRAPPED === 'string'
+          ? rawAnswerSheet.Q_WHO_IS_TRAPPED
+          : undefined,
+        Q_WHAT_DIRECTION_WHEN_THEY_RUN: typeof rawAnswerSheet.Q_WHAT_DIRECTION_WHEN_THEY_RUN === 'string'
+          ? rawAnswerSheet.Q_WHAT_DIRECTION_WHEN_THEY_RUN
           : undefined,
       } : undefined;
 
