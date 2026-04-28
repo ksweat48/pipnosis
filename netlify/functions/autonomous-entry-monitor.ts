@@ -969,15 +969,29 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       timestamp: new Date()
     };
 
-    // Build TradeContext
-    const tradeContext = {
-      symbol: fullIntent.symbol,
-      currentPrice: entryPrice,
-      snapshot: snapshot,
-      marketContext: enhancedMarketContext,
-      regime: marketContext?.regime_bucket || 'unknown',
-      regimeSnapshot: marketContext?.regime_snapshot
-    };
+    // Build SSOT TradeContext via the canonical factory.
+    // CCIP-2026-0428D: prior code constructed a freeform object missing
+    // `profileHash`, `createdTimestamp`, and the bound converters required by
+    // `validateTradeContext`. UnifiedRiskAuthority.assessTrade -> validateContext
+    // therefore raised HASH_MISMATCH on every server-side execution attempt
+    // (49 consecutive failures observed on intent 4055540f). The SSOT factory
+    // is the only legal way to obtain a valid TradeContext.
+    const tradeMathModule = await import('../../src/utils/tradeMath.js');
+    const tradeContextResult = tradeMathModule.createTradeContext(fullIntent.symbol);
+    if (!tradeContextResult.success || !tradeContextResult.context) {
+      const failureMsg = `createTradeContext failed for ${fullIntent.symbol}: ${tradeContextResult.error || 'unknown error'}`;
+      console.error(`[Entry Monitor] ❌ ${failureMsg}`);
+      if (auditId) {
+        await supabase.rpc('fail_execution_audit', {
+          p_audit_id: auditId,
+          p_failure_step: 'TRADE_CONTEXT_CREATION',
+          p_failure_reason: failureMsg,
+          p_error_details: { errorCode: tradeContextResult.errorCode }
+        });
+      }
+      return false;
+    }
+    const tradeContext = tradeContextResult.context;
 
     // Execute trade via AlphaTradeExecutor singleton (SSOT)
     // CCIP-2026-0427K: import the exported singleton, not a non-exported class.
