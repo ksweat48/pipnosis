@@ -1519,6 +1519,18 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
         tierCCount: number;
         blockedCount: number;
       } | null;
+      recentPerformance?: {
+        symbol: string;
+        style: string;
+        sampleSize: number;
+        wins: number;
+        losses: number;
+        breakEvens: number;
+        winRate: number;
+        avgPnlPct: number;
+        lastOutcome: string | null;
+        lastOutcomeAt: string | null;
+      } | null;
     } | undefined;
     try {
       const { data: huntReadiness } = await supabase
@@ -1587,6 +1599,39 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       }
     } catch {
       // Drift history unavailable — proceed without it (non-blocking, pure feedback)
+    }
+
+    // CCIP-2026-0429F Stage 4 — Session-State Self-Awareness
+    // Fetch Alpha's own recent realized outcomes on this symbol/style and inject them
+    // into the prompt so Alpha self-calibrates confidence against observed performance.
+    // Pure reasoning feedback — not a gate.
+    try {
+      const { data: perfStats } = await supabase.rpc('get_recent_alpha_performance', {
+        p_symbol: marketContext.symbol,
+        p_style: tradeStyle,
+        p_lookback: 10,
+      });
+      const perfRow = Array.isArray(perfStats) ? perfStats[0] : perfStats;
+      if (perfRow && typeof perfRow.sample_size === 'number' && perfRow.sample_size > 0) {
+        const existing = huntContextForPrompt ?? { preconditionsMet: [], phase: null };
+        huntContextForPrompt = {
+          ...existing,
+          recentPerformance: {
+            symbol: marketContext.symbol,
+            style: tradeStyle,
+            sampleSize: Number(perfRow.sample_size) || 0,
+            wins: Number(perfRow.wins) || 0,
+            losses: Number(perfRow.losses) || 0,
+            breakEvens: Number(perfRow.break_evens) || 0,
+            winRate: Number(perfRow.win_rate) || 0,
+            avgPnlPct: Number(perfRow.avg_pnl_pct) || 0,
+            lastOutcome: perfRow.last_outcome ?? null,
+            lastOutcomeAt: perfRow.last_outcome_at ?? null,
+          },
+        };
+      }
+    } catch {
+      // Recent performance unavailable — proceed without it (non-blocking, pure feedback)
     }
 
     let longLiquidityZones: LiquidityZone[] = [];
