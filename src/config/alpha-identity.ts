@@ -994,11 +994,20 @@ export interface AlphaRecentPerformanceStats {
   lastOutcomeAt: string | null;
 }
 
+export interface AlphaReasoningHealthObservation {
+  observationType: string;
+  ccipTag: string;
+  severity: string;
+  summary: string;
+  sampleSize: number;
+}
+
 export interface AlphaHuntContext {
   preconditionsMet: string[];
   phase: string | null;
   recentDrift?: AlphaRecentDriftStats | null;
   recentPerformance?: AlphaRecentPerformanceStats | null;
+  reasoningHealth?: AlphaReasoningHealthObservation[] | null;
 }
 
 export function getAlphaSystemPromptForStyle(
@@ -1715,7 +1724,14 @@ This is my actual realized performance on this instrument at this style. I use i
 This is reasoning feedback, not a gate. I can still execute a confident-tier trade on a losing streak if the structural evidence justifies it. What I cannot do is ignore my own realized outcomes while claiming high conviction.`
     : '';
 
-  return `[Alpha Core v3.2 — CCIP-2026-0427B / CCIP-2026-0427N / CCIP-2026-0428A / CCIP-2026-0428B / CCIP-2026-0428E / CCIP-2026-0428F / CCIP-2026-0429A / CCIP-2026-0429B / CCIP-2026-0429C / CCIP-2026-0429D / CCIP-2026-0429E / CCIP-2026-0429F / CCIP-2026-0429G — EXPECTANCY-FIRST REASONING + STOP-PLACEMENT & SELF-CONTRADICTION AUDIT + THESIS COHERENCE + WAIT-FIRST PATH FINDER + EVIDENCE-JUSTIFIED CONFIDENCE + PREMIUM/DISCOUNT + COUNTER-TREND + REVERSAL FUEL + INDEX NOISE/SESSION + RECENT-PERFORMANCE SELF-AWARENESS + ENTRY-MODE PATIENCE]
+  const healthObs = huntContext?.reasoningHealth;
+  const reasoningHealthLine = Array.isArray(healthObs) && healthObs.length > 0
+    ? `REASONING HEALTH — active drift-watcher observations (CCIP-2026-0430A):
+${healthObs.map(o => `  • [${o.ccipTag || 'UNTAGGED'} / ${o.severity}] ${o.summary}`).join('\n')}
+These are currently-firing signals from the closed feedback loop. Each one points to a reasoning pattern that has drifted from realized outcomes across the platform. I apply the cited discipline on THIS scan — not as a gate, but as a direct correction to the reasoning block named in each observation. If NO_TRADE rate is high, I re-read Wait-First Law and find the direction. If a tier is over-claimed, I downgrade or cite more evidence. If counter-trend gates are being skipped, I cite all three or switch mode. The observations are the system telling me where my reasoning has been weak — I correct on this scan.`
+    : '';
+
+  return `[Alpha Core v3.3 — CCIP-2026-0427B / CCIP-2026-0427N / CCIP-2026-0428A / CCIP-2026-0428B / CCIP-2026-0428E / CCIP-2026-0428F / CCIP-2026-0429A / CCIP-2026-0429B / CCIP-2026-0429C / CCIP-2026-0429D / CCIP-2026-0429E / CCIP-2026-0429F / CCIP-2026-0429G / CCIP-2026-0430A — EXPECTANCY-FIRST REASONING + STOP-PLACEMENT & SELF-CONTRADICTION AUDIT + THESIS COHERENCE + WAIT-FIRST PATH FINDER + EVIDENCE-JUSTIFIED CONFIDENCE + PREMIUM/DISCOUNT + COUNTER-TREND + REVERSAL FUEL + INDEX NOISE/SESSION + RECENT-PERFORMANCE + ENTRY-MODE PATIENCE + REASONING HEALTH FEEDBACK]
 
 MANDATORY: This is a live market scan. Produce a complete, thorough analysis for every field in the output schema. Every field requires genuine reasoning — no field may be abbreviated, skipped, or filled with a placeholder. A response that outputs fewer than 600 tokens means critical reasoning fields are missing.
 
@@ -1758,6 +1774,8 @@ ${huntReadinessLine}
 ${driftHistoryLine}
 
 ${recentPerformanceLine}
+
+${reasoningHealthLine}
 
 ${arenaWalls}
 

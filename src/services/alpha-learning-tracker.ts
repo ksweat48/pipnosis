@@ -264,6 +264,49 @@ class AlphaLearningTracker {
 
       console.log(`[Alpha Learning] Decision logged: ${decision.action} | OmegaSignals: ${votesList.length} active (Override: ${alpha_override})`);
 
+      // CCIP-2026-0430A Stage 6A — Reasoning Telemetry (non-blocking, closed feedback loop).
+      // Distill the reasoning signals Alpha emitted into a single telemetry row. Watchers read
+      // these rows to detect drift and write ccip_post_deploy_observations, which the next scan
+      // re-injects into Alpha's prompt. Failures here must NEVER gate execution.
+      try {
+        const reasoningText = typeof decision.reasoning === 'string' ? decision.reasoning : '';
+        const ccipCitations = Array.from(
+          new Set((reasoningText.match(/CCIP-\d{4}-\d{4}[A-Z]?/g) || []).map(s => s.toUpperCase()))
+        );
+        const namedEvidenceCount = (reasoningText.match(/\bQ(?:1|2|3|4|5B?|6|7|8[A-D]?|9|10|11|12)\b|\bQ_SWEEP_RECLAIM_STATUS\b|\bQ_TRAPPED_FUEL\b|\bBOS\b|\bsweep[- ]?reclaim\b|\btrapped\s+(?:fuel|participants?)\b|\bstop[- ]?hunt\b|\bequal\s+(?:highs?|lows?)\b/gi) || []).length;
+        const contradictions = (reasoningText.match(/CONTRADICTION\s*\d+/gi) || []).map(s => s.toUpperCase());
+        const aSheet = decision.answer_sheet as Record<string, unknown> | undefined;
+        const q5Prob = aSheet && typeof aSheet.Q5_failure_probability === 'number'
+          ? aSheet.Q5_failure_probability
+          : null;
+        const coherenceFields: Array<keyof NonNullable<typeof aSheet>> = aSheet
+          ? (['Q1_trend_alignment','Q2_structure_level','Q5_failure_mode','Q6_entry_trigger','Q12_market_phase'] as const).filter(k => {
+              const v = (aSheet as Record<string, unknown>)[k];
+              return typeof v === 'string' && v.trim().length > 0 && v.toUpperCase() !== 'NONE';
+            })
+          : [];
+        const coherenceScore = aSheet ? coherenceFields.length / 5 : null;
+
+        await supabase.rpc('record_alpha_reasoning_telemetry', {
+          p_decision_id: data.id,
+          p_user_id: userId,
+          p_symbol: log.symbol,
+          p_style: (decision as any).resolvedStyle ?? (decision as any).tradeStyle ?? 'micro_intraday',
+          p_action: decision.action,
+          p_entry_mode: (decision as any).entry_mode ?? null,
+          p_confidence_tier: (decision as any).confidence_tier ?? null,
+          p_q5_failure_probability: q5Prob,
+          p_named_evidence_count: namedEvidenceCount,
+          p_ccip_citations: ccipCitations,
+          p_contradiction_reconciliations: contradictions,
+          p_answer_sheet_coherence_score: coherenceScore,
+          p_reasoning_length: reasoningText.length,
+        });
+      } catch (telemetryErr) {
+        console.warn('[Alpha Learning] CCIP-2026-0430A telemetry write failed (non-blocking):',
+          telemetryErr instanceof Error ? telemetryErr.message : telemetryErr);
+      }
+
       // CCIP-2026-0427B: Seed counterfactual row for NO_TRADE decisions with directional lean.
       // Non-blocking — measurement only, must not delay the decision-log return.
       if (

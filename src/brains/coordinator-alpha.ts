@@ -1531,6 +1531,13 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
         lastOutcome: string | null;
         lastOutcomeAt: string | null;
       } | null;
+      reasoningHealth?: Array<{
+        observationType: string;
+        ccipTag: string;
+        severity: string;
+        summary: string;
+        sampleSize: number;
+      }> | null;
     } | undefined;
     try {
       const { data: huntReadiness } = await supabase
@@ -1632,6 +1639,34 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       }
     } catch {
       // Recent performance unavailable — proceed without it (non-blocking, pure feedback)
+    }
+
+    // CCIP-2026-0430A Stage 6A — Reasoning Health Feedback
+    // Pull currently-firing drift-watcher observations (global-scope, active only).
+    // Block is injected only when watchers have fired — empty = clean = no tokens spent.
+    try {
+      const { data: healthRows } = await supabase.rpc('get_active_reasoning_health');
+      if (Array.isArray(healthRows) && healthRows.length > 0) {
+        const existing = huntContextForPrompt ?? { preconditionsMet: [], phase: null };
+        huntContextForPrompt = {
+          ...existing,
+          reasoningHealth: healthRows.map((r: {
+            observation_type?: string;
+            ccip_tag?: string;
+            severity?: string;
+            summary?: string;
+            sample_size?: number;
+          }) => ({
+            observationType: r.observation_type ?? '',
+            ccipTag: r.ccip_tag ?? '',
+            severity: r.severity ?? 'advisory',
+            summary: r.summary ?? '',
+            sampleSize: Number(r.sample_size) || 0,
+          })),
+        };
+      }
+    } catch {
+      // Reasoning health unavailable — proceed (non-blocking, pure feedback)
     }
 
     let longLiquidityZones: LiquidityZone[] = [];
