@@ -35,6 +35,24 @@ interface Observation {
   summary: string;
   sample_size: number | null;
   created_at: string;
+  fire_count: number | null;
+  escalation_level: string | null;
+  scope: string | null;
+  symbol: string | null;
+  style: string | null;
+}
+
+interface WatcherBaseline {
+  id: string;
+  observation_type: string;
+  direction: string;
+  static_fallback: number;
+  hard_floor: number;
+  hard_ceiling: number;
+  trailing_sample_size: number | null;
+  current_threshold: number;
+  active: boolean;
+  last_recomputed_at: string | null;
 }
 
 interface WatcherRun {
@@ -81,6 +99,7 @@ export function AlphaReasoningHealthPanel() {
   const [calibration, setCalibration] = useState<TierCalibration[]>([]);
   const [actionCounts, setActionCounts] = useState<ActionCount[]>([]);
   const [citationCounts, setCitationCounts] = useState<CitationCount[]>([]);
+  const [baselines, setBaselines] = useState<WatcherBaseline[]>([]);
 
   useEffect(() => {
     loadData();
@@ -89,7 +108,7 @@ export function AlphaReasoningHealthPanel() {
   async function loadData() {
     setLoading(true);
 
-    const [telemetryRes, obsRes, watcherRes] = await Promise.all([
+    const [telemetryRes, obsRes, watcherRes, baselineRes] = await Promise.all([
       supabase
         .from('alpha_reasoning_telemetry')
         .select('id, symbol, style, action, entry_mode, confidence_tier, q5_failure_probability, named_evidence_count, ccip_citations, answer_sheet_coherence_score, reasoning_length, created_at')
@@ -98,7 +117,7 @@ export function AlphaReasoningHealthPanel() {
         .limit(1000),
       supabase
         .from('ccip_post_deploy_observations')
-        .select('observation_type, ccip_tag, severity, summary, sample_size, created_at')
+        .select('observation_type, ccip_tag, severity, summary, sample_size, created_at, fire_count, escalation_level, scope, symbol, style')
         .is('resolved_at', null)
         .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false })
@@ -108,12 +127,17 @@ export function AlphaReasoningHealthPanel() {
         .select('id, run_at, observations_created, no_trade_rate_pct, no_trade_sample, vc_win_rate_pct, vc_sample, ec_win_rate_pct, ec_sample, counter_trend_violations, error_message')
         .order('run_at', { ascending: false })
         .limit(24),
+      supabase
+        .from('alpha_watcher_baselines')
+        .select('id, observation_type, direction, static_fallback, hard_floor, hard_ceiling, trailing_sample_size, current_threshold, active, last_recomputed_at')
+        .order('observation_type'),
     ]);
 
     const tel = (telemetryRes.data ?? []) as TelemetryRow[];
     setTelemetry(tel);
     setObservations((obsRes.data ?? []) as Observation[]);
     setWatcherRuns((watcherRes.data ?? []) as WatcherRun[]);
+    setBaselines((baselineRes.data ?? []) as WatcherBaseline[]);
 
     await loadCalibration();
     setActionCounts(buildActionCounts(tel));
@@ -164,6 +188,22 @@ export function AlphaReasoningHealthPanel() {
       out.push(e);
     }
     setCalibration(out);
+  }
+
+  async function toggleBaseline(b: WatcherBaseline) {
+    const next = !b.active;
+    setBaselines((prev) =>
+      prev.map((row) => (row.id === b.id ? { ...row, active: next } : row))
+    );
+    const { error } = await supabase
+      .from('alpha_watcher_baselines')
+      .update({ active: next })
+      .eq('id', b.id);
+    if (error) {
+      setBaselines((prev) =>
+        prev.map((row) => (row.id === b.id ? { ...row, active: b.active } : row))
+      );
+    }
   }
 
   function buildActionCounts(rows: TelemetryRow[]): ActionCount[] {
@@ -281,27 +321,44 @@ export function AlphaReasoningHealthPanel() {
           </div>
         ) : (
           <div className="space-y-2">
-            {observations.map((o, idx) => (
-              <div
-                key={`${o.observation_type}-${idx}`}
-                className="p-3 bg-red-500/5 border border-red-500/20 rounded-lg"
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-red-500/20 text-red-300">
-                    {o.observation_type}
-                  </span>
-                  {o.ccip_tag && (
-                    <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-gray-800 text-gray-300">
-                      {o.ccip_tag}
+            {observations.map((o, idx) => {
+              const esc = o.escalation_level ?? 'advisory';
+              const escStyle =
+                esc === 'urgent'
+                  ? 'bg-red-600/30 text-red-200 border-red-600/40'
+                  : esc === 'elevated'
+                  ? 'bg-amber-500/20 text-amber-200 border-amber-500/30'
+                  : 'bg-gray-700/40 text-gray-300 border-gray-600/30';
+              return (
+                <div
+                  key={`${o.observation_type}-${idx}`}
+                  className="p-3 bg-red-500/5 border border-red-500/20 rounded-lg"
+                >
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${escStyle}`}>
+                      {esc.toUpperCase()} · {o.fire_count ?? 1}x
                     </span>
-                  )}
-                  <span className="text-[10px] text-gray-500 ml-auto">
-                    n={o.sample_size ?? '—'}
-                  </span>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-red-500/20 text-red-300">
+                      {o.observation_type}
+                    </span>
+                    {o.ccip_tag && (
+                      <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-gray-800 text-gray-300">
+                        {o.ccip_tag}
+                      </span>
+                    )}
+                    {o.scope === 'pair' && o.symbol && (
+                      <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-blue-500/10 text-blue-300">
+                        {o.symbol}{o.style ? '/' + o.style : ''}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-gray-500 ml-auto">
+                      n={o.sample_size ?? '—'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-300 leading-relaxed">{o.summary}</p>
                 </div>
-                <p className="text-xs text-gray-300 leading-relaxed">{o.summary}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Section>
@@ -391,6 +448,46 @@ export function AlphaReasoningHealthPanel() {
           )}
         </Section>
       </div>
+
+      <Section title="Auto-tuned watcher thresholds (CCIP-2026-0501F)" icon={Shield} iconColor="text-blue-400">
+        {baselines.length === 0 ? (
+          <p className="text-sm text-gray-500">No watcher baselines configured.</p>
+        ) : (
+          <div className="space-y-2">
+            {baselines.map((b) => {
+              const arrow = b.direction === 'upper' ? '>' : '<';
+              return (
+                <div
+                  key={b.id}
+                  className="flex items-center gap-3 p-2 bg-gray-800/40 rounded text-xs"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono text-white truncate">{b.observation_type}</div>
+                    <div className="text-[10px] text-gray-500 mt-0.5">
+                      fires when realized {arrow} <span className="text-white font-mono">{b.current_threshold.toFixed(1)}</span>
+                      <span className="text-gray-600"> (fallback {b.static_fallback}, floor {b.hard_floor}, ceil {b.hard_ceiling}, n={b.trailing_sample_size ?? 0})</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => toggleBaseline(b)}
+                    className={`px-3 py-1 rounded text-[10px] font-bold transition ${
+                      b.active
+                        ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                        : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                    }`}
+                  >
+                    {b.active ? 'AUTO-TUNED' : 'STATIC (kill switch)'}
+                  </button>
+                </div>
+              );
+            })}
+            <p className="text-[10px] text-gray-500 mt-2">
+              Toggle any baseline to static fallback if auto-tuning drifts in an undesired direction.
+              Static mode uses the hard-coded threshold shown as "fallback."
+            </p>
+          </div>
+        )}
+      </Section>
 
       <Section title="Watcher run history" icon={Clock} iconColor="text-gray-400">
         {watcherRuns.length === 0 ? (

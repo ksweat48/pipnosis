@@ -1656,7 +1656,10 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
     // Pull currently-firing drift-watcher observations (global-scope, active only).
     // Block is injected only when watchers have fired — empty = clean = no tokens spent.
     try {
-      const { data: healthRows } = await supabase.rpc('get_active_reasoning_health');
+      const { data: healthRows } = await supabase.rpc('get_active_reasoning_health', {
+        p_symbol: marketContext.symbol,
+        p_style: tradeStyle,
+      });
       if (Array.isArray(healthRows) && healthRows.length > 0) {
         const existing = huntContextForPrompt ?? { preconditionsMet: [], phase: null };
         huntContextForPrompt = {
@@ -1667,17 +1670,91 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
             severity?: string;
             summary?: string;
             sample_size?: number;
+            fire_count?: number;
+            escalation_level?: string;
+            scope?: string;
+            symbol?: string;
+            style?: string;
           }) => ({
             observationType: r.observation_type ?? '',
             ccipTag: r.ccip_tag ?? '',
             severity: r.severity ?? 'advisory',
             summary: r.summary ?? '',
             sampleSize: Number(r.sample_size) || 0,
+            fireCount: Number(r.fire_count) || 1,
+            escalationLevel: r.escalation_level ?? 'advisory',
+            scope: r.scope ?? 'global',
+            symbol: r.symbol ?? null,
+            style: r.style ?? null,
           })),
         };
       }
     } catch {
       // Reasoning health unavailable — proceed (non-blocking, pure feedback)
+    }
+
+    // CCIP-2026-0501D Stage 12 — Dynamic tier-target mirror (advisory only).
+    // Alpha reads the shrinkage-adjusted tier targets per (symbol, style) so its
+    // self-accountability labels reflect realized calibration. NEVER drives
+    // lot size — the user's riskMode/riskPercent remains sole sizing authority.
+    try {
+      const { data: tierTargetRows } = await supabase.rpc('get_current_tier_targets', {
+        p_symbol: marketContext.symbol,
+        p_style: tradeStyle,
+      });
+      if (Array.isArray(tierTargetRows) && tierTargetRows.length > 0) {
+        const existing = huntContextForPrompt ?? { preconditionsMet: [], phase: null };
+        huntContextForPrompt = {
+          ...existing,
+          tierTargets: tierTargetRows.map((r: {
+            tier?: string;
+            static_anchor_pct?: number;
+            trailing_realized_pct?: number | null;
+            sample_size?: number;
+            current_target_pct?: number;
+          }) => ({
+            tier: r.tier ?? '',
+            staticAnchorPct: Number(r.static_anchor_pct) || 0,
+            trailingRealizedPct: r.trailing_realized_pct != null ? Number(r.trailing_realized_pct) : null,
+            sampleSize: Number(r.sample_size) || 0,
+            currentTargetPct: Number(r.current_target_pct) || 0,
+          })),
+        };
+      }
+    } catch {
+      // Tier targets unavailable — proceed (non-blocking, pure feedback)
+    }
+
+    // CCIP-2026-0501E Stage 13 — Winning-pattern reinforcement signals.
+    // Top 3 citation clusters by realized win rate for this symbol x style
+    // (min sample 10, min 55% realized). Alpha sees what has worked — but is
+    // warned against hot-hand bias. Pure feedback — not a selection gate.
+    try {
+      const { data: winningRows } = await supabase.rpc('get_winning_patterns', {
+        p_symbol: marketContext.symbol,
+        p_style: tradeStyle,
+      });
+      if (Array.isArray(winningRows) && winningRows.length > 0) {
+        const existing = huntContextForPrompt ?? { preconditionsMet: [], phase: null };
+        huntContextForPrompt = {
+          ...existing,
+          winningPatterns: winningRows.map((r: {
+            citation_cluster?: unknown;
+            sample_size?: number;
+            realized_win_rate_pct?: number;
+            avg_pnl_pct?: number | null;
+          }) => ({
+            citationCluster: Array.isArray(r.citation_cluster)
+              ? (r.citation_cluster as unknown[]).filter((c): c is string => typeof c === 'string')
+              : [],
+            sampleSize: Number(r.sample_size) || 0,
+            realizedWinRatePct: Number(r.realized_win_rate_pct) || 0,
+            avgPnlPct: r.avg_pnl_pct != null ? Number(r.avg_pnl_pct) : null,
+          })),
+        };
+      }
+    } catch {
+      // Winning patterns unavailable — proceed (non-blocking, pure feedback)
     }
 
     // CCIP-2026-0501C Stage 10 — Per-trade reasoning post-mortems
