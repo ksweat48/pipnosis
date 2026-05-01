@@ -45,9 +45,10 @@ import { PushNotificationTester } from '@/components/admin/PushNotificationTeste
 import { GovernanceCenter } from '@/components/admin/GovernanceCenter';
 import { AdminClubPanel } from '@/components/admin/AdminClubPanel';
 import { PlatformProfitsCard } from '@/components/admin/PlatformProfitsCard';
+import { AlphaReasoningHealthPanel } from '@/components/admin/AlphaReasoningHealthPanel';
 import { userFeedbackService } from '@/services/user-feedback-service';
 
-type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications' | 'governance' | 'club';
+type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications' | 'governance' | 'reasoning-health' | 'club';
 
 interface AIMetrics {
   skillLevel: number;
@@ -68,7 +69,7 @@ export function AdminDashboard() {
   // Initialize active tab from URL hash or default to 'overview'
   const getInitialTab = (): AdminTab => {
     const hash = window.location.hash.slice(1); // Remove '#'
-    const validTabs: AdminTab[] = ['overview', 'data', 'cache', 'api-usage', 'users', 'feedback', 'push-notifications', 'governance', 'club'];
+    const validTabs: AdminTab[] = ['overview', 'data', 'cache', 'api-usage', 'users', 'feedback', 'push-notifications', 'governance', 'reasoning-health', 'club'];
     return validTabs.includes(hash as AdminTab) ? (hash as AdminTab) : 'overview';
   };
 
@@ -409,6 +410,18 @@ export function AdminDashboard() {
             <AlertCircle size={16} className="sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">Governance</span>
             <span className="sm:hidden">Gov</span>
+          </button>
+          <button
+            onClick={() => handleTabChange('reasoning-health')}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
+              activeTab === 'reasoning-health'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Brain size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden sm:inline">Reasoning Health</span>
+            <span className="sm:hidden">Brain</span>
           </button>
         </div>
 
@@ -758,6 +771,12 @@ export function AdminDashboard() {
         {activeTab === 'governance' && (
           <div className="space-y-6">
             <GovernanceCenter />
+          </div>
+        )}
+
+        {activeTab === 'reasoning-health' && (
+          <div className="space-y-6">
+            <AlphaReasoningHealthPanel />
           </div>
         )}
 

@@ -1002,12 +1002,25 @@ export interface AlphaReasoningHealthObservation {
   sampleSize: number;
 }
 
+export interface AlphaReasoningPostmortem {
+  confidenceTier: string | null;
+  action: string;
+  entryMode: string | null;
+  namedEvidenceCount: number;
+  topCitations: string[];
+  outcome: string;
+  pnlPct: number | null;
+  summary: string;
+  createdAt: string;
+}
+
 export interface AlphaHuntContext {
   preconditionsMet: string[];
   phase: string | null;
   recentDrift?: AlphaRecentDriftStats | null;
   recentPerformance?: AlphaRecentPerformanceStats | null;
   reasoningHealth?: AlphaReasoningHealthObservation[] | null;
+  recentPostmortems?: AlphaReasoningPostmortem[] | null;
 }
 
 export function getAlphaSystemPromptForStyle(
@@ -1731,7 +1744,23 @@ ${healthObs.map(o => `  • [${o.ccipTag || 'UNTAGGED'} / ${o.severity}] ${o.sum
 These are currently-firing signals from the closed feedback loop. Each one points to a reasoning pattern that has drifted from realized outcomes across the platform. I apply the cited discipline on THIS scan — not as a gate, but as a direct correction to the reasoning block named in each observation. If NO_TRADE rate is high, I re-read Wait-First Law and find the direction. If a tier is over-claimed, I downgrade or cite more evidence. If counter-trend gates are being skipped, I cite all three or switch mode. The observations are the system telling me where my reasoning has been weak — I correct on this scan.`
     : '';
 
-  return `[Alpha Core v3.3 — CCIP-2026-0427B / CCIP-2026-0427N / CCIP-2026-0428A / CCIP-2026-0428B / CCIP-2026-0428E / CCIP-2026-0428F / CCIP-2026-0429A / CCIP-2026-0429B / CCIP-2026-0429C / CCIP-2026-0429D / CCIP-2026-0429E / CCIP-2026-0429F / CCIP-2026-0429G / CCIP-2026-0430A — EXPECTANCY-FIRST REASONING + STOP-PLACEMENT & SELF-CONTRADICTION AUDIT + THESIS COHERENCE + WAIT-FIRST PATH FINDER + EVIDENCE-JUSTIFIED CONFIDENCE + PREMIUM/DISCOUNT + COUNTER-TREND + REVERSAL FUEL + INDEX NOISE/SESSION + RECENT-PERFORMANCE + ENTRY-MODE PATIENCE + REASONING HEALTH FEEDBACK]
+  const postmortems = huntContext?.recentPostmortems;
+  const postmortemLine = Array.isArray(postmortems) && postmortems.length > 0
+    ? `RECENT REASONING POST-MORTEMS — last ${postmortems.length} completed decisions on this pair and style (CCIP-2026-0501C):
+${postmortems.map(p => {
+  const pnl = p.pnlPct != null ? ` (${p.pnlPct > 0 ? '+' : ''}${p.pnlPct.toFixed(2)}%)` : '';
+  const cites = p.topCitations.length > 0 ? ` — cited: ${p.topCitations.slice(0, 3).join(', ')}` : '';
+  return `  • ${p.outcome}${pnl} — ${p.action}${p.entryMode ? `/${p.entryMode}` : ''}, tier=${p.confidenceTier ?? 'n/a'}, evidence=${p.namedEvidenceCount}${cites}`;
+}).join('\n')}
+These are my own prior decisions on THIS instrument at THIS style, each paired with the reasoning artifacts I used (tier, evidence count, top CCIP citations) and the realized outcome. PER-PAIR LEARNING DISCIPLINE:
+  • If recent LOSSES cluster on a specific tier × entry_mode combination (e.g. two losses as very_confident + execute_now), I do not replay that exact combination without at least one additional named piece of structural evidence beyond what I cited last time.
+  • If a specific CCIP citation appears on recent LOSSES but not on recent WINS, that citation was not as load-bearing as I claimed — I need a new or stronger structural reason this scan, not a copy of last scan's reasoning.
+  • If recent WINS cluster on a specific entry_mode (e.g. wait_pullback), I weight that evidence honestly — it is not a guarantee, but it is a reason to prefer that mode when the structural setup fits.
+  • If sample size is small (1–2 post-mortems), this is advisory only — I do not over-index on noise.
+This is reasoning feedback, not a gate. I can repeat a losing combination if the structure this scan genuinely differs and I cite the difference. What I cannot do is replay the same reasoning that already lost without naming what is materially different this time.`
+    : '';
+
+  return `[Alpha Core v3.3 — CCIP-2026-0427B / CCIP-2026-0427N / CCIP-2026-0428A / CCIP-2026-0428B / CCIP-2026-0428E / CCIP-2026-0428F / CCIP-2026-0429A / CCIP-2026-0429B / CCIP-2026-0429C / CCIP-2026-0429D / CCIP-2026-0429E / CCIP-2026-0429F / CCIP-2026-0429G / CCIP-2026-0430A / CCIP-2026-0501A / CCIP-2026-0501B / CCIP-2026-0501C — EXPECTANCY-FIRST REASONING + STOP-PLACEMENT & SELF-CONTRADICTION AUDIT + THESIS COHERENCE + WAIT-FIRST PATH FINDER + EVIDENCE-JUSTIFIED CONFIDENCE + PREMIUM/DISCOUNT + COUNTER-TREND + REVERSAL FUEL + INDEX NOISE/SESSION + RECENT-PERFORMANCE + ENTRY-MODE PATIENCE + REASONING HEALTH FEEDBACK + PER-PAIR POST-MORTEMS]
 
 MANDATORY: This is a live market scan. Produce a complete, thorough analysis for every field in the output schema. Every field requires genuine reasoning — no field may be abbreviated, skipped, or filled with a placeholder. A response that outputs fewer than 600 tokens means critical reasoning fields are missing.
 
@@ -1776,6 +1805,8 @@ ${driftHistoryLine}
 ${recentPerformanceLine}
 
 ${reasoningHealthLine}
+
+${postmortemLine}
 
 ${arenaWalls}
 

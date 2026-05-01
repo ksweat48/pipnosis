@@ -1538,6 +1538,17 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
         summary: string;
         sampleSize: number;
       }> | null;
+      recentPostmortems?: Array<{
+        confidenceTier: string | null;
+        action: string;
+        entryMode: string | null;
+        namedEvidenceCount: number;
+        topCitations: string[];
+        outcome: string;
+        pnlPct: number | null;
+        summary: string;
+        createdAt: string;
+      }> | null;
     } | undefined;
     try {
       const { data: huntReadiness } = await supabase
@@ -1667,6 +1678,49 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       }
     } catch {
       // Reasoning health unavailable — proceed (non-blocking, pure feedback)
+    }
+
+    // CCIP-2026-0501C Stage 10 — Per-trade reasoning post-mortems
+    // Pull the last 3 post-mortems for this symbol x style. Alpha sees its own
+    // recent per-pair outcomes tied to the reasoning artifacts (tier, evidence,
+    // citations). Pure feedback — not a gate.
+    try {
+      const { data: postmortemRows } = await supabase.rpc('get_recent_reasoning_postmortems', {
+        p_symbol: marketContext.symbol,
+        p_style: tradeStyle,
+        p_limit: 3,
+      });
+      if (Array.isArray(postmortemRows) && postmortemRows.length > 0) {
+        const existing = huntContextForPrompt ?? { preconditionsMet: [], phase: null };
+        huntContextForPrompt = {
+          ...existing,
+          recentPostmortems: postmortemRows.map((r: {
+            confidence_tier?: string | null;
+            action?: string;
+            entry_mode?: string | null;
+            named_evidence_count?: number;
+            top_citations?: unknown;
+            outcome?: string;
+            pnl_pct?: number | null;
+            summary?: string;
+            created_at?: string;
+          }) => ({
+            confidenceTier: r.confidence_tier ?? null,
+            action: r.action ?? '',
+            entryMode: r.entry_mode ?? null,
+            namedEvidenceCount: Number(r.named_evidence_count) || 0,
+            topCitations: Array.isArray(r.top_citations)
+              ? (r.top_citations as unknown[]).filter((c): c is string => typeof c === 'string')
+              : [],
+            outcome: r.outcome ?? 'UNKNOWN',
+            pnlPct: r.pnl_pct != null ? Number(r.pnl_pct) : null,
+            summary: r.summary ?? '',
+            createdAt: r.created_at ?? '',
+          })),
+        };
+      }
+    } catch {
+      // Post-mortems unavailable — proceed (non-blocking, pure feedback)
     }
 
     let longLiquidityZones: LiquidityZone[] = [];

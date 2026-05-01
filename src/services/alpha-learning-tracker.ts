@@ -386,6 +386,13 @@ class AlphaLearningTracker {
 
       console.log(`[Alpha Learning] Outcome logged: ${outcome.outcome} (${outcome.pnl})`);
 
+      // CCIP-2026-0501C Stage 10 — record reasoning post-mortem (non-blocking)
+      try {
+        await supabase.rpc('record_reasoning_postmortem', { p_decision_id: decisionId });
+      } catch (pmErr) {
+        console.warn('[Alpha Learning] Post-mortem record failed (non-blocking):', pmErr);
+      }
+
       // Update learning metrics
       await this.updateLearningMetrics(userId);
     } catch (error) {
