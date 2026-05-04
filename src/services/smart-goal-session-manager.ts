@@ -12,7 +12,7 @@ import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rul
 import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-live-engine';
 import { v4 as uuidv4 } from 'uuid';
 import { alphaExecutionPlanner } from './alpha-execution-planner';
-import { TradeStyle } from '../config/trade-styles';
+import { TradeStyle, getDisplayNameFromStyle, isValidTradeStyle } from '../config/trade-styles';
 import { extractSymbolsFromPrompt, getSymbolSelectionSource } from '../utils/symbol-prompt-parser';
 import { getSymbolsByAssetClass, filterWatchlistByAssetClass, type AssetClass } from '../utils/asset-class-mapper';
 import { getDefaultWatchlist } from '../config/watchlist';
@@ -152,11 +152,20 @@ class SmartGoalSessionManager {
     const isScalpStyle = false;
     const sessionTP2 = dualTargets.tp2;
 
+    // CCIP-2026-0504C: DB boundary normalization.
+    // goal_sessions.trade_style is constrained by ccip_0503d_goal_sessions_trade_style_single_style
+    // to the display name ('MICRO_INTRADAY'). Internal state uses canonical TradeStyle ('micro').
+    // Convert only at the boundary; never mutate internal config.
+    if (!isValidTradeStyle(config.tradeStyle as string)) {
+      throw new Error(`[Smart Goal] Invalid trade style: ${config.tradeStyle}`);
+    }
+    const tradeStyleDisplayName = getDisplayNameFromStyle(config.tradeStyle as TradeStyle);
+
     console.log('[Smart Goal] Creating session with settings:', {
       sessionId,
       multi_trade_enabled: multiTradeEnabled,
       target: config.goalAmount,
-      trade_style: config.tradeStyle,
+      trade_style: tradeStyleDisplayName,
       dollar_risk: config.dollarRisk,
       risk_mode_legacy: config.riskMode,
       tp1_target: dualTargets.tp1,
@@ -183,7 +192,7 @@ class SmartGoalSessionManager {
       tp2_target: sessionTP2,
       timeframe: generateTimeframe(config.timeframe),
       risk_mode: effectiveRiskMode, // Kept for legacy compatibility
-      trade_style: config.tradeStyle,
+      trade_style: tradeStyleDisplayName,
       dollar_risk: config.dollarRisk,
       risk_percentage: riskPercentageAtCreation, // SSOT: SL risk tolerance % — stored once at creation
       status: 'scanning',
