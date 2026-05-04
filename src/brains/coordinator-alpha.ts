@@ -3507,18 +3507,20 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // Prompt compression target (CCIP-2026-0317A): reduce input to ~10k-12k tokens via
       // the professional reasoning contract rewrite, bringing effective cost to ~$0.03/scan.
       //
-      // TOKEN BUDGET — CCIP-2026-0406B (replaces CCIP-2026-0329A):
-      // CCIP-2026-0329A set max_tokens=1500 based on 7-day p99=1,249 with 163-token margin.
-      // Production evidence (2026-04-05 session): SPX500 hit finish_reason=length at 1500,
-      // losing a confirmed SELL at trade_confidence=60 (visible in [Alpha Raw Response] diag).
-      // Per the INVARIANT below, max_tokens is raised from 1500 → 2000.
-      // stopLoss/takeProfit are the last fields in the JSON schema and first to be truncated.
+      // TOKEN BUDGET — CCIP-2026-0502A (replaces CCIP-2026-0406B):
+      // CCIP-2026-0406B set max_tokens=2000 after raising from 1500 to accommodate
+      // post-upgrade reasoning depth. Stages 11-16 (CCIP-2026-0501D/E/F) injected new
+      // prompt blocks (Dynamic Tier Targets, Winning-Pattern Signals, Repeated-Drift
+      // Escalation, Auto-Tuned Watchers, Pair-Personality Drift) that expanded both the
+      // prompt surface and Alpha's required reasoning output. Production evidence
+      // (2026-05-02): XAUUSD/MICRO_INTRADAY hit finish_reason=length at 2000, truncating
+      // stopLoss/takeProfit (last fields in JSON schema). Raise max_tokens 2000 → 3000.
       //
       // INVARIANT: If finish_reason === 'length' fires, TOKEN_BUDGET_EXCEEDED surfaces.
       //   Raise max_tokens if that fires — production data justifies current ceiling.
       model: 'gpt-4o',
       temperature: 0.3,
-      max_completion_tokens: 2000,
+      max_completion_tokens: 3000,
       requestType: 'alpha_coordination',
       endpoint: 'alpha-coordinator',
       symbol: marketContext.symbol
@@ -3729,7 +3731,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // abort rather than silently processing a structurally incomplete response.
       const finishReason = response.choices[0]?.finish_reason;
       if (finishReason === 'length') {
-        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=2000 (gpt-4o, CCIP-2026-0406B). Raise budget if this fires repeatedly.`);
+        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=3000 (gpt-4o, CCIP-2026-0502A). Raise budget if this fires repeatedly.`);
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',
