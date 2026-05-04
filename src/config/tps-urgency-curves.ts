@@ -18,26 +18,10 @@ import type { TradeStyle, UrgencyConfig } from '../types/tps';
  * Stalled penalty: Urgency reduction when market is stalled
  */
 export const URGENCY_CONFIGS: Record<TradeStyle, UrgencyConfig> = {
-  SCALP: {
-    halfLifeMinutes: 8,
-    maxUrgencyScore: 15,
-    expirationMinutes: 25,
-    impulseBonus: 3,
-    stalledPenalty: -2,
-  },
-
-  MICRO: {
+  MICRO_INTRADAY: {
     halfLifeMinutes: 25,
     maxUrgencyScore: 10,
     expirationMinutes: 90,
-    impulseBonus: 3,
-    stalledPenalty: -2,
-  },
-
-  INTRADAY: {
-    halfLifeMinutes: 60,
-    maxUrgencyScore: 7,
-    expirationMinutes: 240,
     impulseBonus: 3,
     stalledPenalty: -2,
   },
@@ -87,7 +71,7 @@ export function calculateUrgency(
   style: TradeStyle,
   momentumState: 'IMPULSE' | 'NORMAL' | 'STALLED'
 ): number {
-  const config = URGENCY_CONFIGS[style];
+  const config = URGENCY_CONFIGS[style] ?? URGENCY_CONFIGS.MICRO_INTRADAY;
 
   // Exponential decay using half-life
   const decayConstant = Math.log(2) / config.halfLifeMinutes;
@@ -113,7 +97,8 @@ export function calculateUrgency(
  * @returns True if intent should be abandoned
  */
 export function isIntentExpired(minutesSinceSignal: number, style: TradeStyle): boolean {
-  return minutesSinceSignal >= URGENCY_CONFIGS[style].expirationMinutes;
+  const config = URGENCY_CONFIGS[style] ?? URGENCY_CONFIGS.MICRO_INTRADAY;
+  return minutesSinceSignal >= config.expirationMinutes;
 }
 
 

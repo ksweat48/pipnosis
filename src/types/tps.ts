@@ -9,7 +9,7 @@ export type EntryMode = 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE';
 export type RunawayPolicy = 'RESCAN' | 'EXECUTE_ON_FIRST_PULLBACK';
 export type MomentumState = 'IMPULSE' | 'NORMAL' | 'STALLED';
 export type TradeMode = 'SINGLE' | 'MULTI';
-export type TradeStyle = 'SCALP' | 'MICRO' | 'INTRADAY';
+export type TradeStyle = 'MICRO_INTRADAY';
 
 /**
  * Core candidate structure for TPS evaluation.

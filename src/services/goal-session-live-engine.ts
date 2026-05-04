@@ -1226,15 +1226,18 @@ class GoalSessionLiveEngine {
           // Build TPS candidate from Alpha decision
           const candidate: TPSCandidate = {
             symbol: snapshot.symbol,
-            direction: decision.action === 'SELL' ? 'SELL' : 'BUY',
+            direction: decision.action === 'SELL' ? 'SHORT' : 'LONG',
             // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
-            style: decision.style || 'MICRO_INTRADAY',
+            style: 'MICRO_INTRADAY',
             tradeConfidence: decision.confidence || 0,
             eqsNow: decision.entryQualityScore || 40,
             eqsRequired: 40,
-            entryMode: decision.entryMode === 'immediate' ? 'EXECUTE_NOW' : 'WAIT_ENTRY', // TPS internal classification (separate from AlphaEntryMode)
+            entryMode: decision.entryMode === 'immediate' ? 'EXECUTE_NOW' : 'WAIT_ENTRY',
             minutesSinceSignal: 0,
-            momentumState: 'NEUTRAL' as const,
+            atr: 0,
+            distanceToEntryZoneATR: 0,
+            momentumState: 'NORMAL',
+            sessionId: config.goalSessionId,
             eqsProjected: undefined,
             projectionConfidence: undefined,
           };

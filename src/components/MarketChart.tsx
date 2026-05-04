@@ -1066,6 +1066,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       const lastChartCandleTime = chartData.length > 0 ? chartData[chartData.length - 1].time : 0;
+      const oldestChartCandleTime = chartData.length > 0 ? chartData[0].time : 0;
 
       // Validate lastChartCandleTime is a number
       if (typeof lastChartCandleTime !== 'number' || isNaN(lastChartCandleTime)) {
@@ -1073,6 +1074,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           value: lastChartCandleTime,
           type: typeof lastChartCandleTime
         });
+        return;
+      }
+
+      // Guard: lightweight-charts throws "Cannot update oldest data" if the incoming
+      // bar time is earlier than the series's oldest bar. Skip instead of calling update().
+      if (typeof oldestChartCandleTime === 'number' && safeCandle.time < oldestChartCandleTime) {
+        console.warn(`[Chart] ⏭️ Skipping candle older than oldest chart bar: ${safeCandle.time} < ${oldestChartCandleTime}`);
         return;
       }
 
