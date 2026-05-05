@@ -82,7 +82,10 @@ interface RecentTrade {
   tp1_pnl?: number | null;
   tp2_pnl?: number | null;
   tp1_price?: number | null;
+  tp2_price?: number | null;
   tp1_breakeven_price?: number | null;
+  partial_close_pct?: number | null;
+  direction?: 'buy' | 'sell';
   requested_style?: string | null;
 }
 
@@ -247,7 +250,10 @@ export function PositionsPage() {
         tp1_pnl: trade.tp1_pnl != null ? parseFloat(trade.tp1_pnl) : null,
         tp2_pnl: trade.tp2_pnl != null ? parseFloat(trade.tp2_pnl) : null,
         tp1_price: trade.tp1_price != null ? parseFloat(trade.tp1_price) : null,
+        tp2_price: trade.tp2_price != null ? parseFloat(trade.tp2_price) : null,
         tp1_breakeven_price: trade.tp1_breakeven_price != null ? parseFloat(trade.tp1_breakeven_price) : null,
+        partial_close_pct: trade.partial_close_pct != null ? parseFloat(trade.partial_close_pct) : null,
+        direction: trade.direction,
         requested_style: trade.requested_style ?? null
       };
     });
@@ -1073,44 +1079,76 @@ export function PositionsPage() {
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          {trade.tp1_hit && trade.tp1_pnl != null ? (
-                            <div className="flex flex-col items-end gap-0.5">
-                              <div className="flex items-center gap-2 text-xs">
-                                <span className="text-amber-500/70">TP1 Win</span>
-                                <span className={trade.tp1_pnl >= 0 ? 'text-amber-400 font-semibold' : 'text-red-400 font-semibold'}>
-                                  {trade.tp1_pnl >= 0 ? '+' : ''}${trade.tp1_pnl.toFixed(2)}
-                                </span>
-                              </div>
-                              {trade.tp2_hit && trade.tp2_pnl != null && (
-                                <div className="flex items-center gap-2 text-xs">
-                                  <span className="text-emerald-500/70">TP2 Added</span>
-                                  <span className={trade.tp2_pnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
-                                    {trade.tp2_pnl >= 0 ? '+' : ''}${trade.tp2_pnl.toFixed(2)}
+                          {(() => {
+                            // CCIP-2026-0505H: Dual-TP breakdown card — read tp1_hit/tp2_hit as SSOT.
+                            // If tp1_pnl / tp2_pnl are missing from the writer, derive them
+                            // deterministically from stored tp1_price, exit_price, position_size,
+                            // direction, and partial_close_pct. Display is consistent regardless
+                            // of which writer populated the split columns.
+                            const dualTpEnabled = trade.tp1_hit === true && trade.tp1_price != null;
+                            if (!dualTpEnabled) {
+                              return (
+                                <>
+                                  <div className={`text-lg font-bold whitespace-nowrap ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
+                                  </div>
+                                  <div className="text-xs text-gray-500 whitespace-nowrap">Final P&amp;L</div>
+                                </>
+                              );
+                            }
+
+                            const splitPct = trade.partial_close_pct != null && trade.partial_close_pct > 0 && trade.partial_close_pct < 1
+                              ? trade.partial_close_pct
+                              : 0.5;
+                            const dir: 'buy' | 'sell' = (trade.position_type || trade.direction || 'buy') as 'buy' | 'sell';
+                            const legPnl = (legPrice: number, legLot: number): number =>
+                              calculateDollarPerPip(trade.symbol, legLot) *
+                              calculatePipDistance(trade.symbol, trade.entry_price, legPrice) *
+                              (dir === 'buy'
+                                ? (legPrice > trade.entry_price ? 1 : -1)
+                                : (legPrice < trade.entry_price ? 1 : -1));
+
+                            let tp1Pnl: number | null = trade.tp1_pnl ?? null;
+                            if (tp1Pnl == null && trade.tp1_price != null) {
+                              tp1Pnl = legPnl(trade.tp1_price, trade.lot_size * splitPct);
+                            }
+
+                            let tp2Pnl: number | null = trade.tp2_pnl ?? null;
+                            if (tp2Pnl == null) {
+                              tp2Pnl = legPnl(trade.exit_price, trade.lot_size * (1 - splitPct));
+                            }
+
+                            const tp1Estimated = trade.tp1_pnl == null;
+                            const tp2Estimated = trade.tp2_pnl == null;
+                            const tp2Hit = trade.tp2_hit === true;
+
+                            return (
+                              <div className="flex flex-col items-end gap-0.5 min-w-[140px]">
+                                <div className="flex items-center justify-end gap-2 text-xs whitespace-nowrap">
+                                  <span className="text-amber-500/70">TP1 {tp2Hit ? 'Secured' : 'Hit'}</span>
+                                  <span className={(tp1Pnl ?? 0) >= 0 ? 'text-amber-400 font-semibold' : 'text-red-400 font-semibold'}>
+                                    {(tp1Pnl ?? 0) >= 0 ? '+' : ''}${(tp1Pnl ?? 0).toFixed(2)}
                                   </span>
+                                  {tp1Estimated && <span className="text-[9px] text-gray-600 uppercase">est</span>}
                                 </div>
-                              )}
-                              {trade.tp2_hit && trade.tp2_pnl != null && (
-                                <div className="flex items-center gap-1 mt-0.5 pt-0.5 border-t border-gray-700">
+                                <div className="flex items-center justify-end gap-2 text-xs whitespace-nowrap">
+                                  <span className={tp2Hit ? 'text-emerald-500/70' : 'text-red-500/70'}>
+                                    {tp2Hit ? 'TP2 Added' : 'TP2 Missed'}
+                                  </span>
+                                  <span className={(tp2Pnl ?? 0) >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                                    {(tp2Pnl ?? 0) >= 0 ? '+' : ''}${(tp2Pnl ?? 0).toFixed(2)}
+                                  </span>
+                                  {tp2Estimated && <span className="text-[9px] text-gray-600 uppercase">est</span>}
+                                </div>
+                                <div className="flex items-center justify-end gap-2 mt-0.5 pt-0.5 border-t border-gray-700 whitespace-nowrap">
                                   <span className="text-xs text-gray-500">Total</span>
                                   <span className={`text-base font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                     {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
                                   </span>
                                 </div>
-                              )}
-                              {!trade.tp2_hit && (
-                                <div className="text-[10px] text-gray-600 mt-0.5">Closed at TP1</div>
-                              )}
-                            </div>
-                          ) : (
-                            <>
-                              <div className={`text-lg font-bold whitespace-nowrap ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
                               </div>
-                              <div className="text-xs text-gray-500 whitespace-nowrap">
-                                Final P&L
-                              </div>
-                            </>
-                          )}
+                            );
+                          })()}
                         </div>
                       </div>
 
