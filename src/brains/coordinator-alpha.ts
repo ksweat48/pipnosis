@@ -4722,6 +4722,71 @@ Return PURE JSON only — all required fields from the schema in my system promp
         entryMode = parsed.entry_mode ?? parsed.entry_spec?.entry_mode;
       }
 
+      // CCIP-2026-0505G: Answer Sheet Is The Source Of Truth.
+      // Alpha's structured entry_mode field and his prose answer-sheet fields are
+      // authored by the same LLM in one pass and occasionally drift. When the prose
+      // says "wait" but the structured field says "execute_now", execution previously
+      // ignored the prose. This reconciliation reads Alpha's own stated intent from
+      // the prose and downgrades execute_now to match it. This is not a constraint
+      // on Alpha — it is obedience to what Alpha already wrote.
+      if (correctedAction !== 'NO_TRADE' && entryMode === 'execute_now') {
+        const answerSheet = parsed.answer_sheet ?? {};
+        const proseFields = [
+          answerSheet.Q_SWEEP_RECLAIM_STATUS,
+          answerSheet.Q6_entry_trigger,
+          answerSheet.Q_WHAT_DIRECTION_WHEN_THEY_RUN,
+          (parsed as Record<string, unknown>).Q_SWEEP_RECLAIM_STATUS,
+          (parsed as Record<string, unknown>).Q6_entry_trigger,
+        ]
+          .filter((v): v is string => typeof v === 'string' && v.length > 0)
+          .map(s => s.toLowerCase());
+
+        const proseBlob = proseFields.join(' | ');
+        let reconciledTo: 'wait_pullback' | 'push_confirmation' | null = null;
+        let trigger: string | null = null;
+
+        if (proseBlob.includes('push_confirmation') || proseBlob.includes('push confirmation')) {
+          reconciledTo = 'push_confirmation';
+          trigger = 'push_confirmation token in prose';
+        } else if (
+          proseBlob.includes('wait_pullback') ||
+          proseBlob.includes('wait pullback') ||
+          proseBlob.includes('watching for reclaim') ||
+          proseBlob.includes('no reclaim') ||
+          proseBlob.includes('none_yet') ||
+          proseBlob.includes('pending')
+        ) {
+          reconciledTo = 'wait_pullback';
+          trigger = 'wait/pending/NONE_YET token in prose';
+        }
+
+        if (reconciledTo) {
+          logViolation({
+            violationType: 'ANSWER_SHEET_RECONCILIATION',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'ccip_2026_0505g_entry_mode_reconciliation',
+            callLocation: 'coordinator-alpha.answer_sheet_reconciliation',
+            blocked: false,
+            errorDetails: {
+              ccip: 'CCIP-2026-0505G',
+              original_entry_mode: 'execute_now',
+              reconciled_to: reconciledTo,
+              trigger,
+              prose_sample: proseBlob.slice(0, 500),
+              action: correctedAction,
+              sessionId: goalContext?.sessionId ?? null,
+              userId: userId ?? null,
+            }
+          }).catch(() => {});
+          console.warn(
+            `[CCIP-2026-0505G] ANSWER_SHEET_RECONCILIATION — ${marketContext.symbol} ${correctedAction}: ` +
+            `Alpha emitted entry_mode=execute_now but prose said "${trigger}". ` +
+            `Downgrading execute_now → ${reconciledTo}. Obeying Alpha's stated intent.`
+          );
+          entryMode = reconciledTo;
+        }
+      }
+
       // CCIP-2026-0333: Structural anchor validation — fail-loud, no synthesis.
       // If Alpha omits the anchor field, log a governance violation and preserve Alpha's
       // output as-is. The system must never substitute a field Alpha did not provide.
