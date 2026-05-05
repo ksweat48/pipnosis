@@ -924,50 +924,64 @@ class AlphaCoordinatorBrain {
     const entryMonitorActive = monitorPrefRaw?.entry_price_monitor_enabled === true;
 
     const entryModePromptSection = entryMonitorActive
-      ? `ENTRY MODE — SEQUENTIAL DECISION PROCESS (CCIP-2026-0422F):
+      ? `ENTRY MODE — TRIGGER-CLOSED-FIRST DECISION PROCESS (CCIP-2026-0505D ENTRY TIMING DISCIPLINE):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field
 in the JSON. Omitting entry_mode will BLOCK the trade — it is not optional, not nested, not skippable.
 Place it at the root of the JSON object, not inside entry_spec or any other sub-object.
 
+ENTRY TIMING PHILOSOPHY (CCIP-2026-0505D):
+execute_now is NOT the default. execute_now is reserved for setups where the confirming candle has
+ALREADY CLOSED on the control timeframe AND price is still inside the actionable zone. A correct
+read with an early entry is still a losing trade. When in doubt, wait_pullback is the professional
+choice — the system will execute the moment price reaches your named zone. You are NOT losing
+opportunity by waiting; you are gaining better fills and surviving noise.
+
 MANDATORY DECISION SEQUENCE — evaluate in this exact order for every pair:
 
-STEP 1 — CAN I EXECUTE NOW?
-Ask: Is the setup valid at the current price? Is the trigger fired or firing? Is the R:R clear?
-If YES → output BUY/SELL + "entry_mode": "execute_now" + your confidence tier. DONE.
+STEP 1 — HAS THE CONFIRMING CANDLE ALREADY CLOSED on the control timeframe?
+The "confirming candle" is the already-closed candle that proves your trigger fired:
+  - SELL: closed bearish rejection / closed reclaim / closed BOS candle
+  - BUY:  closed bullish rejection / closed reclaim / closed BOS candle
+  - Sweep-reclaim: closed candle that took liquidity AND closed back inside the range
+  - Break-of-structure: closed candle that broke and held the prior structural level
+Ask: Can I point to a SPECIFIC already-closed candle on the control TF that proves the trigger fired?
+  AND is price still within my actionable entry zone (not already extended >0.5×ATR past the trigger)?
+If BOTH YES → "entry_mode": "execute_now". Cite the closed candle in q_micro_context or q_trigger_state. DONE.
+If the confirming candle is still FORMING / NOT YET CLOSED → you do NOT have execute_now. Go to STEP 2.
+If the candle closed but price has already extended past the optimal zone → go to STEP 2 (pullback).
 
-STEP 2 — CAN I SET A WAIT INTENT? (only if Step 1 fails)
-Ask: Is there a named structural level where the trigger WILL fire? Can I define the zone?
-If YES → output BUY/SELL + "entry_mode": "wait_pullback" or "push_confirmation" + your confidence tier. DONE.
-Wait intents are valid for: pending sweeps, pending BOS, pending reclaims, price not yet at zone.
-A wait intent is NOT a weaker decision — it is the correct decision when the trigger has not yet fired.
+STEP 2 — CAN I NAME THE ZONE WHERE THE TRIGGER WILL FIRE OR RETRACE TO?
+Use when: trigger is forming but not closed; price extended past optimal entry; pending sweep;
+pending BOS retest; anticipating reversal without a closed reversal candle yet.
+Required: a named structural level (wick high/low, prior PDH/PDL, FVG edge, VWAP, session high/low,
+equal highs/lows cluster) — NOT a round number guess.
+→ "entry_mode": "wait_pullback" — zone is defined, system will execute on zone hit.
+→ "entry_mode": "push_confirmation" — you need a CANDLE CLOSE inside a specific 1–3 pip zone.
+The system will execute the moment price enters your zone (and for push_confirmation, closes inside).
+This is NOT a weaker decision. For counter-momentum / reversal setups this is the CORRECT decision.
 
 STEP 3 — NO_TRADE (only if BOTH Step 1 and Step 2 fail)
-NO_TRADE is only valid when you cannot find a direction AND cannot name a trigger zone.
-If you can name a trigger zone — output a wait intent, not NO_TRADE.
-If you have a directional lean and a named level — that is a wait intent, not NO_TRADE.
+Only valid when you cannot find a direction AND cannot name a trigger zone.
+If you have directional conviction and can name a level → STEP 2, not NO_TRADE.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ENTRY MODE OPTIONS:
 
   "entry_mode": "execute_now"
-    → Trigger has fired. Structure and momentum support entry at current price.
+    → The confirming candle has ALREADY CLOSED on the control TF AND price is still inside the zone.
+    → You must be able to cite the closed trigger candle in your reasoning.
     → No wait_condition block required.
 
   "entry_mode": "wait_pullback"
-    → TWO valid use cases:
-      (1) Price extended — thesis is valid but you want a better structural entry.
-          The system monitors and executes when price retraces to your zone.
-      (2) Trigger has NOT yet fired — sweep pending, BOS not yet broken, reclaim not confirmed.
-          You have identified the zone where the trigger will fire.
-          The system monitors and executes when price enters the zone.
-    → ALWAYS preferred over NO_TRADE when you can name the trigger zone.
-    → Include a wait_condition block.
+    → Price extended, trigger forming, pending sweep, pending reclaim, anticipating reversal without
+      a closed reversal candle yet, or any counter-momentum setup where the latest control-TF candle
+      still prints in the opposing direction.
+    → Include a wait_condition block with the named structural zone.
 
   "entry_mode": "push_confirmation"
     → You require a candle CLOSE inside a specific zone before entry is confirmed.
-    → Use for breakout entries or when you need committed close-based confirmation.
-    → Zone should be tight (1-3 pip width).
+    → Zone should be tight (1-3 pip width for FX, proportional for indices/crypto).
     → Include a wait_condition block.
 
 For wait_pullback or push_confirmation, include:
@@ -981,31 +995,42 @@ For wait_pullback or push_confirmation, include:
   }
 }
 
+COUNTER-MOMENTUM FADE CHECK (CCIP-2026-0505D — HARD RULE):
+If your action FADES the most recent closed control-TF candle (SELL into a bullish close,
+BUY into a bearish close) — this is a counter-momentum setup. execute_now is ONLY permitted if
+you can cite a named already-closed reversal candle (rejection wick / reclaim / BOS against the
+prior momentum). If no closed reversal candle exists yet, you MUST output wait_pullback with the
+reversal zone named. "Anticipating a reversal" is never sufficient for execute_now.
+
 REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
-{ "action": "BUY", "entry_mode": "wait_pullback", "wait_condition": { ... }, ... }
+{ "action": "SELL", "entry_mode": "wait_pullback", "wait_condition": { ... }, ... }
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-      : `ENTRY MODE — IMMEDIATE EXECUTION ONLY (CCIP-2026-0429A):
+      : `ENTRY MODE — MONITOR OFF, TRIGGER-CLOSED-FIRST DISCIPLINE (CCIP-2026-0505D):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field
 in the JSON. Omitting entry_mode will BLOCK the trade — it is not optional, not nested, not skippable.
 
-This user does not have the Entry Monitor active. Only one entry_mode is available:
+This user does not have the Entry Monitor active. Your primary job is to find the best execute_now
+trade — but execute_now still requires an ALREADY-CLOSED confirming candle. Do NOT force execute_now
+on a setup that has not yet confirmed; output wait_pullback instead and the system will surface it as
+a monitor-upgrade opportunity to the user.
 
-  "entry_mode": "execute_now"
-    → Trigger has fired at current price. Structure and momentum support immediate entry.
-    → Use this when the setup is valid RIGHT NOW at the current market price.
+MANDATORY DECISION SEQUENCE:
 
-IMPORTANT — DEFERRED SETUPS:
-If the trigger has NOT yet fired but you can name a structural level where it WILL fire,
-output BUY or SELL with "entry_mode": "wait_pullback" and populate wait_condition normally.
-The system will capture this as a monitor-required opportunity and surface it to the user
-with the option to activate the Entry Monitor for deferred trades.
-Do NOT output NO_TRADE when you can name a trigger zone — output the wait intent instead.
+STEP 1 — HAS THE CONFIRMING CANDLE ALREADY CLOSED on the control timeframe,
+         AND is price still inside the actionable zone?
+If YES → "entry_mode": "execute_now". Cite the closed trigger candle. DONE.
 
-DECISION SEQUENCE:
-STEP 1: Is the trigger fired at current price? YES → execute_now. DONE.
-STEP 2: Is there a named zone where the trigger WILL fire? YES → wait_pullback + wait_condition. DONE.
-STEP 3: Cannot find a direction or a trigger zone at all → NO_TRADE.
+STEP 2 — TRIGGER NOT YET CLOSED, OR PRICE EXTENDED: can I name the zone where it WILL fire / retrace to?
+If YES → "entry_mode": "wait_pullback" with wait_condition. The system captures this as a
+monitor-required opportunity and surfaces it to the user with the option to activate the Entry Monitor.
+Do NOT force execute_now just because the monitor is off — a correct read entered early still loses.
+
+STEP 3 — No direction and no nameable zone → NO_TRADE.
+
+COUNTER-MOMENTUM FADE CHECK (CCIP-2026-0505D — HARD RULE):
+If your action FADES the most recent closed control-TF candle, execute_now requires a NAMED
+already-closed reversal candle. Otherwise you MUST output wait_pullback.
 
 REMINDER: "entry_mode" must be a top-level key in your JSON response.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
