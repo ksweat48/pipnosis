@@ -230,7 +230,12 @@ export class EntryIntentCleanupService {
   }
 
   /**
-   * Private helper: Log to governance alert system for compliance monitoring
+   * Private helper: Log to governance alert system via SSOT authority.
+   *
+   * CCIP-2026-0505B: Routes through governanceAlertService.sendAlert() (SSOT
+   * writer for governance_alerts). Fixes 400 Bad Request caused by ad-hoc
+   * insert with non-existent `description` column and missing NOT NULL
+   * `title`/`message` fields.
    */
   private static async logGovernanceAlert(
     alertType: string,
@@ -239,21 +244,20 @@ export class EntryIntentCleanupService {
     details: string
   ): Promise<void> {
     try {
-      await supabase
-        .from('governance_alerts')
-        .insert({
-          alert_type: alertType,
-          alert_key: `entry_intent_cleanup_${userId}`,
-          severity: 'HIGH',
-          description: details,
-          metadata: {
-            user_id: userId,
-            cleanup_value: value,
-            timestamp: new Date().toISOString()
-          },
-          channels_sent: ['in_app', 'push']
-        })
-        .select();
+      const { governanceAlertService } = await import('./governance-alert-service');
+      await governanceAlertService.sendAlert({
+        alert_type: alertType,
+        alert_key: `entry_intent_cleanup_${userId}`,
+        severity: 'HIGH',
+        title: `Entry intent cleanup: ${alertType}`,
+        message: details,
+        component_name: 'EntryIntentCleanupService',
+        metadata: {
+          user_id: userId,
+          cleanup_value: value,
+          timestamp: new Date().toISOString()
+        }
+      });
     } catch (error) {
       // Non-blocking: Alert logging should not interrupt cleanup
       logger.error('[IntentCleanup] Failed to log governance alert', { error });

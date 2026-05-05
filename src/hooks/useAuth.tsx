@@ -189,15 +189,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (cancelled) return;
 
-      try {
-        const { entryIntentCleanupService } = await import('@/services/entry-intent-cleanup');
-        const cleanupResult = await entryIntentCleanupService.performFullCleanup(userId);
-        if (cleanupResult.totalCleaned > 0) {
-          console.log('[Auth] Cleaned up stale intents:', cleanupResult);
-        }
-
+      // CCIP-2026-0505B: Intent cleanup runs in background to avoid blocking
+      // TradePage boot. The RPC can take 15-20s during cold start when the
+      // sequential cleanup functions contend with other boot workload. Resuming
+      // active intents does NOT depend on cleanup completing first.
+      queueMicrotask(() => {
         if (cancelled) return;
+        (async () => {
+          try {
+            const { entryIntentCleanupService } = await import('@/services/entry-intent-cleanup');
+            const cleanupResult = await entryIntentCleanupService.performFullCleanup(userId);
+            if (cleanupResult.totalCleaned > 0) {
+              console.log('[Auth] Cleaned up stale intents:', cleanupResult);
+            }
+          } catch { /* non-blocking */ }
+        })();
+      });
 
+      try {
         const { unifiedEntryMonitor } = await import('@/services/unified-entry-monitor');
         await unifiedEntryMonitor.resumeAllActiveIntents(userId);
       } catch { /* non-blocking */ }
