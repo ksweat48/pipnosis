@@ -51,51 +51,83 @@ const supabaseClient = createClient(
       'x-client-info': 'pipnosis-trading-v1'
     },
     fetch: (url, options = {}) => {
-      return fetch(url, options).then(response => {
-        if (!response.ok) {
-          const urlString = url.toString();
+      // CCIP-2026-0505E NETWORK RESILIENCE SSOT
+      // Single retry-with-backoff at the fetch boundary for transient
+      // ERR_CONNECTION_CLOSED / TypeError network failures. Idempotent
+      // methods only (GET/HEAD) to avoid duplicate writes on POST/PATCH.
+      // One retry layer for all Supabase calls — no duplicated logic in
+      // call sites. HTTP error responses are NOT retried (those are
+      // application-level and handled upstream).
+      const method = (options.method || 'GET').toUpperCase();
+      const isIdempotent = method === 'GET' || method === 'HEAD';
 
-          // SSOT: Suppress expected 403 errors for realtime_prices
-          // These are DEFENSIVE security - RLS correctly blocks unauthorized INSERT attempts
-          // Frontend has read-only access; only backend (service_role) can write
-          const is403 = response.status === 403;
-          const isRealtimePrices = urlString.includes('/realtime_prices');
-          const isPost = options.method?.toUpperCase() === 'POST';
+      const isTransientNetworkError = (error: any): boolean => {
+        if (!error) return false;
+        const name = error.name || '';
+        const message = (error.message || '').toLowerCase();
+        if (name === 'AbortError' || message.includes('aborted') || message.includes('signal')) {
+          return false;
+        }
+        return (
+          name === 'TypeError' ||
+          message.includes('failed to fetch') ||
+          message.includes('network') ||
+          message.includes('connection closed') ||
+          message.includes('err_connection')
+        );
+      };
 
-          // Silently suppress expected 403 POST errors to realtime_prices
-          if (is403 && isRealtimePrices && isPost) {
-            // Security working correctly - no logging needed
-            return response;
+      const attemptFetch = (retriesLeft: number): Promise<Response> => {
+        return fetch(url, options).then(response => {
+          if (!response.ok) {
+            const urlString = url.toString();
+
+            // SSOT: Suppress expected 403 errors for realtime_prices
+            // RLS correctly blocks unauthorized INSERT attempts; frontend
+            // is read-only by design.
+            const is403 = response.status === 403;
+            const isRealtimePrices = urlString.includes('/realtime_prices');
+            const isPost = method === 'POST';
+
+            if (is403 && isRealtimePrices && isPost) {
+              return response;
+            }
+
+            console.error('[Supabase Error]', {
+              url: urlString,
+              status: response.status,
+              statusText: response.statusText
+            });
+          }
+          return response;
+        }).catch((error: any) => {
+          const isAbortError = error?.name === 'AbortError' ||
+                              error?.message?.includes('aborted') ||
+                              error?.message?.includes('signal');
+
+          if (isAbortError) {
+            throw error;
           }
 
-          // Log all other errors normally
-          console.error('[Supabase Error]', {
-            url: urlString,
-            status: response.status,
-            statusText: response.statusText
-          });
-        }
-        return response;
-      }).catch(error => {
-        // GOVERNANCE: Don't log intentional request cancellations
-        // AbortErrors occur when:
-        // 1. Component unmounts before request completes (React lifecycle)
-        // 2. New request supersedes old one (request deduplication)
-        // 3. User navigates away (normal behavior)
-        // These are not failures - they're expected React patterns
-        const isAbortError = error.name === 'AbortError' ||
-                            error.message?.includes('aborted') ||
-                            error.message?.includes('signal');
+          if (retriesLeft > 0 && isIdempotent && isTransientNetworkError(error)) {
+            const backoffMs = 300;
+            return new Promise<Response>((resolve, reject) => {
+              setTimeout(() => {
+                attemptFetch(retriesLeft - 1).then(resolve, reject);
+              }, backoffMs);
+            });
+          }
 
-        if (!isAbortError) {
-          // Log actual network failures
           console.error('[Supabase Request Failed]', {
             url: url.toString(),
-            error: error.message
+            method,
+            error: error?.message
           });
-        }
-        throw error;
-      });
+          throw error;
+        });
+      };
+
+      return attemptFetch(isIdempotent ? 1 : 0);
     }
   },
   realtime: {
