@@ -124,7 +124,6 @@ import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstE
 import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle, getEstimatedSpreadPips, getMinSlDistancePips } from '../config/trading-constants';
 import { wallCalibrationEngine } from '../services/wall-calibration-engine';
 import { resolveCanonicalStyle } from '../config/timeframe-hierarchy';
-import { alphaHunterLearningContext } from '../services/alpha-hunter-learning-context';
 import { computeMomentumTrajectory, formatMomentumTrajectoryForPrompt } from '../services/momentum-trajectory-analyzer';
 
 /**
@@ -868,14 +867,11 @@ class AlphaCoordinatorBrain {
     }
 
     // Parallelize all independent data fetches (bidirectional for dual-arena)
-    // CCIP-TIMEOUT-FIX-2026-03-12: Symbol trade history query moved INTO this Promise.all
-    // to eliminate a sequential Supabase round-trip that previously blocked pre-LLM setup.
-    // All 6 fetches are independent — they share no data dependencies with each other.
-    // CCIP-2026-0322A: Fetch entry monitor status in parallel with other data sources.
-    // Alpha must know the live monitor state BEFORE reasoning about entry_mode so he can
-    // make a fully informed choice between execute_now, wait_pullback, and push_confirmation
-    // without conservative bias toward execute_now. SSOT: coordinator-alpha.ts owns this fetch.
-    const [, dailyNarrative, riskResultLong, riskResultShort, rrResult, symbolTradesRaw, monitorPrefRaw] = await Promise.all([
+    // CCIP-2026-0506E FRESH-SCAN ISOLATION: The ai_trade_analysis historical query was
+    // removed from this pipeline. Prior trade outcomes must NEVER flow into Alpha's prompt —
+    // each scan must reason from live market data alone. Contamination from historical
+    // win/loss records was producing pattern-matched SELL bias (see CCIP-2026-0506E).
+    const [, dailyNarrative, riskResultLong, riskResultShort, rrResult, monitorPrefRaw] = await Promise.all([
       this.fetchPlatformIntelligence(marketContext.symbol),
       dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price),
       (userId && goalContext) ? professionalRiskManager.evaluateTrade({
@@ -898,16 +894,6 @@ class AlphaCoordinatorBrain {
       }).catch(err => { console.error('[Alpha Coordinator] Failed to get short risk assessment:', err); return null; }) : Promise.resolve(null),
       userId ? rrSuccessTracker.getRecentPerformanceSummary(userId, marketContext.symbol)
         .catch(err => { console.error('[Alpha Coordinator] Failed to fetch R:R performance:', err); return null; }) : Promise.resolve(null),
-      userId ? supabase
-        .from('ai_trade_analysis')
-        .select('outcome, pnl, exit_reason, direction, key_learnings, mistakes_identified, what_worked, what_failed, entry_confidence, entry_time')
-        .eq('user_id', userId)
-        .eq('symbol', marketContext.symbol)
-        .gte('entry_time', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString())
-        .order('entry_time', { ascending: false })
-        .limit(20)
-        .then(({ data }) => data)
-        .catch(err => { console.error('[Alpha Coordinator] Failed to fetch symbol diagnostic context:', err); return null; }) : Promise.resolve(null),
       userId ? supabase
         .from('user_monitor_preferences')
         .select('entry_price_monitor_enabled')
@@ -1140,75 +1126,11 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
     // Build intelligence context
     let intelligenceContext = this.buildIntelligenceContext(intelligenceSnapshot, marketContext.symbol);
 
-    // Build hunter learning context — sharpens Alpha's entry intelligence (advisory only, no gates)
-    let hunterLearningContextText = '';
-    if (userId) {
-      try {
-        const hunterCtx = await alphaHunterLearningContext.buildContext(
-          userId,
-          marketContext.symbol,
-          goalContext?.tradeStyle
-        );
-        hunterLearningContextText = alphaHunterLearningContext.formatForPrompt(hunterCtx);
-      } catch (error) {
-        console.warn('[Alpha Coordinator] Hunter learning context failed (non-blocking):', error);
-      }
-    }
-
-    // Build symbol diagnostic context from trade learning history (min 5 trades on this symbol)
-    // CCIP-TIMEOUT-FIX-2026-03-12: symbolTradesRaw was fetched in parallel above — no await needed here.
-    let recentTradesContext = '';
-    if (userId) {
-      try {
-        const symbol = marketContext.symbol;
-        const symbolTrades = symbolTradesRaw;
-
-        const tradeCount = symbolTrades?.length ?? 0;
-
-        if (tradeCount >= 5) {
-          const losses = symbolTrades!.filter(t => t.outcome === 'loss' || (t.pnl !== null && t.pnl < 0));
-          const wins = symbolTrades!.filter(t => t.outcome === 'win' || (t.pnl !== null && t.pnl > 0));
-          const recentLosses = losses.slice(0, 3);
-          const recentWins = wins.slice(0, 3);
-
-          recentTradesContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          recentTradesContext += `RECENT TRADE CALIBRATION ON ${symbol} (last 14 days, ${tradeCount} trades)\n`;
-          recentTradesContext += `Record: ${wins.length} wins / ${losses.length} losses (win rate: ${Math.round((wins.length / tradeCount) * 100)}%)\n`;
-          recentTradesContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          recentTradesContext += `This is calibration data only. Each session starts fresh. Prior losses do not reduce my conviction on a current structural setup.\n`;
-
-          if (recentLosses.length > 0) {
-            recentTradesContext += `\nRecent losses on ${symbol}:\n`;
-            recentLosses.forEach((trade, idx) => {
-              recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → LOSS ($${Number(trade.pnl || 0).toFixed(2)}) | Exit: ${trade.exit_reason || 'unknown'}\n`;
-              if (Array.isArray(trade.mistakes_identified) && trade.mistakes_identified.length > 0) {
-                recentTradesContext += `   Note: ${trade.mistakes_identified.slice(0, 1).join(', ')}\n`;
-              }
-            });
-          }
-
-          if (recentWins.length > 0) {
-            recentTradesContext += `\nRecent wins on ${symbol}:\n`;
-            recentWins.forEach((trade, idx) => {
-              recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → WIN ($${Number(trade.pnl || 0).toFixed(2)}) | Exit: ${trade.exit_reason || 'unknown'}\n`;
-              if (trade.what_worked) {
-                recentTradesContext += `   What worked: ${trade.what_worked}\n`;
-              }
-            });
-          }
-
-          recentTradesContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-        } else if (tradeCount > 0) {
-          recentTradesContext = `\nRecent trades on ${symbol} (${tradeCount} trades, last 14 days — calibration only):\n`;
-          symbolTrades!.slice(0, 3).forEach((trade, idx) => {
-            const result = trade.outcome === 'win' ? 'WIN' : trade.outcome === 'loss' ? 'LOSS' : (Number(trade.pnl || 0) > 0 ? 'WIN' : 'LOSS');
-            recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → ${result} ($${Number(trade.pnl || 0).toFixed(2)}) | ${trade.exit_reason || 'unknown'}\n`;
-          });
-        }
-      } catch (error) {
-        console.error('[Alpha Coordinator] Failed to fetch symbol diagnostic context:', error);
-      }
-    }
+    // CCIP-2026-0506E FRESH-SCAN ISOLATION:
+    // hunterLearningContextText and recentTradesContext were removed. They injected
+    // prior trade outcomes (wins/losses, exit reasons, mistakes_identified, what_worked)
+    // directly into Alpha's prompt, producing pattern-matched directional bias across
+    // consecutive scans. Alpha must reason from live market structure alone.
 
     // Build daily context — raw measurements only (CCIP-2026-03-20)
     // No bias labels, no strategy guidance, no directional implications.
@@ -3411,7 +3333,7 @@ These three questions replace the need for a "perfect setup". Structure + range 
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${momentumTrajectoryContext}${patternContext}${intelligenceContext}${hunterLearningContextText}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
+${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${momentumTrajectoryContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -5998,233 +5920,23 @@ Return PURE JSON only — all required fields from the schema in my system promp
   /**
    * Build intelligence context from platform-wide learning
    *
-   * CCIP CONTRACT (2026-02-24):
-   * Exposes raw historical counts and measurements only.
-   * Alpha is the sole authority for computing rates, drawing comparisons,
-   * and deciding what these counts mean for the current trade.
-   * No pre-synthesized win rates, recommendations, or actionable adjustments.
+   * CCIP-2026-0506E FRESH-SCAN ISOLATION:
+   * This method is permanently retired. It previously injected calibration buckets,
+   * counter-thesis accuracy, session-phase historical edge, pattern weights, SL_HUNT
+   * severity, today's streak, tp_dist, decisions totals, validated_insights,
+   * meta_insights, and tp1_data into Alpha's prompt on every scan.
+   *
+   * That historical payload was the root cause of cross-scan bias contamination:
+   * Alpha pattern-matched winning templates from prior sessions and reproduced the
+   * same directional reasoning on unrelated market conditions.
+   *
+   * Alpha must reason from live market structure only. Historical data stays in the
+   * database for analytics; it does NOT enter the decision prompt.
    */
-  private buildIntelligenceContext(intelligence?: AlphaIntelligenceSnapshot | null, symbol?: string): string {
-    if (!intelligence) {
-      return '';
-    }
-
-    const parts: string[] = ['\nALPHA INTELLIGENCE (raw historical data):'];
-
-    if (symbol && intelligence.symbolIntelligence && intelligence.symbolIntelligence[symbol]) {
-      const si = intelligence.symbolIntelligence[symbol];
-      const siParts: string[] = [];
-      if (si.recentWinRate > 0) siParts.push(`WR=${si.recentWinRate.toFixed(0)}%`);
-      if (si.bestSessions?.length > 0) siParts.push(`best_sessions=${si.bestSessions.join('/')}`);
-      if (si.avgSlippage > 0) siParts.push(`slippage=${si.avgSlippage.toFixed(1)}p`);
-      siParts.push(`vol=${si.volatilityLevel}`);
-      parts.push(`${symbol}: ${siParts.join(' | ')}`);
-    }
-
-    if (intelligence.platformPatterns.topPerformingPatterns.length > 0 || intelligence.platformPatterns.failingPatterns.length > 0) {
-      const topPatterns = intelligence.platformPatterns.topPerformingPatterns.slice(0, 3);
-      if (topPatterns.length > 0) {
-        parts.push(`top_patterns: ${topPatterns.map(p => `${p.patternId}(w=${Math.round(p.winRate * p.sampleSize / 100)}/${p.sampleSize} R=${p.avgRMultiple.toFixed(1)})`).join(', ')}`);
-      }
-      const failingPatterns = intelligence.platformPatterns.failingPatterns.slice(0, 3);
-      if (failingPatterns.length > 0) {
-        parts.push(`weak_patterns: ${failingPatterns.map(p => `${p.patternId}(w=${Math.round(p.winRate * p.sampleSize / 100)}/${p.sampleSize})`).join(', ')}`);
-      }
-    }
-
-    const calibrationKeys = Object.keys(intelligence.calibrationData);
-    if (calibrationKeys.length > 0) {
-      const calibLines: string[] = [];
-      const bucketEntries = Object.entries(intelligence.calibrationData)
-        .filter(([, data]) => data.sampleSize >= 10)
-        .sort(([a], [b]) => Number(a) - Number(b));
-      const totalBuckets = bucketEntries.length;
-      for (let i = 0; i < totalBuckets; i++) {
-        const [, data] = bucketEntries[i];
-        const tier = i < Math.floor(totalBuckets / 3)
-          ? 'LOW_CONVICTION'
-          : i < Math.floor(totalBuckets * 2 / 3)
-            ? 'MID_CONVICTION'
-            : 'HIGH_CONVICTION';
-        const edge = data.actualWinRate >= 60 ? 'profitable edge' : data.actualWinRate >= 50 ? 'slight advantage' : data.actualWinRate >= 40 ? 'marginal performance' : 'underperforming';
-        calibLines.push(`${tier}: ${edge} (n=${data.sampleSize})`);
-      }
-      if (calibLines.length > 0) parts.push(`conviction_performance: ${calibLines.join(', ')}`);
-    }
-
-    if (intelligence.metaInsights.length > 0) {
-      const validated = intelligence.metaInsights.slice(0, 3).filter(i => i.validated);
-      if (validated.length > 0) {
-        parts.push('meta_insights:');
-        validated.forEach(insight => parts.push(`  [validated] ${insight.type}: ${insight.description}`));
-      }
-    }
-
-    if (intelligence.executionQuality.avgSlippage > 0) {
-      parts.push(`exec: slippage=${intelligence.executionQuality.avgSlippage.toFixed(1)}p sl_hunt=${intelligence.executionQuality.slHuntingSuspected} rejections=${intelligence.executionQuality.recentRejections}`);
-    }
-
-    if (intelligence.counterfactualInsights.sampleSize >= 5) {
-      const cf = intelligence.counterfactualInsights;
-      const cfParts: string[] = [];
-      if (cf.bestSlMultiplier !== null) cfParts.push(`opt_SL=${cf.bestSlMultiplier.toFixed(2)}x`);
-      if (cf.bestTpMultiplier !== null) cfParts.push(`opt_TP=${cf.bestTpMultiplier.toFixed(2)}x`);
-      cfParts.push(`early_exit=${cf.earlyExitCount}/${cf.totalSampled} hold_longer=${cf.holdLongerCount}/${cf.totalSampled}`);
-      parts.push(`counterfactual: ${cfParts.join(' ')}`);
-    }
-
-    const zml = intelligence.zoneMetaLearning;
-    const hasZoneData = Object.keys(zml.zoneTypeSuccessRates).length > 0 || zml.reachabilityRate > 0;
-    if (hasZoneData) {
-      const zParts: string[] = [];
-      Object.entries(zml.zoneTypeSuccessRates).forEach(([zoneType, rate]) => {
-        const label = rate >= 0.60 ? 'high success' : rate >= 0.45 ? 'moderate success' : 'low success';
-        zParts.push(`${zoneType}=${label}`);
-      });
-      if (zml.reachabilityRate > 0) {
-        const reachLabel = zml.reachabilityRate >= 0.60 ? 'good reachability' : zml.reachabilityRate >= 0.40 ? 'moderate reachability' : 'poor reachability';
-        zParts.push(`reach=${reachLabel}`);
-      }
-      const unreachable = Object.entries(zml.unreachableByRegime).filter(([, rate]) => rate > 0.3);
-      unreachable.forEach(([regime]) => zParts.push(`${regime}_unreachable=often`));
-      parts.push(`zones: ${zParts.join(' | ')}`);
-    }
-
-    if (intelligence.tpCalibration) {
-      parts.push(intelligence.tpCalibration);
-    }
-
-    const dm = intelligence.decisionMetrics;
-    if (dm.totalDecisions >= 5) {
-      parts.push(`decisions: total=${dm.totalDecisions} W=${dm.totalWins} L=${dm.totalLosses} profitR=${dm.totalProfitR.toFixed(1)} lossR=${dm.totalLossR.toFixed(1)}`);
-    }
-
-    const tp1 = intelligence.tp1Learning;
-    if (tp1.totalTP1Events >= 3) {
-      parts.push(`tp1_data: events=${tp1.totalTP1Events} early(${tp1.closeEarlyWins}/${tp1.closeEarlyTotal} $${tp1.avgPnlCloseEarly.toFixed(0)}) hold(${tp1.holdToTP2Wins}/${tp1.holdToTP2Total} $${tp1.avgPnlHoldToTP2.toFixed(0)})`);
-    }
-
-    if (intelligence.validatedInsights.length > 0) {
-      parts.push('validated_insights:');
-      intelligence.validatedInsights.slice(0, 3).forEach(insight => {
-        const winStr = insight.winRate > 0 && insight.sampleSize >= 5 ? ` w=${Math.round(insight.winRate * insight.sampleSize / 100)}/${insight.sampleSize}` : '';
-        parts.push(`  [n=${insight.sampleSize}${winStr}] ${insight.title}: ${insight.description}`);
-      });
-    }
-
-    if (intelligence.patternWeights && intelligence.patternWeights.length > 0) {
-      const topPatterns = intelligence.patternWeights
-        .filter(p => p.totalTrades >= 5)
-        .sort((a, b) => b.advisoryWeight - a.advisoryWeight)
-        .slice(0, 5);
-      if (topPatterns.length > 0) {
-        parts.push(`pattern_weights: ${topPatterns.map(p => {
-          const edge = p.winRate >= 0.60 ? 'strong-edge' : p.winRate >= 0.50 ? 'positive-edge' : p.winRate >= 0.40 ? 'neutral' : 'weak-edge';
-          return `${p.patternId}(w=${p.advisoryWeight.toFixed(1)} edge=${edge})`;
-        }).join(' ')}`);
-      }
-    }
-
-    if (intelligence.slHuntCorrections && symbol && intelligence.slHuntCorrections[symbol]) {
-      const hunt = intelligence.slHuntCorrections[symbol];
-      if (hunt.totalSlHits >= 3 && hunt.huntRate >= 0.3) {
-        const huntSeverity = hunt.huntRate >= 0.6 ? 'frequent' : hunt.huntRate >= 0.4 ? 'moderate' : 'occasional';
-        parts.push(`SL_HUNT (${symbol}): severity=${huntSeverity} n=${hunt.totalSlHits}${hunt.recommendedWidenPct > 0 ? ` — widen SL recommended` : ''}`);
-      }
-    }
-
-    if (intelligence.sessionStreakState && intelligence.sessionStreakState.sessionTrades >= 2) {
-      const streak = intelligence.sessionStreakState;
-      const rawWr = streak.sessionTrades > 0 ? streak.sessionWins / streak.sessionTrades : 0;
-      const wrLabel = rawWr >= 0.60 ? 'winning' : rawWr >= 0.50 ? 'breakeven' : 'losing';
-      parts.push(`today: ${streak.sessionTrades}trades form=${wrLabel} PnL=${streak.sessionPnlR >= 0 ? '+' : ''}${streak.sessionPnlR.toFixed(2)}R${streak.currentStreak >= 3 ? ` [${streak.streakType.toUpperCase()} STREAK x${streak.currentStreak}]` : ''}`);
-    }
-
-    if (intelligence.tpDistributionStats && symbol) {
-      const symStats = intelligence.tpDistributionStats[symbol];
-      if (symStats) {
-        const styleKeys = Object.keys(symStats).filter(k => symStats[k].totalTrades >= 5);
-        if (styleKeys.length > 0) {
-          parts.push(`tp_dist(${symbol}): ${styleKeys.map(s => {
-            const d = symStats[s];
-            const fullLabel = d.tpFullRate >= 0.50 ? 'frequent' : d.tpFullRate >= 0.30 ? 'occasional' : 'rare';
-            const slLabel = d.slRate >= 0.50 ? 'high' : d.slRate >= 0.30 ? 'moderate' : 'low';
-            return `${s}:full_tp=${fullLabel} sl_hit=${slLabel}(n=${d.totalTrades})`;
-          }).join(' | ')}`);
-        }
-      }
-    }
-
-    if (intelligence.counterThesisAccuracy && symbol && intelligence.counterThesisAccuracy[symbol]) {
-      const ct = intelligence.counterThesisAccuracy[symbol];
-      if (ct.totalTrades >= 5) {
-        const note = ct.calibrationError > 0.2 ? (ct.avgPredictedFailureRate > ct.actualFailureRate ? ' [over-cautious]' : ' [under-estimating risk]') : '';
-        parts.push(`counter_thesis_cal(${symbol}): calibration=${ct.calibrationError <= 0.1 ? 'well-calibrated' : ct.calibrationError <= 0.2 ? 'slightly-off' : 'poorly-calibrated'}(n=${ct.totalTrades})${note}`);
-      }
-    }
-
-    // CCIP-2026-0325B: Session-phase-style performance mirror
-    // CCIP-2026-0407C: Numeric win-rate percentages removed — qualitative edge labels only.
-    // Prevents GPT-4o from anchoring trade_confidence to historical win-rate numbers.
-    if (intelligence.sessionPhasePerformance && intelligence.sessionPhasePerformance.length > 0) {
-      parts.push('\nSESSION-PHASE-STYLE HISTORICAL EDGE (your empirical context profile):');
-      parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      parts.push('Format: session|phase|style → edge profile | avg_pnl');
-
-      const rows = intelligence.sessionPhasePerformance
-        .slice(0, 20)
-        .map(r => {
-          const edgeLabel = r.win_rate >= 0.65 ? 'strong historical edge'
-            : r.win_rate >= 0.55 ? 'positive historical edge'
-            : r.win_rate >= 0.45 ? 'neutral historical edge'
-            : r.win_rate >= 0.35 ? 'historically weak context'
-            : 'historically poor context';
-          const tradeCount = `(${r.wins}W/${r.losses}L)`;
-          return `  ${r.session_name}|${r.market_phase}|${r.trade_style} → ${edgeLabel} ${tradeCount} $${Number(r.avg_pnl).toFixed(2)}/trade`;
-        });
-
-      parts.push(...rows);
-      parts.push('INSTRUCTION: When my active session + current Q12 phase + active style matches a row above,');
-      parts.push('I reference the edge profile as contextual information only. Edge labels describe historical');
-      parts.push('context — they do not determine my trade_confidence. My confidence comes from the structural');
-      parts.push('evidence I observe right now: structure quality, path cleanliness, trigger clarity.');
-      parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    }
-
-    if (intelligence.setupTypeContextPerformance && intelligence.setupTypeContextPerformance.length > 0) {
-      const setupRows = intelligence.setupTypeContextPerformance.slice(0, 15);
-      parts.push('\nSETUP-TYPE HISTORICAL EDGE BY CONTEXT (empirical):');
-      setupRows.forEach(r => {
-        const edgeLabel = r.win_rate >= 0.60 ? 'strong edge'
-          : r.win_rate >= 0.50 ? 'positive edge'
-          : r.win_rate >= 0.40 ? 'neutral edge'
-          : 'historically weak';
-        const tradeCount = `(${r.wins}W/${r.losses}L)`;
-        parts.push(`  ${r.session_name}|${r.market_phase}|${r.setup_type} → ${edgeLabel} ${tradeCount} $${Number(r.avg_pnl).toFixed(2)}/trade`);
-      });
-    }
-
-    if (intelligence.phaseConfluenceCalibration && intelligence.phaseConfluenceCalibration.length > 0) {
-      parts.push('\nCCIP-2026-0401A: PHASE-RELATIVE CONFLUENCE REQUIREMENTS (load-bearing signals only):');
-      parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      parts.push('Format: phase|style → min/7 | load-bearing signals | edge status');
-      intelligence.phaseConfluenceCalibration.forEach(row => {
-        const edgeStatus = row.historical_win_rate !== null && row.sample_size >= 5
-          ? (row.historical_win_rate >= 60 ? `calibrated edge (n=${row.sample_size})`
-            : row.historical_win_rate >= 50 ? `positive tendency (n=${row.sample_size})`
-            : `building data (n=${row.sample_size})`)
-          : 'no data yet';
-        const lb = row.load_bearing_dimensions.join('+');
-        const edgeFlag = row.historical_win_rate !== null && row.historical_win_rate >= 60 ? ' [CALIBRATED EDGE]' : '';
-        parts.push(`  ${row.market_phase}|${row.trade_style} → ${row.min_signals_required}/7 | ${lb} | ${edgeStatus}${edgeFlag}`);
-      });
-      parts.push('INSTRUCTION: When Q12 phase matches a row above, apply that row\'s min_signals to my Q7 evaluation.');
-      parts.push('A setup meeting min_signals with ALL load-bearing dimensions firing = TRADEABLE regardless of universal count.');
-      parts.push('My trade_confidence is my honest conviction derived from the structural evidence I observe — not a band, not a formula, not a range midpoint.');
-      parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    }
-
-    return parts.join('\n');
+  private buildIntelligenceContext(_intelligence?: AlphaIntelligenceSnapshot | null, _symbol?: string): string {
+    void _intelligence;
+    void _symbol;
+    return '';
   }
 
 }

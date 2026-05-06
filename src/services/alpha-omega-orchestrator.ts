@@ -203,6 +203,59 @@ class AlphaOmegaOrchestrator {
       };
     }
 
+    // CCIP-2026-0506E: Fresh-Scan Isolation — fail loud on stale data.
+    // Every scan must run on fresh, uncontaminated data. If the latest candle or live price
+    // is beyond strict thresholds, abort the scan entirely rather than let Alpha reason
+    // against a stale picture. This replaces prior advisory-only behavior.
+    {
+      const FRESH_SCAN_CANDLE_MAX_AGE_SECONDS = 90;  // M5 candle in-flight ~ up to 300s; hard ceiling 90s since snapshot build
+      const FRESH_SCAN_PRICE_MAX_AGE_SECONDS = 60;   // live price must be within last minute
+      const latestCandle = snapshot.candles && snapshot.candles.length > 0
+        ? snapshot.candles[snapshot.candles.length - 1]
+        : null;
+      const latestCandleTs = latestCandle ? new Date(latestCandle.timestamp).getTime() : 0;
+      const candleAgeSeconds = latestCandleTs > 0 ? Math.round((Date.now() - latestCandleTs) / 1000) : Number.POSITIVE_INFINITY;
+      const priceAgeSeconds = Math.round((Date.now() - (snapshot.createdAt ?? Date.now())) / 1000);
+
+      const candleAgesByTf: Record<string, number> = { [entryTimeframe]: candleAgeSeconds };
+
+      let abortReason: string | null = null;
+      if (!Number.isFinite(candleAgeSeconds) || candleAgeSeconds > FRESH_SCAN_CANDLE_MAX_AGE_SECONDS) {
+        abortReason = `STALE_DATA_ABORT: latest ${entryTimeframe} candle is ${Number.isFinite(candleAgeSeconds) ? candleAgeSeconds : '∞'}s old (max ${FRESH_SCAN_CANDLE_MAX_AGE_SECONDS}s)`;
+      } else if (priceAgeSeconds > FRESH_SCAN_PRICE_MAX_AGE_SECONDS) {
+        abortReason = `STALE_DATA_ABORT: live price is ${priceAgeSeconds}s old (max ${FRESH_SCAN_PRICE_MAX_AGE_SECONDS}s)`;
+      }
+
+      try {
+        const { supabase } = await import('../lib/supabase');
+        await supabase.from('scan_freshness_audit').insert({
+          symbol: marketState.symbol,
+          scan_started_at: new Date(signalTimestamp).toISOString(),
+          candle_ages_by_tf: candleAgesByTf,
+          current_price_age_seconds: priceAgeSeconds,
+          verdict: abortReason ? 'ABORTED_STALE' : 'FRESH',
+          reason: abortReason ?? null,
+          user_id: userId ?? null
+        });
+      } catch (auditErr) {
+        console.error('[Alpha+Omega] scan_freshness_audit insert failed', auditErr);
+      }
+
+      if (abortReason) {
+        console.error(`[Alpha+Omega] ${abortReason} (FRESH-SCAN ISOLATION)`);
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: marketState.price,
+          stopLoss: proposedSL,
+          takeProfit: proposedTP,
+          confidence: 0,
+          reasoning: abortReason,
+          omega_summary: 'Execution aborted — fresh-scan isolation (CCIP-2026-0506E): data too stale for an uncontaminated scan'
+        };
+      }
+    }
+
     // FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
     // Runs AFTER snapshot is built so the snapshot price can serve as Tier-4 fallback,
     // preventing false blocks at session startup before realtime_prices DB writes arrive.
