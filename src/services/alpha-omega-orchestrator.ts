@@ -213,8 +213,13 @@ class AlphaOmegaOrchestrator {
       const latestCandle = snapshot.candles && snapshot.candles.length > 0
         ? snapshot.candles[snapshot.candles.length - 1]
         : null;
-      const latestCandleTs = latestCandle ? new Date(latestCandle.timestamp).getTime() : 0;
-      const candleAgeSeconds = latestCandleTs > 0 ? Math.round((Date.now() - latestCandleTs) / 1000) : Number.POSITIVE_INFINITY;
+      // CCIP-2026-0506E field-name correction: Candle uses `open_time` (string | Date), not `timestamp`.
+      // Reading `.timestamp` returned undefined, producing NaN and forcing every scan to abort as ∞s stale.
+      const rawOpenTime = latestCandle ? (latestCandle as { open_time?: string | Date }).open_time : undefined;
+      const latestCandleTs = rawOpenTime ? new Date(rawOpenTime).getTime() : 0;
+      const candleAgeSeconds = Number.isFinite(latestCandleTs) && latestCandleTs > 0
+        ? Math.round((Date.now() - latestCandleTs) / 1000)
+        : Number.POSITIVE_INFINITY;
       const priceAgeSeconds = Math.round((Date.now() - (snapshot.createdAt ?? Date.now())) / 1000);
 
       const candleAgesByTf: Record<string, number> = { [entryTimeframe]: candleAgeSeconds };
