@@ -916,7 +916,12 @@ async function assessHuntReadiness(
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export const handler: Handler = async () => {
-  const styles: TradingStyle[] = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
+  // CCIP-2026-0507C — single-style mandate. MICRO_INTRADAY is the only legal
+  // style post-CCIP-2026-0427; the DB CHECK constraint
+  // ccip_0503d_alpha_hunt_readiness_style_single_style rejects anything else.
+  // Iterating SCALP/INTRADAY here produces a batch-wide constraint violation
+  // on every upsert (24h+ silent outage). Scanner now matches the SSOT.
+  const styles: TradingStyle[] = ['MICRO_INTRADAY'];
   const session = detectSession();
   const sessionMinutesRemaining = getSessionMinutesRemaining();
   const results: HuntAssessment[] = [];
@@ -950,22 +955,62 @@ export const handler: Handler = async () => {
     }
   }
 
-  const { error } = await supabase
-    .from('alpha_hunt_readiness')
-    .upsert(results, { onConflict: 'symbol,style' });
+  // CCIP-2026-0507C — per-row isolation. Previously a single bad row (e.g. a
+  // style/symbol that tripped a CHECK constraint) rejected the entire 27-row
+  // batch and left the table empty. Now each row is upserted independently so
+  // one failure can only blank one symbol, not the whole scan.
+  let writtenCount = 0;
+  const writeFailures: Array<{ symbol: string; style: string; error: string }> = [];
 
-  if (error) {
-    console.error('[HuntReadiness] Upsert failed:', error);
-    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+  for (const row of results) {
+    const { error: rowErr } = await supabase
+      .from('alpha_hunt_readiness')
+      .upsert(row, { onConflict: 'symbol,style' });
+
+    if (rowErr) {
+      console.error(
+        `[HuntReadiness] Upsert failed for ${row.symbol} ${row.style}:`,
+        rowErr.message,
+      );
+      writeFailures.push({ symbol: row.symbol, style: row.style, error: rowErr.message });
+    } else {
+      writtenCount += 1;
+    }
+  }
+
+  if (writtenCount === 0) {
+    console.error(
+      `[HuntReadiness] HEARTBEAT FAILURE — 0 rows written out of ${results.length}. ` +
+        `Monitor is blind. Failures: ${JSON.stringify(writeFailures)}`,
+    );
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: 'zero rows written',
+        attempted: results.length,
+        failures: writeFailures,
+      }),
+    };
   }
 
   const liveCount = results.filter(r => r.hunt_state === 'live').length;
   const readyCount = results.filter(r => r.hunt_state === 'ready').length;
 
-  console.log(`[HuntReadiness] Scan complete: ${liveCount} live, ${readyCount} ready, ${results.length - liveCount - readyCount} not_ready | session=${session}`);
+  console.log(
+    `[HuntReadiness] Scan complete: ${liveCount} live, ${readyCount} ready, ` +
+      `${results.length - liveCount - readyCount} not_ready | ` +
+      `written=${writtenCount}/${results.length} | failures=${writeFailures.length} | session=${session}`,
+  );
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ live: liveCount, ready: readyCount, session, total: results.length }),
+    body: JSON.stringify({
+      live: liveCount,
+      ready: readyCount,
+      session,
+      total: results.length,
+      written: writtenCount,
+      failures: writeFailures,
+    }),
   };
 };
