@@ -3966,6 +3966,182 @@ Return PURE JSON only — all required fields from the schema in my system promp
         decision.sweepFacts = sweepFacts;
       }
 
+      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-0508C: MANDATORY AUDIT FIELDS — HARD GATE
+      // ═══════════════════════════════════════════════════════════════════
+      // This is an OUTPUT-SCHEMA COMPLETENESS GATE, not new trading logic.
+      // Alpha's prompt (CCIP-2026-0508A + CCIP-2026-0508B) already mandates a
+      // dual-direction audition and a contradiction reconciliation ledger.
+      // On 2026-05-08 Alpha shipped a US30 SELL that completely skipped both
+      // (hypothesis_buy=null, hypothesis_sell=null, contradictions_fired=null)
+      // and lost −$427 exactly as the prompt upgrades were meant to prevent.
+      //
+      // This gate enforces the CONTRACT Alpha already agreed to: if any of the
+      // ten mandatory answer_sheet fields is missing/invalid, the coordinator
+      // rewrites the decision to NO_TRADE. Alpha cannot opt out of completing
+      // the audit. Improving Alpha's BRAIN is upstream; this is the structural
+      // backstop that prevents the output from bypassing the contract.
+      //
+      // Fields enforced:
+      //   1.  hypothesis_buy (non-null object)
+      //   2.  hypothesis_sell (non-null object)
+      //   3.  Q_SWEEP_MAP_DIRECTION (BUY_FAVORED | SELL_FAVORED | BALANCED | INVERTED)
+      //   4.  winning_hypothesis (BUY | SELL | NONE)
+      //   5.  win_reason (non-empty string)
+      //   6.  losing_hypothesis_disqualifier (non-empty string)
+      //   7.  contradictions_fired (array)
+      //   8.  contradictions_scanned_count (integer ≥ 17)
+      //   9.  contradictions_unresolved_count (integer; must be 0 for execute_now)
+      //   10. reconciliation_ledger_complete (boolean true for execute_now)
+      //
+      // Direction-integrity cross-checks (hard-block):
+      //   A. winning_hypothesis=BUY with action=SELL (or inverse) → reject
+      //   B. Q_SWEEP_RECLAIM_STATUS contains NO_RECLAIM / wait_pullback text
+      //      while entry_mode=execute_now → reject
+      // ═══════════════════════════════════════════════════════════════════
+      try {
+        const asRaw = (decision as Record<string, unknown>).answer_sheet as
+          | Record<string, unknown>
+          | undefined;
+        const asTop = decision as Record<string, unknown>;
+        const pickField = (name: string): unknown =>
+          asRaw && Object.prototype.hasOwnProperty.call(asRaw, name)
+            ? asRaw[name]
+            : asTop[name];
+
+        const missing: string[] = [];
+        const invalid: string[] = [];
+
+        const hBuy = pickField('hypothesis_buy');
+        const hSell = pickField('hypothesis_sell');
+        if (hBuy == null || typeof hBuy !== 'object') missing.push('hypothesis_buy');
+        if (hSell == null || typeof hSell !== 'object') missing.push('hypothesis_sell');
+
+        const sweepMapDir = pickField('Q_SWEEP_MAP_DIRECTION');
+        const validSweepMapDir = ['BUY_FAVORED', 'SELL_FAVORED', 'BALANCED', 'INVERTED'];
+        if (typeof sweepMapDir !== 'string' || !validSweepMapDir.includes(sweepMapDir.trim().toUpperCase())) {
+          if (sweepMapDir == null || sweepMapDir === '') missing.push('Q_SWEEP_MAP_DIRECTION');
+          else invalid.push(`Q_SWEEP_MAP_DIRECTION=${String(sweepMapDir)}`);
+        }
+
+        const winning = pickField('winning_hypothesis');
+        const validWinning = ['BUY', 'SELL', 'NONE'];
+        const winningNorm =
+          typeof winning === 'string' ? winning.trim().toUpperCase() : '';
+        if (!validWinning.includes(winningNorm)) {
+          if (winning == null || winning === '') missing.push('winning_hypothesis');
+          else invalid.push(`winning_hypothesis=${String(winning)}`);
+        }
+
+        const winReason = pickField('win_reason');
+        if (typeof winReason !== 'string' || winReason.trim().length === 0) {
+          missing.push('win_reason');
+        }
+
+        const loserDisq = pickField('losing_hypothesis_disqualifier');
+        if (typeof loserDisq !== 'string' || loserDisq.trim().length === 0) {
+          missing.push('losing_hypothesis_disqualifier');
+        }
+
+        const contradictionsFired = pickField('contradictions_fired');
+        if (!Array.isArray(contradictionsFired)) missing.push('contradictions_fired');
+
+        const scannedCount = pickField('contradictions_scanned_count');
+        if (typeof scannedCount !== 'number' || !Number.isFinite(scannedCount)) {
+          missing.push('contradictions_scanned_count');
+        } else if (scannedCount < 17) {
+          invalid.push(`contradictions_scanned_count=${scannedCount} (<17)`);
+        }
+
+        const unresolvedCount = pickField('contradictions_unresolved_count');
+        if (typeof unresolvedCount !== 'number' || !Number.isFinite(unresolvedCount)) {
+          missing.push('contradictions_unresolved_count');
+        }
+
+        const ledgerComplete = pickField('reconciliation_ledger_complete');
+        if (typeof ledgerComplete !== 'boolean') missing.push('reconciliation_ledger_complete');
+
+        const actionNorm = typeof decision.action === 'string'
+          ? decision.action.trim().toUpperCase()
+          : '';
+        const entryMode = typeof (decision as Record<string, unknown>).entry_mode === 'string'
+          ? ((decision as Record<string, unknown>).entry_mode as string)
+          : '';
+        const isDirectional = actionNorm === 'BUY' || actionNorm === 'SELL';
+        const isExecuteNow = entryMode === 'execute_now';
+
+        // Direction-integrity A: winning_hypothesis must match executing action
+        if (isDirectional && (winningNorm === 'BUY' || winningNorm === 'SELL')) {
+          if (winningNorm !== actionNorm) {
+            invalid.push(`DIRECTION_MISMATCH: winning_hypothesis=${winningNorm} vs action=${actionNorm}`);
+          }
+        }
+
+        // Direction-integrity B: sweep-reclaim self-contradiction against execute_now
+        const sweepReclaim = pickField('Q_SWEEP_RECLAIM_STATUS');
+        if (isExecuteNow && typeof sweepReclaim === 'string') {
+          const srUpper = sweepReclaim.toUpperCase();
+          if (
+            srUpper.includes('NO_RECLAIM') ||
+            srUpper.includes('WAIT_PULLBACK') ||
+            srUpper.includes('NO_SWEEP_PENDING') ||
+            srUpper.includes('NO_RECLAIM_PENDING')
+          ) {
+            invalid.push(`SWEEP_RECLAIM_SELF_CONTRADICTION: Q_SWEEP_RECLAIM_STATUS contradicts execute_now`);
+          }
+        }
+
+        // For execute_now on directional trades, ledger must be complete and no unresolved contradictions.
+        if (isDirectional && isExecuteNow) {
+          if (ledgerComplete !== true) {
+            invalid.push('reconciliation_ledger_complete=false for execute_now');
+          }
+          if (typeof unresolvedCount === 'number' && unresolvedCount > 0) {
+            invalid.push(`contradictions_unresolved_count=${unresolvedCount}>0 for execute_now`);
+          }
+          if (winningNorm === 'NONE') {
+            invalid.push(`winning_hypothesis=NONE for directional execute_now`);
+          }
+        }
+
+        const violations = [...missing.map((f) => `MISSING:${f}`), ...invalid];
+        if (isDirectional && violations.length > 0) {
+          const blockReason = `CCIP-2026-0508C_MANDATORY_AUDIT_INCOMPLETE: ${violations.join(' | ')}`;
+
+          console.error(
+            `[Alpha Coordinator] CCIP-2026-0508C HARD GATE FIRED: ${blockReason}. ` +
+            `Symbol=${marketContext.symbol}, Action=${actionNorm}, EntryMode=${entryMode}. ` +
+            `Rewriting decision to NO_TRADE.`
+          );
+
+          logViolation({
+            violationType: 'CCIP_0508C_MANDATORY_AUDIT_INCOMPLETE',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'mandatory_audit_gate',
+            callLocation: 'coordinator-alpha/coordinate',
+            blocked: true,
+            errorDetails: {
+              missing,
+              invalid,
+              action: actionNorm,
+              entry_mode: entryMode,
+              winning_hypothesis: winningNorm,
+              userId: userId || 'unknown',
+            },
+          }).catch(() => {});
+
+          const dMut = decision as Record<string, unknown>;
+          dMut.action = 'NO_TRADE';
+          dMut.decision = 'NO_TRADE';
+          dMut.entry_mode = null;
+          dMut.confidence_tier = null;
+          dMut.block_reason = blockReason;
+          dMut.decision_origin = 'SYSTEM_GATE_0508C';
+        }
+      } catch (gateErr) {
+        console.error('[Alpha Coordinator] CCIP-2026-0508C gate evaluation error:', gateErr);
+      }
+
       // CCIP-2026-0324C: liquidity_sweep_read omission detector.
       // Placed here (in coordinate) because sweepFacts is only in scope in this method.
       // parseDecision() previously referenced sweepFacts as an undefined variable, causing
