@@ -24,6 +24,8 @@ interface AlphaDecisionSummary {
   created_at: string;
   trade_executed: boolean;
   safety_blocked: boolean;
+  block_reason: string | null;
+  decision_origin: string | null;
 }
 
 interface AlphaScanningFeedProps {
@@ -151,7 +153,7 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
     const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const { data, error } = await supabase
       .from('alpha_decisions')
-      .select('id, symbol, action, confidence, reasoning, answer_sheet, trade_style, created_at, trade_executed, safety_blocked')
+      .select('id, symbol, action, confidence, reasoning, answer_sheet, trade_style, created_at, trade_executed, safety_blocked, block_reason, decision_origin')
       .eq('session_id', sessionId)
       .gte('created_at', since)
       .order('created_at', { ascending: false });
@@ -610,6 +612,141 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
                           </div>
                         </div>
                       )}
+
+                      {/* CCIP-2026-0508C/D: 10 mandatory audit fields compliance panel */}
+                      {(() => {
+                        const as = result.answer_sheet || {};
+                        const checks: Array<{ key: string; label: string; ok: boolean; display: string }> = [
+                          {
+                            key: 'hypothesis_buy',
+                            label: 'Hypothesis BUY',
+                            ok: as.hypothesis_buy != null && typeof as.hypothesis_buy === 'object',
+                            display: typeof as.hypothesis_buy === 'object' && as.hypothesis_buy !== null
+                              ? (as.hypothesis_buy.structural_case || JSON.stringify(as.hypothesis_buy).slice(0, 120))
+                              : (typeof as.hypothesis_buy === 'string' ? as.hypothesis_buy.slice(0, 120) : '—'),
+                          },
+                          {
+                            key: 'hypothesis_sell',
+                            label: 'Hypothesis SELL',
+                            ok: as.hypothesis_sell != null && typeof as.hypothesis_sell === 'object',
+                            display: typeof as.hypothesis_sell === 'object' && as.hypothesis_sell !== null
+                              ? (as.hypothesis_sell.structural_case || JSON.stringify(as.hypothesis_sell).slice(0, 120))
+                              : (typeof as.hypothesis_sell === 'string' ? as.hypothesis_sell.slice(0, 120) : '—'),
+                          },
+                          {
+                            key: 'Q_SWEEP_MAP_DIRECTION',
+                            label: 'Sweep Map Direction',
+                            ok: typeof as.Q_SWEEP_MAP_DIRECTION === 'string' &&
+                              ['BUY_FAVORED', 'SELL_FAVORED', 'BALANCED', 'INVERTED'].includes(
+                                String(as.Q_SWEEP_MAP_DIRECTION).trim().toUpperCase().split(' ')[0].replace(/[—-].*/, '').trim()
+                              ),
+                            display: as.Q_SWEEP_MAP_DIRECTION || '—',
+                          },
+                          {
+                            key: 'winning_hypothesis',
+                            label: 'Winning Hypothesis',
+                            ok: typeof as.winning_hypothesis === 'string' && as.winning_hypothesis.trim().length > 0,
+                            display: as.winning_hypothesis || '—',
+                          },
+                          {
+                            key: 'win_reason',
+                            label: 'Win Reason',
+                            ok: typeof as.win_reason === 'string' && as.win_reason.trim().length > 0,
+                            display: as.win_reason || '—',
+                          },
+                          {
+                            key: 'losing_hypothesis_disqualifier',
+                            label: 'Losing Disqualifier',
+                            ok: typeof as.losing_hypothesis_disqualifier === 'string' &&
+                              as.losing_hypothesis_disqualifier.trim().length > 0,
+                            display: as.losing_hypothesis_disqualifier || '—',
+                          },
+                          {
+                            key: 'contradictions_fired',
+                            label: 'Contradictions Fired',
+                            ok: Array.isArray(as.contradictions_fired),
+                            display: Array.isArray(as.contradictions_fired)
+                              ? `${as.contradictions_fired.length} entries`
+                              : '—',
+                          },
+                          {
+                            key: 'contradictions_scanned_count',
+                            label: 'Scanned Count (≥17)',
+                            ok: typeof as.contradictions_scanned_count === 'number' &&
+                              as.contradictions_scanned_count >= 17,
+                            display: typeof as.contradictions_scanned_count === 'number'
+                              ? String(as.contradictions_scanned_count)
+                              : '—',
+                          },
+                          {
+                            key: 'contradictions_unresolved_count',
+                            label: 'Unresolved Count',
+                            ok: typeof as.contradictions_unresolved_count === 'number',
+                            display: typeof as.contradictions_unresolved_count === 'number'
+                              ? String(as.contradictions_unresolved_count)
+                              : '—',
+                          },
+                          {
+                            key: 'reconciliation_ledger_complete',
+                            label: 'Ledger Complete',
+                            ok: typeof as.reconciliation_ledger_complete === 'boolean',
+                            display: typeof as.reconciliation_ledger_complete === 'boolean'
+                              ? (as.reconciliation_ledger_complete ? 'true' : 'false')
+                              : '—',
+                          },
+                        ];
+                        const present = checks.filter((c) => c.ok).length;
+                        const gateFired = !!result.block_reason && (
+                          String(result.block_reason).includes('0508C') ||
+                          String(result.block_reason).includes('0508D')
+                        );
+                        const fullyCompliant = present === 10;
+                        const headerColor = fullyCompliant
+                          ? 'text-emerald-400 border-emerald-700/40 bg-emerald-900/10'
+                          : 'text-amber-400 border-amber-700/40 bg-amber-900/10';
+                        return (
+                          <div className={`mt-3 rounded-lg border p-3 ${headerColor}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-[10px] uppercase tracking-wide font-semibold">
+                                CCIP-0508C/D — Mandatory Audit Fields
+                              </div>
+                              <div className="text-[10px] font-mono">
+                                {present}/10 {fullyCompliant ? 'COMPLIANT' : 'INCOMPLETE'}
+                              </div>
+                            </div>
+                            {gateFired && result.block_reason && (
+                              <div className="mb-2 text-[10px] text-amber-300 bg-amber-950/40 rounded px-2 py-1 border border-amber-800/40 break-words">
+                                <span className="font-semibold">Gate: </span>
+                                {result.decision_origin || 'SYSTEM_GATE'} — {result.block_reason}
+                              </div>
+                            )}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {checks.map((c) => (
+                                <div
+                                  key={c.key}
+                                  className={`rounded px-2 py-1 border text-[10px] ${
+                                    c.ok
+                                      ? 'border-emerald-800/40 bg-emerald-950/20'
+                                      : 'border-red-800/50 bg-red-950/30'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className={`font-semibold ${c.ok ? 'text-emerald-300' : 'text-red-300'}`}>
+                                      {c.ok ? 'PASS' : 'MISSING'}
+                                    </span>
+                                    <span className="text-gray-400">{c.label}</span>
+                                  </div>
+                                  <div className="text-gray-300 mt-0.5 truncate" title={String(c.display)}>
+                                    {String(c.display).length > 80
+                                      ? String(c.display).slice(0, 80) + '…'
+                                      : String(c.display)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Answer sheet key fields */}
                       {result.answer_sheet && (

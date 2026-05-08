@@ -3967,7 +3967,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // CCIP-2026-0508C: MANDATORY AUDIT FIELDS — HARD GATE
+      // CCIP-2026-0508C (+ 0508D extension): MANDATORY AUDIT FIELDS — HARD GATE
       // ═══════════════════════════════════════════════════════════════════
       // This is an OUTPUT-SCHEMA COMPLETENESS GATE, not new trading logic.
       // Alpha's prompt (CCIP-2026-0508A + CCIP-2026-0508B) already mandates a
@@ -3976,11 +3976,20 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // (hypothesis_buy=null, hypothesis_sell=null, contradictions_fired=null)
       // and lost −$427 exactly as the prompt upgrades were meant to prevent.
       //
+      // CCIP-2026-0508D (2026-05-08): The 10 mandatory fields are now required
+      // on EVERY decision — BUY, SELL, AND NO_TRADE. The dual-direction audit
+      // is the reasoning contract; a NO_TRADE emitted without the audit is
+      // just as opaque as an unaudited execution and leaves no trail for
+      // reinforcement. NO_TRADE outputs missing the 10 fields are flagged with
+      // block_reason and decision_origin=SYSTEM_GATE_0508D so the governance
+      // audit can surface every non-compliant reasoning instance.
+      //
       // This gate enforces the CONTRACT Alpha already agreed to: if any of the
-      // ten mandatory answer_sheet fields is missing/invalid, the coordinator
-      // rewrites the decision to NO_TRADE. Alpha cannot opt out of completing
-      // the audit. Improving Alpha's BRAIN is upstream; this is the structural
-      // backstop that prevents the output from bypassing the contract.
+      // ten mandatory answer_sheet fields is missing/invalid on a directional
+      // output, the coordinator rewrites to NO_TRADE. On a NO_TRADE output the
+      // action stays NO_TRADE but the incompleteness is loudly audited. Alpha
+      // cannot opt out of completing the audit under any output. Improving
+      // Alpha's BRAIN is upstream; this is the structural backstop.
       //
       // Fields enforced:
       //   1.  hypothesis_buy (non-null object)
@@ -4104,9 +4113,23 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }
         }
 
-        const violations = [...missing.map((f) => `MISSING:${f}`), ...invalid];
-        if (isDirectional && violations.length > 0) {
-          const blockReason = `CCIP-2026-0508C_MANDATORY_AUDIT_INCOMPLETE: ${violations.join(' | ')}`;
+        // CCIP-2026-0508D: Core 10-field presence is mandatory on ALL outputs.
+        // For NO_TRADE we only relax the three execute_now-specific sub-checks
+        // (ledger_complete=true, unresolved=0, winning=NONE is allowed).
+        const presenceOnlyViolations = [
+          ...missing.map((f) => `MISSING:${f}`),
+          ...invalid.filter((v) =>
+            !v.startsWith('reconciliation_ledger_complete=false') &&
+            !v.startsWith('contradictions_unresolved_count=') &&
+            !v.startsWith('winning_hypothesis=NONE for directional') &&
+            !v.startsWith('DIRECTION_MISMATCH') &&
+            !v.startsWith('SWEEP_RECLAIM_SELF_CONTRADICTION')
+          ),
+        ];
+        const fullViolations = [...missing.map((f) => `MISSING:${f}`), ...invalid];
+
+        if (isDirectional && fullViolations.length > 0) {
+          const blockReason = `CCIP-2026-0508C_MANDATORY_AUDIT_INCOMPLETE: ${fullViolations.join(' | ')}`;
 
           console.error(
             `[Alpha Coordinator] CCIP-2026-0508C HARD GATE FIRED: ${blockReason}. ` +
@@ -4137,6 +4160,36 @@ Return PURE JSON only — all required fields from the schema in my system promp
           dMut.confidence_tier = null;
           dMut.block_reason = blockReason;
           dMut.decision_origin = 'SYSTEM_GATE_0508C';
+        } else if (!isDirectional && presenceOnlyViolations.length > 0) {
+          // CCIP-2026-0508D: NO_TRADE output missing the 10 mandatory audit
+          // fields. We keep action=NO_TRADE but loudly audit the incompleteness
+          // so governance review surfaces every unaudited reasoning instance.
+          const blockReason = `CCIP-2026-0508D_NOTRADE_AUDIT_INCOMPLETE: ${presenceOnlyViolations.join(' | ')}`;
+
+          console.error(
+            `[Alpha Coordinator] CCIP-2026-0508D NO_TRADE AUDIT GATE FIRED: ${blockReason}. ` +
+            `Symbol=${marketContext.symbol}. NO_TRADE preserved but flagged for reinforcement.`
+          );
+
+          logViolation({
+            violationType: 'CCIP_0508D_NOTRADE_AUDIT_INCOMPLETE',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'mandatory_audit_gate_notrade',
+            callLocation: 'coordinator-alpha/coordinate',
+            blocked: false,
+            errorDetails: {
+              missing,
+              invalid: presenceOnlyViolations,
+              action: actionNorm,
+              entry_mode: entryMode,
+              winning_hypothesis: winningNorm,
+              userId: userId || 'unknown',
+            },
+          }).catch(() => {});
+
+          const dMut = decision as Record<string, unknown>;
+          dMut.block_reason = blockReason;
+          dMut.decision_origin = 'SYSTEM_GATE_0508D_NOTRADE_AUDIT';
         }
       } catch (gateErr) {
         console.error('[Alpha Coordinator] CCIP-2026-0508C gate evaluation error:', gateErr);
