@@ -165,7 +165,10 @@ class OmegaAlphaLogger {
       omega_vote_details: voteDetails,
       vote_weights: weights,
       trade_executed: decision.action !== 'NO_TRADE' && !safetyBlocked,
-      safety_blocked: safetyBlocked
+      safety_blocked: safetyBlocked,
+      block_reason: (decision as any).block_reason ?? null,
+      decision_origin: (decision as any).decision_origin ?? null,
+      answer_sheet: (decision as any).answer_sheet ?? null
     };
 
     // Add micro-regime classification fields
