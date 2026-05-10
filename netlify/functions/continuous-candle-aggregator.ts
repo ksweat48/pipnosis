@@ -150,8 +150,14 @@ function calculateCandleFromPrices(
   timeframe: string,
   candleStartTime: Date
 ): CandleData | null {
-  if (prices.length < 2) {
-    console.log(`[CandleAggregator] Skipping ${symbol} ${timeframe} — only ${prices.length} tick (need 2+)`);
+  // CCIP-2026-0510F: Crypto tick feed (hybrid_kraken) averages ~3 ticks/min on weekends.
+  // Requiring 2 ticks/minute drops 60% of M1 buckets for crypto on weekends, which then
+  // cascades into M5 failure via the 60% quality threshold. Allow single-tick candles for
+  // crypto; a lone tick is still a valid OHLC observation and saveCandlesBatch already
+  // filters truly flat candles. Forex keeps ≥2 floor (tick density is 10-50/min).
+  const minTicks = isCryptoSymbol(symbol) ? 1 : 2;
+  if (prices.length < minTicks) {
+    console.log(`[CandleAggregator] Skipping ${symbol} ${timeframe} — only ${prices.length} tick (need ${minTicks}+)`);
     return null;
   }
 
@@ -516,7 +522,12 @@ async function runMetaApiDeadManSwitch(
     ? (now.getTime() - lastM1CandleTime.getTime()) / 60000
     : Infinity;
 
-  if (gapMinutes < 10) return 0;
+  // CCIP-2026-0510F: Crypto tick feed (hybrid_kraken) is sparser than forex; weekend
+  // gaps up to 6min are common even when the pipeline is healthy. Use 6min for crypto
+  // so backfill fires before scans abort on staleness, while forex keeps the 10min
+  // floor to avoid thrashing MetaAPI during normal broker jitter.
+  const triggerMinutes = isCryptoSymbol(symbol) ? 6 : 10;
+  if (gapMinutes < triggerMinutes) return 0;
 
   const gapDesc = lastM1CandleTime
     ? `${Math.round(gapMinutes)}min gap since ${lastM1CandleTime.toISOString()}`
@@ -715,8 +726,13 @@ async function aggregateCandlesForSymbol(
 
       let candle: CandleData | null = null;
       const sourceTimeframe = AGGREGATION_HIERARCHY[timeframe];
+      // CCIP-2026-0510F: Crypto M5 bypasses the M1→M5 aggregation hierarchy because
+      // weekend crypto tick density (~3/min) causes sparse M1 buckets, which then
+      // cascades into M5 failure via the 60% quality threshold. Building M5 directly
+      // from the 5-minute tick window sidesteps the M1 dependency entirely.
+      const bypassHierarchy = isCryptoSymbol(symbol) && timeframe === 'M5';
 
-      if (sourceTimeframe) {
+      if (sourceTimeframe && !bypassHierarchy) {
         candle = await aggregateFromLowerTimeframe(
           symbol,
           timeframe,
