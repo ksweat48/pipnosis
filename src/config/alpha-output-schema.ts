@@ -46,6 +46,8 @@
  *   continue to emit free-form briefs that the arbiter synthesizes.
  */
 
+import { VALID_CONFIDENCE_TIERS } from './confidence-tier';
+
 /**
  * Canonical list of the 10 mandatory answer_sheet audit keys enforced by
  * CCIP-2026-0508C / CCIP-2026-0508D. These are the keys the coordinator's
@@ -80,59 +82,55 @@ export type MandatoryAuditKey = (typeof MANDATORY_AUDIT_KEYS)[number];
  */
 const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   // Dual-audition hypotheses (CCIP-2026-0510A)
+  // CCIP-2026-0510O: null branch removed — the dual audition is MANDATORY on
+  // every scan (including NO_TRADE paths). Alpha must return full objects for
+  // both sides, even when one side is the disqualified hypothesis.
   hypothesis_buy: {
-    anyOf: [
-      {
-        type: 'object',
-        additionalProperties: false,
-        required: ['thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips', 'tier1_verdict'],
-        properties: {
-          thesis: { type: ['string', 'null'] },
-          entry: { type: ['number', 'null'] },
-          sl: { type: ['number', 'null'] },
-          tp: { type: ['number', 'null'] },
-          probability: { type: ['number', 'null'] },
-          reward_pips: { type: ['number', 'null'] },
-          risk_pips: { type: ['number', 'null'] },
-          tier1_verdict: { type: ['string', 'null'] },
-        },
-      },
-      { type: 'null' },
-    ],
+    type: 'object',
+    additionalProperties: false,
+    required: ['thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips', 'tier1_verdict'],
+    properties: {
+      thesis: { type: 'string' },
+      entry: { type: ['number', 'null'] },
+      sl: { type: ['number', 'null'] },
+      tp: { type: ['number', 'null'] },
+      probability: { type: ['number', 'null'] },
+      reward_pips: { type: ['number', 'null'] },
+      risk_pips: { type: ['number', 'null'] },
+      tier1_verdict: { type: 'string' },
+    },
   },
   hypothesis_sell: {
-    anyOf: [
-      {
-        type: 'object',
-        additionalProperties: false,
-        required: ['thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips', 'tier1_verdict'],
-        properties: {
-          thesis: { type: ['string', 'null'] },
-          entry: { type: ['number', 'null'] },
-          sl: { type: ['number', 'null'] },
-          tp: { type: ['number', 'null'] },
-          probability: { type: ['number', 'null'] },
-          reward_pips: { type: ['number', 'null'] },
-          risk_pips: { type: ['number', 'null'] },
-          tier1_verdict: { type: ['string', 'null'] },
-        },
-      },
-      { type: 'null' },
-    ],
+    type: 'object',
+    additionalProperties: false,
+    required: ['thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips', 'tier1_verdict'],
+    properties: {
+      thesis: { type: 'string' },
+      entry: { type: ['number', 'null'] },
+      sl: { type: ['number', 'null'] },
+      tp: { type: ['number', 'null'] },
+      probability: { type: ['number', 'null'] },
+      reward_pips: { type: ['number', 'null'] },
+      risk_pips: { type: ['number', 'null'] },
+      tier1_verdict: { type: 'string' },
+    },
   },
 
   // Reconciliation / winner selection
-  Q_SWEEP_MAP_DIRECTION: { type: ['string', 'null'] },
-  winning_hypothesis: { type: ['string', 'null'] },
-  win_reason: { type: ['string', 'null'] },
-  losing_hypothesis_disqualifier: { type: ['string', 'null'] },
+  // CCIP-2026-0510O: null branches removed on the 10 mandatory audit keys so
+  // strict-mode schema validation alone is sufficient — the coordinator's
+  // SCHEMA_REPAIR loop becomes a fallback, not the default code path.
+  Q_SWEEP_MAP_DIRECTION: { type: 'string' },
+  winning_hypothesis: { type: 'string' },
+  win_reason: { type: 'string' },
+  losing_hypothesis_disqualifier: { type: 'string' },
   contradictions_fired: {
-    type: ['array', 'null'],
+    type: 'array',
     items: { type: 'string' },
   },
-  contradictions_scanned_count: { type: ['integer', 'null'] },
-  contradictions_unresolved_count: { type: ['integer', 'null'] },
-  reconciliation_ledger_complete: { type: ['boolean', 'null'] },
+  contradictions_scanned_count: { type: 'integer' },
+  contradictions_unresolved_count: { type: 'integer' },
+  reconciliation_ledger_complete: { type: 'boolean' },
 
   // Canonical Q1-Q12 checklist
   Q1_trend_alignment: { type: ['string', 'null'] },
@@ -153,7 +151,11 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   Q9_sl_wick_proximity: { type: ['string', 'null'] },
   Q10_entry_conviction: { type: ['string', 'null'] },
   Q11_zone_entry_quality: { type: ['string', 'null'] },
-  Q12_market_phase: { type: ['string', 'null'] },
+  // CCIP-2026-0510O: Q12_market_phase is mandatory. Every decision — BUY,
+  // SELL, or NO_TRADE — must name the active market phase. The coordinator's
+  // Q12_MARKET_PHASE_OMITTED advisory becomes unreachable when the schema
+  // enforces presence at the transport layer.
+  Q12_market_phase: { type: 'string' },
 
   // Narrative / structural fields
   Q_DIR: { type: ['string', 'null'] },
@@ -215,8 +217,8 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       'entry',
       'stopLoss',
       'takeProfit',
-      'tp1Price',
-      'tp2Price',
+      'tp1',
+      'tp2',
       'confidence_tier',
       'reasoning',
       'trader_statement',
@@ -227,6 +229,9 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       'tp_multiplier_override',
       'rr_ceiling_override',
       'spread_estimate_pips',
+      'no_trade_statement',
+      'directional_lean',
+      'lean_confidence',
       'answer_sheet',
     ],
     properties: {
@@ -234,12 +239,13 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       entry: { type: ['number', 'null'] },
       stopLoss: { type: ['number', 'null'] },
       takeProfit: { type: ['number', 'null'] },
-      tp1Price: { type: ['number', 'null'] },
-      tp2Price: { type: ['number', 'null'] },
+      tp1: { type: ['number', 'null'] },
+      tp2: { type: ['number', 'null'] },
       confidence_tier: {
         type: 'string',
+        enum: Array.from(VALID_CONFIDENCE_TIERS),
         description:
-          "Alpha's text confidence tier. Canonical values include NO_TRADE, cautious, neutral, confident, high_conviction.",
+          "Alpha's text confidence tier. Active tiers: low_quality, confident, very_confident, extremely_confident. Legacy tiers are accepted only for backward compatibility with historical records.",
       },
       reasoning: { type: 'string' },
       trader_statement: {
@@ -258,6 +264,19 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       tp_multiplier_override: { type: ['number', 'null'] },
       rr_ceiling_override: { type: ['number', 'null'] },
       spread_estimate_pips: { type: ['number', 'null'] },
+      // CCIP-2026-0510O: NO_TRADE transparency block.
+      // On BUY/SELL these are null; on NO_TRADE Alpha must fill them with a
+      // specific price-level + trigger-event sentence (no_trade_statement) and
+      // a directional opinion (directional_lean / lean_confidence). Schema-
+      // level presence pairs with the coordinator's 0333 quality gate.
+      no_trade_statement: { type: ['string', 'null'] },
+      directional_lean: {
+        anyOf: [
+          { type: 'string', enum: ['BUY_LEAN', 'SELL_LEAN', 'NEUTRAL'] },
+          { type: 'null' },
+        ],
+      },
+      lean_confidence: { type: ['number', 'null'] },
       answer_sheet: {
         type: 'object',
         additionalProperties: false,
