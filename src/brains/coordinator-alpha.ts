@@ -81,7 +81,7 @@ import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
-import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER } from '../config/confidence-tier';
+import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER, deriveContinuousConfidence } from '../config/confidence-tier';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
@@ -265,6 +265,10 @@ export interface AlphaDecision {
   // The numeric `confidence` field is derived from this via CONFIDENCE_TIER_TO_NUMBER.
   // Alpha never sees numbers — this is what he actually said.
   confidence_tier?: string;
+  // CCIP-2026-0510C: Continuous confidence (0-100) inside the tier's band.
+  // Blends (100 - Q5_failure_probability) and (100 - counter_thesis_probability)
+  // so two "confident" reads no longer collapse to the same 65.
+  confidence_continuous?: number;
   reasoning: string;
   omega_summary: string;
   omega_votes?: OmegaCouncilVotes;
@@ -4692,6 +4696,21 @@ Return PURE JSON only — all required fields from the schema in my system promp
         ? tierToNumber(confidenceTier)
         : (parsed.trade_confidence ?? parsed.confidence ?? 0);
 
+      // CCIP-2026-0510C: Continuous-confidence derivation inside the tier band.
+      // Alpha's own answer_sheet supplies the spread: Q5_failure_probability is the
+      // structural failure estimate; counter_thesis_probability is the opposite-side
+      // chance (so reward likelihood ~= 100 - counter_thesis_probability). Averaged
+      // and clamped into the tier's numeric range by deriveContinuousConfidence.
+      const q5FailureProbRaw = parsed?.answer_sheet?.Q5_failure_probability;
+      const counterThesisProbRaw = parsed?.counter_thesis_probability;
+      const q5FailureProb = typeof q5FailureProbRaw === 'number' ? q5FailureProbRaw : null;
+      const rewardProb = typeof counterThesisProbRaw === 'number'
+        ? Math.max(0, Math.min(100, 100 - counterThesisProbRaw))
+        : null;
+      const tradeConfidenceContinuous = confidenceTier
+        ? deriveContinuousConfidence(confidenceTier, q5FailureProb, rewardProb)
+        : tradeConfidence;
+
       // CCIP-2026-0413: Post-parse confidence log.
       console.log(
         `[Alpha Parse] symbol=${symbol} action=${parsed.action} ` +
@@ -5938,6 +5957,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
         trader_statement: rawTraderStatement,
         // CCIP-2026-0413-CONFIDENCE-TEXT: Alpha's original text tier — passed through for DB and UI
         confidence_tier: confidenceTier || undefined,
+        // CCIP-2026-0510C: Continuous confidence inside the tier band — surfaces per-scan spread.
+        confidence_continuous: tradeConfidenceContinuous,
         // CCIP-2026-0420A: Structural references for TP and SL — persisted to alpha_decisions.
         // These were defined in the output schema and produced by Alpha but never extracted
         // from the parsed response. Both fields are now passed through for DB audit.

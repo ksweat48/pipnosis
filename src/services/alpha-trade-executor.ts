@@ -2286,7 +2286,11 @@ class AlphaTradeExecutor {
       opened_at: openedAt,
       current_price: status === 'open' ? entryPrice : null,
       current_pnl: 0,
-      trade_confidence: decision.confidence,
+      // CCIP-2026-0510C: Persist the continuous per-scan confidence (derived from
+      // Q5_failure_probability + counter_thesis_probability inside the tier band) so
+      // the journal and admin dashboards show genuine spread between scans instead
+      // of every trade collapsing to the tier midpoint.
+      trade_confidence: (decision as any).confidence_continuous ?? decision.confidence,
       confidence_tier: decision.confidence_tier ?? null,
       confidence_penalty: totalPenalty,
       regime_bucket: regimeBucket,

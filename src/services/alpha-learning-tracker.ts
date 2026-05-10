@@ -132,6 +132,9 @@ class AlphaLearningTracker {
         symbol: decision.symbol || marketContext.symbol,
         action: decision.action,
         confidence: decision.confidence,
+        // CCIP-2026-0510C: Continuous confidence inside the tier band — persisted for
+        // dashboard display so every scan shows its true spread, not the tier midpoint.
+        confidence_continuous: (decision as any).confidence_continuous ?? decision.confidence,
         omega_consensus: omegaConsensus,
         omega_votes: omegaVotes,
         omega_votes_count: votesList.length,

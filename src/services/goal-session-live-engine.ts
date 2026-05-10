@@ -3958,7 +3958,9 @@ This learning will carry forward to improve future sessions!
           symbol,
           action: decision.action || 'NO_TRADE',
           reasoning: truncated,
-          confidence: decision.confidence || decision.trade_confidence || 0,
+          // CCIP-2026-0510C: Prefer continuous per-scan confidence over tier midpoint so
+          // NoTradesFoundDialog differentiates scans that would otherwise all show 65%.
+          confidence: (decision as any).confidence_continuous ?? decision.confidence ?? decision.trade_confidence ?? 0,
           execution_status: decision.execution_status,
           directional_lean: decision.directional_lean,
           lean_confidence: decision.lean_confidence,

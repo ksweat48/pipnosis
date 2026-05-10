@@ -110,6 +110,75 @@ export const CONFIDENCE_TIER_LABELS: Record<ConfidenceTier, string> = {
 export const VALID_CONFIDENCE_TIERS = new Set<string>(Object.keys(CONFIDENCE_TIER_TO_NUMBER));
 
 /**
+ * CCIP-2026-0510C: Continuous-confidence bands.
+ *
+ * Every tier owns a numeric range. `deriveContinuousConfidence()` places the
+ * decision inside its band using a blend of Q5_failure_probability and
+ * probability_of_target_hit, so two "confident" reads no longer collapse to
+ * the same 65. Legacy tiers map to a degenerate single-point band.
+ */
+export const CONFIDENCE_TIER_BANDS: Record<ConfidenceTier, [number, number]> = {
+  low_quality:         [0, 59],
+  confident:           [60, 69],
+  very_confident:      [70, 79],
+  extremely_confident: [80, 95],
+  // Legacy tiers retain their fixed midpoints
+  no_read:   [10, 10],
+  low:       [25, 25],
+  cautious:  [40, 40],
+  moderate:  [55, 55],
+  high:      [75, 75],
+  very_high: [82, 82],
+  extreme:   [90, 90],
+};
+
+function clamp(value: number, lo: number, hi: number): number {
+  if (Number.isNaN(value)) return lo;
+  return Math.min(hi, Math.max(lo, value));
+}
+
+/**
+ * CCIP-2026-0510C: derive a continuous confidence score inside the tier band.
+ *
+ * Blends two Alpha-produced signals:
+ *   quality     = 100 - Q5_failure_probability   (structural soundness)
+ *   probability = probability_of_target_hit      (reward likelihood)
+ * Average of the two, linearly mapped into the tier's band. When either signal
+ * is missing we fall back to whichever is available, or to the band midpoint.
+ */
+export function deriveContinuousConfidence(
+  tier: ConfidenceTier | string | null | undefined,
+  q5FailureProbability: number | null | undefined,
+  probabilityOfTargetHit: number | null | undefined
+): number {
+  const active = normalizeTier(tier ?? undefined);
+  const [lo, hi] = CONFIDENCE_TIER_BANDS[active] ?? [0, 0];
+  if (lo === hi) return lo;
+
+  const quality = q5FailureProbability != null && !Number.isNaN(q5FailureProbability)
+    ? clamp(100 - q5FailureProbability, 0, 100)
+    : null;
+  const reward = probabilityOfTargetHit != null && !Number.isNaN(probabilityOfTargetHit)
+    ? clamp(probabilityOfTargetHit, 0, 100)
+    : null;
+
+  let blend: number;
+  if (quality != null && reward != null) {
+    blend = (quality + reward) / 2;
+  } else if (quality != null) {
+    blend = quality;
+  } else if (reward != null) {
+    blend = reward;
+  } else {
+    return Math.round((lo + hi) / 2);
+  }
+
+  const normalised = clamp(blend, 0, 100) / 100;
+  const value = lo + normalised * (hi - lo);
+  return Math.round(clamp(value, lo, hi));
+}
+
+/**
  * Convert Alpha's text tier to the numeric confidence used by all downstream
  * systems. Returns 0 if the tier is unrecognised (signals a schema violation).
  */
