@@ -36,7 +36,7 @@ import type { AggregatedSentiment } from './sentiment-aggregator';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
-import { getMTFConfig, getStyleMTFConfig, resolveCanonicalStyle, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
+import { getMTFConfig, getStyleMTFConfig, resolveCanonicalStyle, TIMEFRAME_MS, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
 import { getStyleATRTimeframe } from '../config/style-execution-envelopes';
 
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
@@ -207,18 +207,26 @@ class AlphaOmegaOrchestrator {
     // Every scan must run on fresh, uncontaminated data. If the latest candle or live price
     // is beyond strict thresholds, abort the scan entirely rather than let Alpha reason
     // against a stale picture. This replaces prior advisory-only behavior.
+    //
+    // CCIP-2026-0510G: Arithmetic correction — measure candle age from close_time, not open_time.
+    // An in-flight M5 candle has open_time up to 300s old even when perfectly fresh; the old
+    // math (now - open_time) made the 90s ceiling unsatisfiable by construction and aborted
+    // every scan with STALE_DATA_ABORT. Age-since-close = now - (open_time + TIMEFRAME_MS[tf])
+    // yields 0 at candle seal, grows naturally, and correctly detects true staleness.
     {
-      const FRESH_SCAN_CANDLE_MAX_AGE_SECONDS = 90;  // M5 candle in-flight ~ up to 300s; hard ceiling 90s since snapshot build
+      const FRESH_SCAN_CANDLE_MAX_AGE_SECONDS = 90;  // seconds since the latest candle CLOSED
       const FRESH_SCAN_PRICE_MAX_AGE_SECONDS = 60;   // live price must be within last minute
       const latestCandle = snapshot.candles && snapshot.candles.length > 0
         ? snapshot.candles[snapshot.candles.length - 1]
         : null;
-      // CCIP-2026-0506E field-name correction: Candle uses `open_time` (string | Date), not `timestamp`.
-      // Reading `.timestamp` returned undefined, producing NaN and forcing every scan to abort as ∞s stale.
       const rawOpenTime = latestCandle ? (latestCandle as { open_time?: string | Date }).open_time : undefined;
-      const latestCandleTs = rawOpenTime ? new Date(rawOpenTime).getTime() : 0;
-      const candleAgeSeconds = Number.isFinite(latestCandleTs) && latestCandleTs > 0
-        ? Math.round((Date.now() - latestCandleTs) / 1000)
+      const latestOpenMs = rawOpenTime ? new Date(rawOpenTime).getTime() : 0;
+      const timeframeMs = TIMEFRAME_MS[entryTimeframe] ?? 0;
+      const latestCloseMs = Number.isFinite(latestOpenMs) && latestOpenMs > 0 && timeframeMs > 0
+        ? latestOpenMs + timeframeMs
+        : 0;
+      const candleAgeSeconds = latestCloseMs > 0
+        ? Math.max(0, Math.round((Date.now() - latestCloseMs) / 1000))
         : Number.POSITIVE_INFINITY;
       const priceAgeSeconds = Math.round((Date.now() - (snapshot.createdAt ?? Date.now())) / 1000);
 

@@ -19,7 +19,7 @@
  */
 
 import { computeOmegaSensors, type OmegaSensors, type Candle } from './omega-sensors';
-import { type Timeframe } from '../config/timeframe-hierarchy';
+import { TIMEFRAME_MS, type Timeframe } from '../config/timeframe-hierarchy';
 import { regimeOracle, type RegimeSnapshot } from './regime-oracle';
 import { adversarialDetector, type AdversarialSignal } from './adversarial-detector';
 import { createATRValue, type ATRValue, type ATRTimeframe } from '../types/atr';
@@ -110,20 +110,24 @@ function generateCacheKey(symbol: string, timeframe: Timeframe): string {
 
 /**
  * CCIP-2026-0510E: Maximum acceptable age of the last candle in a cached snapshot.
- * If the last candle's open_time is older than this, the cache entry is invalidated
- * regardless of remaining TTL. Prevents the "stale candle under fresh TTL" trap where
- * the cache serves a snapshot whose underlying data is already stale by Alpha's standards.
+ * If the last candle is older than this (measured since it CLOSED), the cache entry
+ * is invalidated regardless of remaining TTL. Prevents the "stale candle under fresh
+ * TTL" trap where the cache serves a snapshot whose underlying data is already stale.
  *
- * Values are ~2x the timeframe interval so a single missed candle write does not
- * thrash the cache, but two consecutive misses force a rebuild.
+ * CCIP-2026-0510G: Arithmetic correction — thresholds now measure age-since-close,
+ * not age-since-open. The prior values (e.g. M5 = 12min) were inflated to compensate
+ * for measuring against open_time, which made them nonsensically lenient for long
+ * timeframes and unsatisfiable for short ones in combination with other gates.
+ * New values are ~2× the timeframe interval above close, so one missed write tolerates,
+ * two force rebuild.
  */
 const MAX_LAST_CANDLE_AGE_MS: Partial<Record<Timeframe, number>> = {
-  'M1':  3 * 60 * 1000,
-  'M5':  12 * 60 * 1000,
-  'M15': 35 * 60 * 1000,
-  'H1':  130 * 60 * 1000,
-  'H4':  500 * 60 * 1000,
-  'D':   50 * 60 * 60 * 1000,
+  'M1':  2 * 60 * 1000,
+  'M5':  10 * 60 * 1000,
+  'M15': 30 * 60 * 1000,
+  'H1':  120 * 60 * 1000,
+  'H4':  480 * 60 * 1000,
+  'D1':  48 * 60 * 60 * 1000,
 };
 
 function getLastCandleAgeMs(snapshot: MarketSnapshotData): number | null {
@@ -134,7 +138,11 @@ function getLastCandleAgeMs(snapshot: MarketSnapshotData): number | null {
     ? new Date(last.open_time).getTime()
     : (last.open_time instanceof Date ? last.open_time.getTime() : Number(last.open_time));
   if (!Number.isFinite(openTimeMs)) return null;
-  return Date.now() - openTimeMs;
+  // CCIP-2026-0510G: measure age from close_time (open + timeframe interval), not open_time.
+  const timeframeMs = TIMEFRAME_MS[snapshot.timeframe] ?? 0;
+  if (timeframeMs <= 0) return null;
+  const closeTimeMs = openTimeMs + timeframeMs;
+  return Math.max(0, Date.now() - closeTimeMs);
 }
 
 /**
