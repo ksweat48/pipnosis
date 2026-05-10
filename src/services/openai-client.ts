@@ -354,7 +354,12 @@ class OpenAIClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(`OpenAI API error: ${response.status} - ${errorData.error?.message || 'Unknown'}`);
+      // CCIP-2026-0510M: Surface OpenAI error type + message on server-side path so
+      // strict-schema rejections are diagnosable rather than "Unknown".
+      const errMsg = errorData.error?.message || errorData.error || 'Unknown';
+      const errType = errorData.error?.type || errorData.error?.code || '';
+      console.error(`[OpenAI Client] Server-side ${response.status} — type=${errType} msg="${String(errMsg).slice(0, 400)}"`);
+      throw new Error(`OpenAI API error: ${response.status} - ${errType ? `[${errType}] ` : ''}${errMsg}`);
     }
 
     const data: ChatCompletionResponse = await response.json();
@@ -592,9 +597,27 @@ class OpenAIClient {
             throw new Error('Authentication expired. Please log in again to continue using AI features.');
           }
 
-          const errorData = await response.json().catch(() => ({}));
+          const errorData = await response.json().catch(() => ({} as Record<string, unknown>));
+
+          // CCIP-2026-0510M: Surface OpenAI errorCode + first line of details on 400s.
+          // The proxy (netlify/functions/openai-chat.ts) forwards `errorCode` and
+          // `details` from OpenAI on non-2xx responses. Without this, schema drift
+          // (e.g. strict-mode keyword rejections) surfaces as "Unknown error" in the
+          // browser, masking the root cause. Now a single console line identifies it.
+          if (response.status === 400) {
+            const errorCode = (errorData as { errorCode?: string }).errorCode || 'unknown';
+            const details = (errorData as { details?: string }).details || '';
+            const firstLine = details.split('\n')[0].slice(0, 400);
+            console.error(
+              `[OpenAI Client] 400 from OpenAI — errorCode=${errorCode} details="${firstLine}"`
+            );
+            throw new Error(
+              `OpenAI 400 (${errorCode}): ${firstLine || (errorData as { error?: string }).error || 'Bad request'}`
+            );
+          }
+
           throw new Error(
-            `OpenAI API error: ${response.status} - ${errorData.error || errorData.message || 'Unknown error'}`
+            `OpenAI API error: ${response.status} - ${(errorData as { error?: string }).error || (errorData as { message?: string }).message || 'Unknown error'}`
           );
         } catch (fetchError) {
           lastError = fetchError as Error;

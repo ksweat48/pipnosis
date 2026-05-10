@@ -1,49 +1,57 @@
 /**
  * Alpha Output Schema — SSOT
  *
- * CCIP-2026-0510L: Structural enforcement of Alpha's output contract via
- * OpenAI Structured Outputs (`response_format: { type: "json_schema", strict: true }`).
+ * CCIP-2026-0510M: Hotfix for CCIP-2026-0510L.
  *
- * WHY THIS EXISTS
- * ----------------
- * Prior prompt-only enforcement (CCIP-2026-0510K literal 10-item checklist plus
- * JSON skeleton examples) failed in production: gpt-4o emitted 2,400 rich
- * reasoning tokens per scan while silently dropping all 10 mandatory audit keys,
- * forcing the CCIP-2026-0508C HARD GATE to rewrite every directional output to
- * NO_TRADE. Alpha is not refusing to reason — he is omitting schema fields the
- * prose contract cannot bind.
+ * CCIP-2026-0510L shipped a strict JSON-schema contract that OpenAI rejected
+ * with HTTP 400 on every arbiter call. Root cause: the schema used keywords
+ * forbidden in OpenAI Structured Outputs strict mode:
+ *   - `minLength` on string fields
+ *   - `minimum` on integer fields
+ *   - `additionalProperties: true` on nested objects
+ * Because the request was rejected at the transport layer, Alpha never saw the
+ * prompt and never produced an answer_sheet — every symbol fell through to a
+ * SYSTEM_NETWORK_FAILURE NO_TRADE.
  *
- * The OpenAI Structured Outputs API binds the output shape to the request at
- * the transport layer. A response missing any `required` field cannot be
- * returned to us — the API refuses it and retries internally. This is not a
- * new execution gate; it is Alpha's I/O contract — part of his brain — made
- * structural instead of advisory.
+ * FIX (CCIP-2026-0510M):
+ *   1. Remove every forbidden keyword (minLength, minimum, etc.).
+ *   2. Close every nested object with `additionalProperties: false`.
+ *   3. Strict mode requires EVERY property in `properties` to also be listed
+ *      in `required`. Optional values are expressed as nullable types
+ *      (`type: ['string', 'null']` or `type: ['number', 'null']`).
+ *   4. Enumerate every canonical answer_sheet field Alpha is documented to
+ *      emit — Q1…Q12, Q_*, session boundary fields, TP2 feasibility fields,
+ *      liquidity/sweep fields — so Alpha can still fill them without losing
+ *      the closed-object guarantee.
+ *   5. Semantic quality rules that strict mode cannot express (reasoning
+ *      length floor, contradictions_scanned_count >= 17, non-empty
+ *      win_reason / losing_hypothesis_disqualifier) are enforced downstream
+ *      in coordinator-alpha.ts CCIP-2026-0508C gate and CCIP-2026-0510L
+ *      repair loop — where they already live. The schema enforces PRESENCE;
+ *      the coordinator enforces QUALITY.
  *
  * CLAUDE.md RECONCILIATION
  * ------------------------
  * The project mandate "Improve Alpha's Brain, Not His Constraints" forbids
  * adding execution gates that redirect Alpha's output. This schema does the
  * opposite: it guarantees Alpha's own reasoning obligations reach the
- * coordinator intact. The CCIP-2026-0508C gate exists precisely because
- * Alpha's answer_sheet arrives incomplete. Binding the schema eliminates that
- * failure mode so Alpha's genuine decisions survive to execution.
+ * coordinator intact. It is Alpha's I/O contract — part of his brain — made
+ * structural instead of advisory.
  *
  * REQUIREMENTS
  * ------------
  * - OpenAI Structured Outputs requires gpt-4o-2024-08-06 or later. The
  *   coordinator pins Alpha's arbiter model to this alias.
- * - `strict: true` requires `additionalProperties: false` on every object
- *   and every property listed in `required`.
  * - The two gpt-4o-mini advocate brains do NOT receive this schema — they
  *   continue to emit free-form briefs that the arbiter synthesizes.
  */
 
 /**
  * Canonical list of the 10 mandatory answer_sheet audit keys enforced by
- * CCIP-2026-0508C / CCIP-2026-0508D. Used as the source of truth for both the
- * JSON schema's `required` array AND the coordinator's repair-loop detector.
- *
- * Any change here must also update coordinator-alpha.ts CCIP-2026-0508C gate.
+ * CCIP-2026-0508C / CCIP-2026-0508D. These are the keys the coordinator's
+ * CCIP-2026-0510L repair loop looks for. They are ALL listed in the schema's
+ * `required` array for answer_sheet, but the `required` array additionally
+ * contains every other canonical field to satisfy strict-mode rules.
  */
 export const MANDATORY_AUDIT_KEYS = [
   'hypothesis_buy',
@@ -61,18 +69,140 @@ export const MANDATORY_AUDIT_KEYS = [
 export type MandatoryAuditKey = (typeof MANDATORY_AUDIT_KEYS)[number];
 
 /**
+ * All answer_sheet properties Alpha is canonically allowed to emit.
+ *
+ * Strict-mode rule: every key listed under `properties` must also appear in
+ * `required`. If Alpha has no value for a field, he returns null — this is
+ * legal because every field type is nullable.
+ *
+ * Adding a new answer_sheet field: add the property here AND to the
+ * `required` array below (both lists must stay in sync for strict mode).
+ */
+const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
+  // Dual-audition hypotheses (CCIP-2026-0510A)
+  hypothesis_buy: {
+    anyOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips', 'tier1_verdict'],
+        properties: {
+          thesis: { type: ['string', 'null'] },
+          entry: { type: ['number', 'null'] },
+          sl: { type: ['number', 'null'] },
+          tp: { type: ['number', 'null'] },
+          probability: { type: ['number', 'null'] },
+          reward_pips: { type: ['number', 'null'] },
+          risk_pips: { type: ['number', 'null'] },
+          tier1_verdict: { type: ['string', 'null'] },
+        },
+      },
+      { type: 'null' },
+    ],
+  },
+  hypothesis_sell: {
+    anyOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips', 'tier1_verdict'],
+        properties: {
+          thesis: { type: ['string', 'null'] },
+          entry: { type: ['number', 'null'] },
+          sl: { type: ['number', 'null'] },
+          tp: { type: ['number', 'null'] },
+          probability: { type: ['number', 'null'] },
+          reward_pips: { type: ['number', 'null'] },
+          risk_pips: { type: ['number', 'null'] },
+          tier1_verdict: { type: ['string', 'null'] },
+        },
+      },
+      { type: 'null' },
+    ],
+  },
+
+  // Reconciliation / winner selection
+  Q_SWEEP_MAP_DIRECTION: { type: ['string', 'null'] },
+  winning_hypothesis: { type: ['string', 'null'] },
+  win_reason: { type: ['string', 'null'] },
+  losing_hypothesis_disqualifier: { type: ['string', 'null'] },
+  contradictions_fired: {
+    type: ['array', 'null'],
+    items: { type: 'string' },
+  },
+  contradictions_scanned_count: { type: ['integer', 'null'] },
+  contradictions_unresolved_count: { type: ['integer', 'null'] },
+  reconciliation_ledger_complete: { type: ['boolean', 'null'] },
+
+  // Canonical Q1-Q12 checklist
+  Q1_trend_alignment: { type: ['string', 'null'] },
+  Q2_structure_level: { type: ['string', 'null'] },
+  Q3_prior_rejections: { type: ['string', 'null'] },
+  Q4_momentum_stage: { type: ['string', 'null'] },
+  Q4B_realtime_participant_read: { type: ['string', 'null'] },
+  Q5_failure_mode: { type: ['string', 'null'] },
+  Q5_failure_probability: { type: ['number', 'null'] },
+  Q5B_objective_alignment: { type: ['string', 'null'] },
+  Q6_entry_trigger: { type: ['string', 'null'] },
+  Q7_confluence_confirmed: { type: ['string', 'null'] },
+  Q7_confluence_judgment: { type: ['string', 'null'] },
+  Q8_move_position_pct: { type: ['number', 'null'] },
+  Q8B_session_range_pct: { type: ['number', 'null'] },
+  Q8C_price_location_zone: { type: ['string', 'null'] },
+  Q8D_weekly_narrative: { type: ['string', 'null'] },
+  Q9_sl_wick_proximity: { type: ['string', 'null'] },
+  Q10_entry_conviction: { type: ['string', 'null'] },
+  Q11_zone_entry_quality: { type: ['string', 'null'] },
+  Q12_market_phase: { type: ['string', 'null'] },
+
+  // Narrative / structural fields
+  Q_DIR: { type: ['string', 'null'] },
+  Q_RANGE: { type: ['string', 'null'] },
+  Q_SWEEP_RECLAIM_STATUS: { type: ['string', 'null'] },
+  Q_TRAPPED_FUEL: { type: ['string', 'null'] },
+  Q_PRICED_IN: { type: ['string', 'null'] },
+  Q_LIQUIDITY_CASCADE: { type: ['string', 'null'] },
+  Q_WHO_IS_TRAPPED: { type: ['string', 'null'] },
+  Q_WHAT_DIRECTION_WHEN_THEY_RUN: { type: ['string', 'null'] },
+
+  // Session / context tags
+  kill_zone: { type: ['string', 'null'] },
+  news_status: { type: ['string', 'null'] },
+  equal_highs_lows: { type: ['string', 'null'] },
+  trap_signature: { type: ['string', 'null'] },
+  failed_auction: { type: ['string', 'null'] },
+  intermarket_correlation: { type: ['string', 'null'] },
+  liquidity_sweep_read: { type: ['string', 'null'] },
+
+  // Session boundary prices
+  session_high: { type: ['number', 'string', 'null'] },
+  session_low: { type: ['number', 'string', 'null'] },
+  prior_session_high: { type: ['number', 'string', 'null'] },
+  prior_session_low: { type: ['number', 'string', 'null'] },
+  session_sweep_status: { type: ['string', 'null'] },
+
+  // TP2 feasibility (CCIP-2026-0506F / 0507B)
+  tp2_feasibility_structural_runway: { type: ['string', 'null'] },
+  tp2_feasibility_momentum_budget: { type: ['string', 'null'] },
+  tp2_feasibility_time_to_target: { type: ['string', 'null'] },
+  tp1_to_tp2_driver: { type: ['string', 'null'] },
+  tp2_omitted: { type: ['boolean', 'null'] },
+  tp2_omission_reason: { type: ['string', 'null'] },
+
+  // SL placement (CCIP-2026-0507A)
+  sl_placement_rationale: { type: ['string', 'null'] },
+};
+
+const ANSWER_SHEET_REQUIRED = Object.keys(ANSWER_SHEET_PROPERTIES);
+
+/**
  * Strict JSON schema for Alpha's arbiter response.
  *
- * Shape mirrors AlphaDecision in coordinator-alpha.ts closely enough that
- * parseDecision() continues to accept the output untouched. Fields that vary
- * per trade (entry, SL, TP) are numbers; fields carrying Alpha's reasoning
- * audit live inside `answer_sheet`.
- *
- * Strictness rules:
+ * Strict-mode rules:
  *   - `additionalProperties: false` on every object
- *   - Every key listed in an object's `properties` is also in `required`
- *     (OpenAI strict-mode requirement — use explicit null types for optional
- *      values).
+ *   - Every key in `properties` is also in `required` (nullable types
+ *     express optionality)
+ *   - No `minLength`, `minimum`, `maximum`, `pattern`, `format` keywords
  */
 export const ALPHA_OUTPUT_JSON_SCHEMA = {
   name: 'AlphaDecision',
@@ -111,14 +241,16 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
         description:
           "Alpha's text confidence tier. Canonical values include NO_TRADE, cautious, neutral, confident, high_conviction.",
       },
-      reasoning: { type: 'string', minLength: 1 },
+      reasoning: { type: 'string' },
       trader_statement: {
         type: 'string',
         description: '80+ word human-readable narrative justifying the decision.',
       },
       entry_mode: {
-        type: ['string', 'null'],
-        enum: ['execute_now', 'wait_pullback', 'push_confirmation', null],
+        anyOf: [
+          { type: 'string', enum: ['execute_now', 'wait_pullback', 'push_confirmation'] },
+          { type: 'null' },
+        ],
       },
       tp_structural_reference: { type: ['string', 'null'] },
       sl_structural_reference: { type: ['string', 'null'] },
@@ -128,61 +260,9 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       spread_estimate_pips: { type: ['number', 'null'] },
       answer_sheet: {
         type: 'object',
-        additionalProperties: true,
-        required: [...MANDATORY_AUDIT_KEYS],
-        properties: {
-          hypothesis_buy: {
-            type: ['object', 'null'],
-            description:
-              'Direction-locked BUY brief: thesis, evidence citations, entry zone, invalidation, target.',
-            additionalProperties: true,
-          },
-          hypothesis_sell: {
-            type: ['object', 'null'],
-            description:
-              'Direction-locked SELL brief: thesis, evidence citations, entry zone, invalidation, target.',
-            additionalProperties: true,
-          },
-          Q_SWEEP_MAP_DIRECTION: {
-            type: 'string',
-            enum: ['BUY_FAVORED', 'SELL_FAVORED', 'BALANCED', 'INVERTED'],
-          },
-          winning_hypothesis: {
-            type: 'string',
-            enum: ['BUY', 'SELL', 'NONE'],
-          },
-          win_reason: {
-            type: 'string',
-            minLength: 1,
-            description: 'Why the winning hypothesis beat the loser — structural reasoning.',
-          },
-          losing_hypothesis_disqualifier: {
-            type: 'string',
-            minLength: 1,
-            description: 'The specific evidence that invalidates the losing hypothesis.',
-          },
-          contradictions_fired: {
-            type: 'array',
-            items: { type: 'string' },
-            description:
-              'Each contradiction Alpha detected during reasoning (named fact vs named fact).',
-          },
-          contradictions_scanned_count: {
-            type: 'integer',
-            minimum: 17,
-            description:
-              'Total contradictions scanned. Must be >=17 per CCIP-2026-0508B reconciliation ledger.',
-          },
-          contradictions_unresolved_count: {
-            type: 'integer',
-            minimum: 0,
-            description: 'Count of contradictions still unresolved. Must be 0 for execute_now.',
-          },
-          reconciliation_ledger_complete: {
-            type: 'boolean',
-            description: 'True when every fired contradiction has a reconciliation entry.',
-          },
-        },
+        additionalProperties: false,
+        required: ANSWER_SHEET_REQUIRED,
+        properties: ANSWER_SHEET_PROPERTIES,
       },
     },
   },
