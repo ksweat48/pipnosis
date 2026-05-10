@@ -2263,12 +2263,13 @@ If the structure has materially changed — direction broken, key level invalida
         const recentPrimary = primaryCandles.slice(0, primaryTfConfig.candleCount).reverse();
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
+        // CCIP-2026-0510B-TOKEN-COMPRESSION-COLUMNAR-CANDLES: compact pipe-delimited format (~45% reduction vs labeled KV pairs)
         const primaryLines: string[] = recentPrimary.map((c, i) => {
           const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}`;
         });
 
         // ═══════════════════════════════════════════════════════════════════
@@ -2456,9 +2457,11 @@ ${primaryTfConfig.label} PRIMARY TIMEFRAME CANDLES (${marketContext.symbol}) —
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 THIS IS YOUR PRIMARY DATA for the entry_advisory verdict. Your trade lives on the ${primaryTfConfig.label} timeframe.
 Analyze these ${primaryTfConfig.label} candles FIRST before considering M1 micro-data.
-CANDLE FORMAT: direction | OHLC | body pips | upper/lower wick pips | body% of range | wick_bias
-body ratio >60% = conviction candle | small body relative to range = indecision | wick_bias = which side dominates (institutional rejection signal)
+CANDLE FORMAT (columnar, pipe-delimited, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p
+- i: index (1=oldest). dir: UP/DN/FLAT. O/H/L/C: OHLC prices. body_p: body size in pips. upW_p/loW_p: upper/lower wick in pips.
+- body ratio >60% of (H-L) = conviction candle; small body relative to range = indecision; wick_bias = which wick dominates (institutional rejection signal)
 
+i|dir|O|H|L|C|body_p|upW_p|loW_p
 ${primaryLines.join('\n')}
 
 ${primaryTfConfig.label} STRUCTURE SUMMARY:
@@ -2522,12 +2525,13 @@ ${consecutiveSameDir >= 3
         const recentHtf = htfCandles.slice(0, htfConfig.candleCount).reverse();
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
+        // CCIP-2026-0510B-TOKEN-COMPRESSION-COLUMNAR-CANDLES
         const htfLines: string[] = recentHtf.map((c, i) => {
           const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}`;
         });
 
         const htfHigh = Math.max(...recentHtf.map(c => c.high));
@@ -2597,7 +2601,9 @@ ${htfConfig.label} DIRECTION TIMEFRAME CANDLES (${marketContext.symbol}) — DIR
 THIS IS YOUR DIRECTION CONTEXT for ${styleName} trades. The ${htfConfig.label} sets the directional bias.
 MICRO_INTRADAY: H1 is the direction TF. My entry lens is M5. My TP is M5 leg exhaustion. H1 tells me which direction to hunt — not where to exit.
 MANDATORY: Reference this ${htfConfig.label} data in your QUESTION 1 TREND ALIGNMENT answer.
+FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p
 
+i|dir|O|H|L|C|body_p|upW_p|loW_p
 ${htfLines.join('\n')}
 
 ${htfConfig.label} DIRECTION SUMMARY:
@@ -2658,6 +2664,7 @@ ${htfStructuralEvidenceBlock}
           const recentM5Sub = m5SubCandles.slice(0, 10).reverse();
           const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
+          // CCIP-2026-0510B-TOKEN-COMPRESSION-COLUMNAR-CANDLES (extended: + ratio% + wb)
           const m5SubLines: string[] = recentM5Sub.map((c, i) => {
             const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
             const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
@@ -2666,7 +2673,7 @@ ${htfStructuralEvidenceBlock}
             const totalRange = (c.high - c.low) / pipInfo.pipValue;
             const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
             const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
-            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
+            return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}|${bodyRatio}|${wickBias}`;
           });
 
           const lastM5Sub = recentM5Sub[recentM5Sub.length - 1];
@@ -2723,7 +2730,9 @@ M5 CANDLE CONTEXT (${marketContext.symbol}) — MICRO_INTRADAY TIMING LAYER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 M5 data below is raw structural measurement from the current scan window. M15 defines the setup. M5 reveals the current micro-structure within that setup.
 Record entry_mode and the structural reasoning behind it in the JSON response — this is an audit field.
+FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb  — ratio=body% of range, wb=upper/lower/balanced wick bias.
 
+i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb
 ${m5SubLines.join('\n')}
 
 M5 SUB-CONFIRMATION SUMMARY:
@@ -2777,6 +2786,7 @@ Document your entry_mode choice and reasoning given this data gap. Your convicti
           const recentM15Dir = m15DirCandles.slice(0, 10).reverse();
           const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
+          // CCIP-2026-0510B-TOKEN-COMPRESSION-COLUMNAR-CANDLES (extended: + ratio% + wb)
           const m15DirLines: string[] = recentM15Dir.map((c, i) => {
             const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
             const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
@@ -2785,7 +2795,7 @@ Document your entry_mode choice and reasoning given this data gap. Your convicti
             const totalRange = (c.high - c.low) / pipInfo.pipValue;
             const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
             const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
-            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
+            return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}|${bodyRatio}|${wickBias}`;
           });
 
           const lastM15Dir = recentM15Dir[recentM15Dir.length - 1];
@@ -2827,7 +2837,9 @@ Document your entry_mode choice and reasoning given this data gap. Your convicti
 M15 DIRECTION CONTEXT — MICRO_INTRADAY (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 M15 is the direction timeframe for MICRO_INTRADAY. The M15 candle sequence shows where the trend stands at the 15-minute level. The M15 High/Low are the structural boundaries the M5 entry must align with.
+FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb  — ratio=body% of range, wb=upper/lower/balanced wick bias.
 
+i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb
 ${m15DirLines.join('\n')}
 
 M15 DIRECTION SUMMARY:
@@ -3074,12 +3086,13 @@ INSTITUTIONAL LEVEL RULES:
         const recentM1 = m1Candles.slice(0, m1CandleCount).reverse();
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
+        // CCIP-2026-0510B-TOKEN-COMPRESSION-COLUMNAR-CANDLES
         const m1Lines: string[] = recentM1.map((c, i) => {
           const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}`;
         });
 
         let consecutiveSameDir = 1;
@@ -3109,7 +3122,9 @@ INSTITUTIONAL LEVEL RULES:
 M1 PRECISION TIMING (${marketContext.symbol}) — TIMING REFINEMENT (SECONDARY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${m1Header}
+FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p
 
+i|dir|O|H|L|C|body_p|upW_p|loW_p
 ${m1Lines.join('\n')}
 
 M1 SUMMARY:
@@ -3350,12 +3365,10 @@ Risk Mode: ${riskMode.toUpperCase()}
 
 ${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${momentumTrajectoryContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
-MARKET CONDITIONS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Current Market Price (${marketContext.symbol}): ${(marketContext.livePrice ?? marketContext.price).toFixed(pipInfoForLegend.decimalPlaces)} ← USE THIS as your entry/SL/TP anchor
-  Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} | ${volatilityRegime.recommendation}
-  Spread (${marketContext.symbol}): ~${getEstimatedSpreadPips(marketContext.symbol).toFixed(1)} pips | Minimum viable SL: ${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips (1.5x spread — SL below this will be hard-blocked)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXECUTION ANCHORS (price/ATR/spread already in briefing above — these are execution-only rules):
+- Entry/SL/TP price anchor: ${(marketContext.livePrice ?? marketContext.price).toFixed(pipInfoForLegend.decimalPlaces)}
+- Volatility guidance: ${volatilityRegime.recommendation}
+- Minimum viable SL: ${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips (1.5x spread — SL below this is hard-blocked)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LAYER 4 — RAW CANDLE EVIDENCE (Interpret through macro lens above)

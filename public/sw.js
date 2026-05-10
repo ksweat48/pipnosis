@@ -1,7 +1,7 @@
 // Pipnosis AI Trading - Service Worker
 // Version-based caching for PWA functionality
 
-const CACHE_VERSION = '1778376454244'; // Matches version.json
+const CACHE_VERSION = '1778384116490'; // Matches version.json
 const CACHE_NAME = `pipnosis-cache-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `pipnosis-runtime-v${CACHE_VERSION}`;
 
