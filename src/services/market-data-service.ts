@@ -140,26 +140,35 @@ export class MarketDataService {
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        logger.debug(`[MarketData] Fetching candles from forex_candles_best`, {
+        logger.debug(`[MarketData] Fetching candles via get_best_candles RPC`, {
           symbol,
           requestedTimeframe: timeframe,
           normalizedTimeframe,
           limit,
           attempt,
-          table: 'forex_candles_best'
+          source: 'rpc:get_best_candles'
         });
 
-        const { data, error } = await supabase
-          .from('forex_candles_best')
-          .select('open_time, open, high, low, close, volume, data_source, quality_score')
-          .eq('symbol', symbol)
-          .eq('timeframe', normalizedTimeframe)
-          .order('open_time', { ascending: false })
-          .limit(limit);
+        // CCIP-2026-0510N: Switched from forex_candles_best view to get_best_candles RPC.
+        // The view's DISTINCT ON ordering forced full-set materialization before LIMIT,
+        // causing 2000ms+ executions and PostgREST 500s under concurrent scan load.
+        // The RPC uses a bounded-window CTE that leverages idx_forex_candles_best_m5_desc /
+        // _m1_desc and returns in ~70ms.
+        const { data, error, status } = await supabase
+          .rpc('get_best_candles', {
+            p_symbol: symbol,
+            p_timeframe: normalizedTimeframe,
+            p_limit: limit
+          });
 
         if (error) {
-          // PostgreSQL 57014 = statement timeout — retryable
-          const isTimeout = error.code === '57014' || (error.message && error.message.includes('statement timeout'));
+          // Retryable: PG statement timeout (57014) OR PostgREST opaque 5xx
+          // (PostgREST wraps statement timeouts as empty-body HTTP 500 without an error code)
+          const isTimeout = error.code === '57014'
+            || (error.message && error.message.includes('statement timeout'))
+            || status === 500
+            || status === 503
+            || status === 504;
           if (isTimeout && attempt < MAX_ATTEMPTS) {
             const delay = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
             logger.warn(`[MarketData] Statement timeout fetching candles, retrying`, {
