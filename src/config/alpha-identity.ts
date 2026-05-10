@@ -981,68 +981,10 @@ export interface AlphaRecentDriftStats {
   blockedCount: number;
 }
 
-export interface AlphaRecentPerformanceStats {
-  symbol: string;
-  style: string;
-  sampleSize: number;
-  wins: number;
-  losses: number;
-  breakEvens: number;
-  winRate: number;
-  avgPnlPct: number;
-  lastOutcome: string | null;
-  lastOutcomeAt: string | null;
-}
-
-export interface AlphaReasoningHealthObservation {
-  observationType: string;
-  ccipTag: string;
-  severity: string;
-  summary: string;
-  sampleSize: number;
-  fireCount?: number;
-  escalationLevel?: string;
-  scope?: string;
-  symbol?: string | null;
-  style?: string | null;
-}
-
-export interface AlphaReasoningPostmortem {
-  confidenceTier: string | null;
-  action: string;
-  entryMode: string | null;
-  namedEvidenceCount: number;
-  topCitations: string[];
-  outcome: string;
-  pnlPct: number | null;
-  summary: string;
-  createdAt: string;
-}
-
-export interface AlphaDynamicTierTarget {
-  tier: string;
-  staticAnchorPct: number;
-  trailingRealizedPct: number | null;
-  sampleSize: number;
-  currentTargetPct: number;
-}
-
-export interface AlphaWinningPatternSignal {
-  citationCluster: string[];
-  sampleSize: number;
-  realizedWinRatePct: number;
-  avgPnlPct: number | null;
-}
-
 export interface AlphaHuntContext {
   preconditionsMet: string[];
   phase: string | null;
   recentDrift?: AlphaRecentDriftStats | null;
-  recentPerformance?: AlphaRecentPerformanceStats | null;
-  reasoningHealth?: AlphaReasoningHealthObservation[] | null;
-  recentPostmortems?: AlphaReasoningPostmortem[] | null;
-  tierTargets?: AlphaDynamicTierTarget[] | null;
-  winningPatterns?: AlphaWinningPatternSignal[] | null;
 }
 
 export function getAlphaSystemPromptForStyle(
@@ -1875,92 +1817,11 @@ When I receive liquidity sweep sensor data in the briefing, I MUST complete the 
 This is the drift I have actually experienced on this instrument at this style. At Rung 1.5, my planned stop distance MUST exceed the typical drift with genuine structural breathing room on top — a stop sized below my own observed drift is a stop that was guaranteed to be consumed before the market even revealed direction. If my current planned stop distance is smaller than this average drift + structural noise for this pair, I widen the stop at Rung 1.5 and adjust TP to preserve R:R.`
     : '';
 
-  const perf = huntContext?.recentPerformance;
-  const recentPerformanceLine = perf && perf.sampleSize > 0
-    ? `RECENT PERFORMANCE SELF-AWARENESS — my last ${perf.sampleSize} executed decisions on ${perf.symbol} (${perf.style}) (CCIP-2026-0429F):
-  • Wins: ${perf.wins} | Losses: ${perf.losses} | Break-even: ${perf.breakEvens}
-  • Realized win rate: ${perf.winRate}%
-  • Avg PnL %: ${perf.avgPnlPct}
-  • Most recent outcome: ${perf.lastOutcome ?? 'UNKNOWN'}${perf.lastOutcomeAt ? ` at ${perf.lastOutcomeAt}` : ''}
-This is my actual realized performance on this instrument at this style. I use it as a calibration mirror for the EVIDENCE-JUSTIFIED CONFIDENCE RUBRIC. CALIBRATION DISCIPLINE:
-  • If my realized win rate on this pair is materially below the probability I am about to assign (e.g. realized 35% but I'm claiming very_confident — an 80%+ tier), I downgrade the tier by one step for this scan and state the downgrade in my reasoning.
-  • If my recent streak is 3+ consecutive losses on this pair, I am on a losing regime here — I require an additional named piece of structural evidence before I claim very_confident or extremely_confident, and I preference wait_pullback / push_confirmation over execute_now when the structural trigger has not clearly fired.
-  • If my recent streak is 3+ consecutive wins on this pair, I resist the hot-hand pull — I do not upgrade a confidence tier just because the recent tape has been kind. The rubric still requires counted named evidence.
-  • If sample size is small (≤ 3), this data is advisory only — I weight it lightly and let the structural evidence drive.
-This is reasoning feedback, not a gate. I can still execute a confident-tier trade on a losing streak if the structural evidence justifies it. What I cannot do is ignore my own realized outcomes while claiming high conviction.`
-    : '';
-
-  const healthObs = huntContext?.reasoningHealth;
-  const reasoningHealthLine = Array.isArray(healthObs) && healthObs.length > 0
-    ? `REASONING HEALTH — active drift-watcher observations (CCIP-2026-0430A / CCIP-2026-0501D / CCIP-2026-0501E):
-${healthObs.map(o => {
-  const esc = o.escalationLevel && o.escalationLevel !== 'advisory'
-    ? `[${o.escalationLevel.toUpperCase()} — fired ${o.fireCount ?? 1}× in 7d] `
-    : '';
-  const scopeTag = o.scope === 'pair' && o.symbol
-    ? ` (scope: ${o.symbol}${o.style ? '/' + o.style : ''})`
-    : '';
-  return `  • ${esc}[${o.ccipTag || 'UNTAGGED'} / ${o.severity}]${scopeTag} ${o.summary}`;
-}).join('\n')}
-These are currently-firing signals from the closed feedback loop. Each one points to a reasoning pattern that has drifted from realized outcomes. I apply the cited discipline on THIS scan — not as a gate, but as a direct correction to the reasoning block named in each observation. If NO_TRADE rate is high, I re-read Wait-First Law and find the direction. If a tier is over-claimed, I downgrade or cite more evidence. If counter-trend gates are being skipped, I cite all three or switch mode.
-
-REPEATED-DRIFT ESCALATION (CCIP-2026-0501E Stage 14): When an observation is flagged ELEVATED (fired 3+ times) or URGENT (fired 6+ times), the system is telling me I have not yet absorbed the correction. On THIS scan, if the cited reasoning block applies to my candidate, I must either (a) materially change the reasoning to address the drift — with the change named in my thesis_coherence_statement — or (b) output NO_TRADE with the URGENT/ELEVATED tag cited as the reason. Continuing to repeat the exact pattern that triggered the escalation is a self-contradiction with my own correction record. Scope matters: a pair-scoped observation applies only when the current symbol/style matches; a global-scoped observation applies every scan.`
-    : '';
-
-  // CCIP-2026-0501D Stage 12 — Dynamic tier target mirror.
-  // Shows Alpha the shrinkage-adjusted realized win rate for each tier on this
-  // pair×style. Advisory only — the static rubric remains the SSOT, tiers never
-  // drive lot size, and the user's riskMode is the sole sizing authority.
-  const tierTargets = huntContext?.tierTargets;
-  const tierTargetsLine = Array.isArray(tierTargets) && tierTargets.length > 0
-    ? `DYNAMIC TIER CALIBRATION — realized outcomes per tier on THIS pair & style (CCIP-2026-0501D Stage 12):
-${tierTargets.map(t => {
-  const realized = t.trailingRealizedPct != null ? `${t.trailingRealizedPct.toFixed(1)}%` : 'n/a';
-  const gap = t.trailingRealizedPct != null
-    ? ` (gap to anchor: ${(t.trailingRealizedPct - t.staticAnchorPct).toFixed(1)}pp)`
-    : '';
-  return `  • ${t.tier}: anchor=${t.staticAnchorPct}% | realized(30d, n=${t.sampleSize})=${realized} | current target=${t.currentTargetPct.toFixed(1)}%${gap}`;
-}).join('\n')}
-These are the per-tier realized win rates over the last 30 days on THIS instrument at THIS style, smoothed with a shrinkage estimator so small samples are pulled toward the static anchor. CALIBRATION DISCIPLINE:
-  • If realized is materially BELOW anchor (e.g. confident anchor=65% but realized=45% with n≥15), my tier labels on this pair have been over-claiming. I downgrade one tier for this scan unless I cite new structural evidence beyond what recent trades cited.
-  • If realized is materially ABOVE anchor (e.g. very_confident anchor=75% but realized=82% with n≥15), the pair is rewarding my conviction on this style — I label honestly, not conservatively. I do NOT pretend a very_confident read is merely confident.
-  • Sample size matters: n<10 is advisory only; n≥15 carries weight; n≥30 is strong signal.
-  • These targets affect labeling accuracy, learning, and entry_mode selection. They DO NOT affect lot size. Lot sizing remains the user's risk policy — riskMode and riskPercent — and a tier upgrade is never a sizing upgrade.
-This is self-accountability, not a gate. I can still execute any tier the structure supports.`
-    : '';
-
-  // CCIP-2026-0501E Stage 13 — Winning-pattern reinforcement signals.
-  // Alpha sees which citation clusters have historically won on this pair×style.
-  // Pure feedback with a hot-hand guard — NEVER a pattern-selection gate.
-  const winningPatterns = huntContext?.winningPatterns;
-  const winningPatternsLine = Array.isArray(winningPatterns) && winningPatterns.length > 0
-    ? `WINNING-PATTERN SIGNALS — top citation clusters by realized win rate on THIS pair & style (CCIP-2026-0501E Stage 13):
-${winningPatterns.map((w, i) => {
-  const avg = w.avgPnlPct != null ? ` | avg PnL ${w.avgPnlPct > 0 ? '+' : ''}${w.avgPnlPct.toFixed(2)}%` : '';
-  return `  ${i + 1}. [${w.realizedWinRatePct.toFixed(1)}% win, n=${w.sampleSize}${avg}] citations: ${w.citationCluster.slice(0, 5).join(' + ')}`;
-}).join('\n')}
-These are CCIP citation clusters that have produced positive realized win rates on THIS instrument at THIS style over the last 30 days. REINFORCEMENT DISCIPLINE:
-  • When the structure in this scan genuinely supports one of these clusters, I cite it honestly and weight the evidence as the historical record shows. The system is telling me "this exact reasoning has worked here."
-  • HOT-HAND GUARD: A winning cluster in the recent record does NOT pre-select the trade. If the structure this scan does not support the cluster, I do not force-fit the citations to earn the label. Historical performance is not structural evidence — it is calibration for the structural evidence I already see.
-  • Absence matters: if none of these clusters fit, that is useful information. It tells me this setup is outside my historical edge on this pair, and I should demand stronger named evidence before claiming very_confident or extremely_confident.
-This is reinforcement feedback, not a selection gate. I can execute a trade that does NOT match any winning cluster if the structural case is sound. What I cannot do is paste a winning cluster's citations onto a scan that does not actually show the same structure.`
-    : '';
-
-  const postmortems = huntContext?.recentPostmortems;
-  const postmortemLine = Array.isArray(postmortems) && postmortems.length > 0
-    ? `RECENT REASONING POST-MORTEMS — last ${postmortems.length} completed decisions on this pair and style (CCIP-2026-0501C):
-${postmortems.map(p => {
-  const pnl = p.pnlPct != null ? ` (${p.pnlPct > 0 ? '+' : ''}${p.pnlPct.toFixed(2)}%)` : '';
-  const cites = p.topCitations.length > 0 ? ` — cited: ${p.topCitations.slice(0, 3).join(', ')}` : '';
-  return `  • ${p.outcome}${pnl} — ${p.action}${p.entryMode ? `/${p.entryMode}` : ''}, tier=${p.confidenceTier ?? 'n/a'}, evidence=${p.namedEvidenceCount}${cites}`;
-}).join('\n')}
-These are my own prior decisions on THIS instrument at THIS style, each paired with the reasoning artifacts I used (tier, evidence count, top CCIP citations) and the realized outcome. PER-PAIR LEARNING DISCIPLINE:
-  • If recent LOSSES cluster on a specific tier × entry_mode combination (e.g. two losses as very_confident + execute_now), I do not replay that exact combination without at least one additional named piece of structural evidence beyond what I cited last time.
-  • If a specific CCIP citation appears on recent LOSSES but not on recent WINS, that citation was not as load-bearing as I claimed — I need a new or stronger structural reason this scan, not a copy of last scan's reasoning.
-  • If recent WINS cluster on a specific entry_mode (e.g. wait_pullback), I weight that evidence honestly — it is not a guarantee, but it is a reason to prefer that mode when the structural setup fits.
-  • If sample size is small (1–2 post-mortems), this is advisory only — I do not over-index on noise.
-This is reasoning feedback, not a gate. I can repeat a losing combination if the structure this scan genuinely differs and I cite the difference. What I cannot do is replay the same reasoning that already lost without naming what is materially different this time.`
-    : '';
+  // CCIP-2026-0510B — Past-outcome feedback prompt sections removed.
+  // Recent performance, reasoning health watchers, dynamic tier targets, winning
+  // patterns, and per-trade post-mortems were causing Alpha to anchor on stale
+  // outcomes rather than improve live decisions. Alpha is a live in-the-moment
+  // reasoner. Audit trails remain in the database for admin forensics.
 
   return `[Alpha Core v3.7 — CCIP-2026-0427B / CCIP-2026-0427N / CCIP-2026-0428A / CCIP-2026-0428B / CCIP-2026-0428E / CCIP-2026-0428F / CCIP-2026-0429A / CCIP-2026-0429B / CCIP-2026-0429C / CCIP-2026-0429D / CCIP-2026-0429E / CCIP-2026-0429F / CCIP-2026-0429G / CCIP-2026-0430A / CCIP-2026-0501A / CCIP-2026-0501B / CCIP-2026-0501C / CCIP-2026-0501D / CCIP-2026-0501E / CCIP-2026-0501F / CCIP-2026-0506A / CCIP-2026-0507A / CCIP-2026-0507B / CCIP-2026-0508A / CCIP-2026-0508B / CCIP-2026-0508C / CCIP-2026-0508D — HARD OUTPUT GATE ON EVERY OUTPUT: MANDATORY AUDIT SCHEMA + MANDATORY CONTRADICTION RECONCILIATION LEDGER + DUAL-DIRECTION MANDATORY AUDITION ON BUY/SELL/NO_TRADE + EXPECTANCY-FIRST REASONING + STOP-PLACEMENT & SELF-CONTRADICTION AUDIT + THESIS COHERENCE + WAIT-FIRST PATH FINDER + EVIDENCE-JUSTIFIED CONFIDENCE + PREMIUM/DISCOUNT + COUNTER-TREND + REVERSAL FUEL + INDEX NOISE/SESSION + RECENT-PERFORMANCE + ENTRY-MODE PATIENCE + REASONING HEALTH FEEDBACK + PER-PAIR POST-MORTEMS + DYNAMIC TIER CALIBRATION + WINNING-PATTERN REINFORCEMENT + REPEATED-DRIFT ESCALATION + AUTO-TUNED WATCHERS + PAIR-PERSONALITY DRIFT + FUEL-LESS LATE-MOVE DISCIPLINE + SL FEASIBILITY + TP2 CONVICTION GATE]
 
@@ -2032,16 +1893,6 @@ ${sessionIdentity}
 ${huntReadinessLine}
 
 ${driftHistoryLine}
-
-${recentPerformanceLine}
-
-${reasoningHealthLine}
-
-${tierTargetsLine}
-
-${winningPatternsLine}
-
-${postmortemLine}
 
 ${arenaWalls}
 
