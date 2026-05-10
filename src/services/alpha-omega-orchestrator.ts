@@ -256,8 +256,14 @@ class AlphaOmegaOrchestrator {
           takeProfit: proposedTP,
           confidence: 0,
           reasoning: abortReason,
-          omega_summary: 'Execution aborted — fresh-scan isolation (CCIP-2026-0506E): data too stale for an uncontaminated scan'
-        };
+          omega_summary: 'Execution aborted — fresh-scan isolation (CCIP-2026-0506E): data too stale for an uncontaminated scan',
+          // CCIP-2026-0510D: Mark pre-Alpha aborts so the session engine can distinguish
+          // transient data-freshness failures from genuine Alpha NO_TRADE decisions.
+          abort_reason: 'STALE_DATA',
+          pre_alpha_abort: true,
+          candle_age_seconds: Number.isFinite(candleAgeSeconds) ? candleAgeSeconds : null,
+          price_age_seconds: priceAgeSeconds
+        } as any;
       }
     }
 

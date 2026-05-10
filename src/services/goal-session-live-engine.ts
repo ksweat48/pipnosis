@@ -163,6 +163,12 @@ class GoalSessionLiveEngine {
   private tradeExecutedInSession = false; // GOVERNANCE: Once a trade executes, no more scanning allowed
   private hasActiveEntryIntent = false; // ENTRY-MONITOR-GUARD: Prevents NO_TRADE event and re-scanning while entry monitor is waiting for zone
 
+  // CCIP-2026-0510D: STALE-DATA-RETRY — count consecutive cycles where every symbol
+  // aborted pre-Alpha for stale data (cold-start / weekend warm-up). Only after
+  // MAX_STALE_DATA_RETRIES consecutive stale cycles do we give up and close the session.
+  private consecutiveStaleDataCycles = 0;
+  private readonly MAX_STALE_DATA_RETRIES = 3;
+
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
 
@@ -264,6 +270,7 @@ class GoalSessionLiveEngine {
       this.scanCompleteNoTrade = false; // SSOT: Reset scan-halt flag for new session
       this.tradeExecutedInSession = false; // GOVERNANCE: Reset trade-executed flag for new session
       this.hasActiveEntryIntent = false; // ENTRY-MONITOR-GUARD: Reset for new session
+      this.consecutiveStaleDataCycles = 0; // CCIP-2026-0510D: Reset stale-data retry counter for new session
 
       logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
 
@@ -1431,6 +1438,34 @@ class GoalSessionLiveEngine {
             '[Entry Monitor] No new winners found, but active entry intent exists — suppressing NO_TRADE event. Entry monitor remains active.'
           );
           return;
+        }
+
+        // CCIP-2026-0510D: STALE-DATA-RETRY — if every symbol rejected pre-Alpha for stale
+        // data (cold-start / weekend warm-up), suppress the NO_TRADE event and retry next
+        // polling tick. Only give up after MAX_STALE_DATA_RETRIES consecutive stale cycles.
+        const decisions = Array.from(omegaDecisions.values()).filter(Boolean);
+        const allPreAlphaStale = decisions.length > 0 && decisions.every((d: any) =>
+          d?.abort_reason === 'STALE_DATA' || d?.pre_alpha_abort === true
+        );
+        if (allPreAlphaStale) {
+          this.consecutiveStaleDataCycles += 1;
+          if (this.consecutiveStaleDataCycles < this.MAX_STALE_DATA_RETRIES) {
+            logger.warn(
+              LogCategory.AI_TRADING,
+              `[STALE-DATA-RETRY] All ${decisions.length} symbols aborted pre-Alpha for stale data ` +
+              `(cycle ${this.consecutiveStaleDataCycles}/${this.MAX_STALE_DATA_RETRIES}). ` +
+              `Suppressing NO_TRADE event; will retry on next polling tick while candle cache warms up.`
+            );
+            return;
+          }
+          logger.error(
+            LogCategory.AI_TRADING,
+            `[STALE-DATA-RETRY] Reached ${this.MAX_STALE_DATA_RETRIES} consecutive stale-data cycles. ` +
+            `Giving up and closing session — data pipeline appears offline.`
+          );
+        } else {
+          // Any non-stale rejection resets the retry counter.
+          this.consecutiveStaleDataCycles = 0;
         }
 
         const snapshotsBySymbol = new Map<string, SymbolSnapshot>();
