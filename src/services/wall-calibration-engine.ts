@@ -269,9 +269,12 @@ class WallCalibrationEngine {
     result: WallCalibrationResult
   ): Promise<void> {
     try {
+      // CCIP-2026-0510I: trade_style CHECK requires canonical 'MICRO_INTRADAY'.
+      // input.tradeStyle is the raw TradeStyle ('micro') — map to canonical form.
+      const canonicalStyle = STYLE_MAP[input.tradeStyle] || 'MICRO_INTRADAY';
       await supabase.from('wall_calibration_events').insert({
         symbol: input.symbol,
-        trade_style: input.tradeStyle,
+        trade_style: canonicalStyle,
         current_session: input.currentSession,
         session_time_remaining_minutes: input.sessionTimeRemainingMinutes,
         asset_class: result.diagnostics.assetClass,
