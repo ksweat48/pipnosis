@@ -26,7 +26,9 @@ const supabase = getSupabaseAdmin();
 
 const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
 const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
-const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
+// CCIP-2026-0510E: Crypto processed FIRST — 24/7 markets must never be starved
+// by slow forex symbols exhausting the 90s function budget.
+const ACTIVE_SYMBOLS = [...CRYPTO_SYMBOLS, ...FOREX_SYMBOLS];
 
 function isCryptoSymbol(symbol: string): boolean {
   return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
@@ -698,7 +700,10 @@ async function aggregateCandlesForSymbol(
       }
 
       const candleEndTime = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
-      const bufferMs = 30 * 1000;
+      // CCIP-2026-0510E: Crypto uses 10s buffer (24/7 fresh ticks), forex keeps 30s
+      // buffer to absorb broker clock skew. This ensures crypto M5 closes are written
+      // within ~10s of candle close instead of waiting 30s past close.
+      const bufferMs = isCryptoSymbol(symbol) ? 10 * 1000 : 30 * 1000;
       if (candleEndTime > new Date(effectiveNow.getTime() - bufferMs)) {
         break;
       }

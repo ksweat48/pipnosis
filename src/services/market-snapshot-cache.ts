@@ -109,6 +109,35 @@ function generateCacheKey(symbol: string, timeframe: Timeframe): string {
 }
 
 /**
+ * CCIP-2026-0510E: Maximum acceptable age of the last candle in a cached snapshot.
+ * If the last candle's open_time is older than this, the cache entry is invalidated
+ * regardless of remaining TTL. Prevents the "stale candle under fresh TTL" trap where
+ * the cache serves a snapshot whose underlying data is already stale by Alpha's standards.
+ *
+ * Values are ~2x the timeframe interval so a single missed candle write does not
+ * thrash the cache, but two consecutive misses force a rebuild.
+ */
+const MAX_LAST_CANDLE_AGE_MS: Partial<Record<Timeframe, number>> = {
+  'M1':  3 * 60 * 1000,
+  'M5':  12 * 60 * 1000,
+  'M15': 35 * 60 * 1000,
+  'H1':  130 * 60 * 1000,
+  'H4':  500 * 60 * 1000,
+  'D':   50 * 60 * 60 * 1000,
+};
+
+function getLastCandleAgeMs(snapshot: MarketSnapshotData): number | null {
+  const candles = snapshot?.candles;
+  if (!candles || candles.length === 0) return null;
+  const last = candles[candles.length - 1];
+  const openTimeMs = typeof last.open_time === 'string'
+    ? new Date(last.open_time).getTime()
+    : (last.open_time instanceof Date ? last.open_time.getTime() : Number(last.open_time));
+  if (!Number.isFinite(openTimeMs)) return null;
+  return Date.now() - openTimeMs;
+}
+
+/**
  * Generate snapshot hash for drift detection
  */
 function generateSnapshotHash(candles: Candle[]): string {
@@ -148,10 +177,25 @@ class MarketSnapshotCache {
 
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
-      this.stats.hits++;
-      const ageSeconds = Math.round((now - cached.data.createdAt) / 1000);
-      logger.debug('[SnapshotCache] HIT', { symbol, timeframe: effectiveTimeframe, ageSeconds });
-      return cached.data;
+      // CCIP-2026-0510E: Candle-freshness gate. TTL alone is insufficient — if the
+      // underlying candle producer stalls, a cached snapshot can remain "within TTL"
+      // while its last candle is 10+ minutes old. Reject stale-candle cache hits.
+      const maxAge = MAX_LAST_CANDLE_AGE_MS[effectiveTimeframe] ?? MAX_LAST_CANDLE_AGE_MS['M5']!;
+      const candleAgeMs = getLastCandleAgeMs(cached.data);
+      if (candleAgeMs !== null && candleAgeMs > maxAge) {
+        logger.warn('[SnapshotCache] Invalidating cache — last candle stale', {
+          symbol,
+          timeframe: effectiveTimeframe,
+          candleAgeSeconds: Math.round(candleAgeMs / 1000),
+          maxAgeSeconds: Math.round(maxAge / 1000)
+        });
+        this.cache.delete(cacheKey);
+      } else {
+        this.stats.hits++;
+        const ageSeconds = Math.round((now - cached.data.createdAt) / 1000);
+        logger.debug('[SnapshotCache] HIT', { symbol, timeframe: effectiveTimeframe, ageSeconds });
+        return cached.data;
+      }
     }
 
     this.stats.misses++;
