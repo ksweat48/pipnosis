@@ -1035,7 +1035,7 @@ class AlphaOmegaOrchestrator {
         if (systemGeneratedCount > 0) {
           console.log(
             `[Alpha Orchestrator] CCIP-2026-0422F: ${systemGeneratedCount}/${evaluatedDecisions.length} NO_TRADE decisions were system-generated ` +
-            `(HUNT_READINESS_GATE or data failure) — not Alpha output. These are expected and correct.`
+            `(data failure or system gate) — not Alpha output. These are expected and correct.`
           );
         }
 

@@ -1453,26 +1453,17 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // HUNT READINESS PRE-SCAN GATE
-    // CCIP-2026-04-21: Query alpha_hunt_readiness before assembling the full
-    // Alpha prompt. If hunt_state === 'not_ready' (PC1 phase unreadable AND
-    // PC2 no structural material), skip the full LLM scan — the structural
-    // raw material for a trade does not exist.
-    //
-    // Gate fires ONLY on 'not_ready'. 'ready', 'live', or missing/expired
-    // records all proceed to the full scan — no data = no gate.
-    //
-    // This preserves Alpha's full decision authority when material exists.
-    // It only prevents scans where the pre-computed structural assessment
-    // has already determined there is no phase, no setup, and no structural room.
+    // CCIP-2026-0510J — HUNT_READINESS_GATE REMOVED
+    // The readiness monitor is now a PARALLEL ADVISORY channel (armed/not_ready).
+    // Alpha's pre-filter is never gated by it. Alpha always scans — finding
+    // missed opportunities and golden nuggets remains Alpha's sovereign job.
+    // The readiness advisory exists only to tell the user when to manually scan.
     // ═══════════════════════════════════════════════════════════════════
-    // CCIP-2026-0424B: Capture preconditions from 'ready' state to inject into Alpha's
-    // prompt as a readiness signal. This tells Alpha which structural preconditions the
-    // readiness scanner already qualified — closing the gap where Alpha would output
-    // NO_TRADE despite naming a trigger zone.
+
+    // CCIP-2026-0424C: Fetch Alpha's own recent execution drift for this symbol/style
+    // and inject into the prompt so Alpha self-calibrates stop sizing against observed
+    // fill behavior. Pure reasoning feedback — not a gate.
     let huntContextForPrompt: {
-      preconditionsMet: string[];
-      phase: string | null;
       recentDrift?: {
         symbol: string;
         style: string;
@@ -1487,46 +1478,6 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       } | null;
     } | undefined;
     try {
-      const { data: huntReadiness } = await supabase
-        .from('alpha_hunt_readiness')
-        .select('hunt_state, preconditions_met, hunt_summary, phase_detected, expires_at')
-        .eq('symbol', marketContext.symbol)
-        .eq('style', tradeStyle)
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle();
-
-      if (huntReadiness && huntReadiness.hunt_state === 'not_ready') {
-        const preconditionsMet = Array.isArray(huntReadiness.preconditions_met)
-          ? (huntReadiness.preconditions_met as string[]).join(', ') || 'none'
-          : 'unknown';
-        console.log(`[Alpha Coordinator] HUNT_READINESS_GATE: ${marketContext.symbol} (${tradeStyle}) skipped — not_ready. Phase: ${huntReadiness.phase_detected}. Preconditions: ${preconditionsMet}`);
-        return {
-          action: 'NO_TRADE',
-          decision: 'NO_TRADE',
-          entry: marketContext.price,
-          stopLoss: marketContext.price,
-          takeProfit: marketContext.price,
-          confidence: 0,
-          reasoning: `HUNT_READINESS_NOT_MET: Pre-scan assessment found no readable phase and no structural setup material for ${tradeStyle} on ${marketContext.symbol}. Phase: ${huntReadiness.phase_detected ?? 'UNCLEAR'}. ${huntReadiness.hunt_summary ?? ''}`,
-          decision_origin: 'SYSTEM_PAIR_NOT_READY' as const,
-        };
-      }
-
-      if (huntReadiness && Array.isArray(huntReadiness.preconditions_met) && huntReadiness.preconditions_met.length > 0) {
-        huntContextForPrompt = {
-          preconditionsMet: huntReadiness.preconditions_met as string[],
-          phase: huntReadiness.phase_detected ?? null,
-        };
-      }
-    } catch {
-      // Hunt readiness unavailable — proceed with full scan (non-blocking)
-      console.warn(`[Alpha Coordinator] Hunt readiness gate unavailable for ${marketContext.symbol} — proceeding with full scan`);
-    }
-
-    // CCIP-2026-0424C: Fetch Alpha's own recent execution drift for this symbol/style
-    // and inject into the prompt so Alpha self-calibrates stop sizing against observed
-    // fill behavior. Pure reasoning feedback — not a gate.
-    try {
       const { data: driftStats } = await supabase.rpc('get_recent_drift_stats', {
         p_symbol: marketContext.symbol,
         p_style: tradeStyle,
@@ -1534,9 +1485,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       });
       const row = Array.isArray(driftStats) ? driftStats[0] : driftStats;
       if (row && typeof row.sample_size === 'number' && row.sample_size > 0) {
-        const existing = huntContextForPrompt ?? { preconditionsMet: [], phase: null };
         huntContextForPrompt = {
-          ...existing,
           recentDrift: {
             symbol: marketContext.symbol,
             style: tradeStyle,

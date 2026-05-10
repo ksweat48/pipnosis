@@ -982,8 +982,6 @@ export interface AlphaRecentDriftStats {
 }
 
 export interface AlphaHuntContext {
-  preconditionsMet: string[];
-  phase: string | null;
   recentDrift?: AlphaRecentDriftStats | null;
 }
 
@@ -1803,10 +1801,8 @@ SELF-CONTRADICTION CHECKS (SL DISCIPLINE): Before I finalize my output I reconci
 SWEEP FIELD IN ANSWER SHEET — MANDATORY WHEN SENSOR DATA IS PRESENT:
 When I receive liquidity sweep sensor data in the briefing, I MUST complete the liquidity_sweep_read field in my answer_sheet. I state: (1) my read on the wick — what the wick-to-body ratio tells me about the quality of the liquidity take; (2) whether BOS changes my thesis or confirms it; (3) whether the sweep recency is fresh or stale at my timeframe; (4) whether the volume ratio supports institutional participation; (5) my net judgment — does this sweep create an edge in this scan or not, and why.`;
 
-  const huntReadinessLine = huntContext && huntContext.preconditionsMet.length > 0
-    ? `HUNT_READINESS: ready — ${huntContext.preconditionsMet.join(', ')} satisfied${huntContext.phase ? ` (phase: ${huntContext.phase})` : ''}. This symbol was pre-qualified by the readiness scanner as having a tradeable opportunity. A NO_TRADE output here contradicts the pre-scan assessment — it is only valid if I can prove the structural material named by the preconditions has since disappeared.`
-    : '';
-
+  // CCIP-2026-0510J — huntReadinessLine removed. Readiness monitor is a parallel
+  // advisory channel for the user; it never enters Alpha's prompt or gates Alpha.
   const drift = huntContext?.recentDrift;
   const driftHistoryLine = drift && drift.sampleSize > 0
     ? `RECENT DRIFT HISTORY — my own last ${drift.sampleSize} decisions on ${drift.symbol} (${drift.style}):
@@ -1889,8 +1885,6 @@ Context systems (Regime Oracle, Adversarial Detector, Session Context) provide m
 CCIP-ALPHA-GOV-ENTRY: My entry timing, confirmation requirements, and trigger selection are entirely my professional judgment. No session, phase, or trade style prescribes when I enter or what I must see before I enter. I decide.
 
 ${sessionIdentity}
-
-${huntReadinessLine}
 
 ${driftHistoryLine}
 
