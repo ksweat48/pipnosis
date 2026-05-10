@@ -36,7 +36,7 @@ import type { AggregatedSentiment } from './sentiment-aggregator';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
-import { getMTFConfig, getStyleMTFConfig, resolveCanonicalStyle, TIMEFRAME_MS, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
+import { getMTFConfig, getStyleMTFConfig, resolveCanonicalStyle, TIMEFRAME_MS, TIMEFRAME_SECONDS, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
 import { getStyleATRTimeframe } from '../config/style-execution-envelopes';
 
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
@@ -213,8 +213,16 @@ class AlphaOmegaOrchestrator {
     // math (now - open_time) made the 90s ceiling unsatisfiable by construction and aborted
     // every scan with STALE_DATA_ABORT. Age-since-close = now - (open_time + TIMEFRAME_MS[tf])
     // yields 0 at candle seal, grows naturally, and correctly detects true staleness.
+    //
+    // CCIP-2026-0510H: Timeframe-aware ceiling. A hardcoded 90s ceiling is too tight for M5:
+    // the aggregator writes the newly-sealed bar with 30-90s latency, and the in-flight bar
+    // legitimately ages 0-300s between seals. For a newly-closed M5 bar to be visible we must
+    // allow at least one full timeframe + aggregator write budget. Scale the ceiling to 1.2×
+    // the timeframe (floored at 90s for sub-minute edge cases), matching the philosophy of
+    // MAX_LAST_CANDLE_AGE_MS in market-snapshot-cache.ts.
     {
-      const FRESH_SCAN_CANDLE_MAX_AGE_SECONDS = 90;  // seconds since the latest candle CLOSED
+      const timeframeSeconds = TIMEFRAME_SECONDS[entryTimeframe] ?? 300;
+      const FRESH_SCAN_CANDLE_MAX_AGE_SECONDS = Math.max(90, Math.round(timeframeSeconds * 1.2));  // seconds since the latest candle CLOSED
       const FRESH_SCAN_PRICE_MAX_AGE_SECONDS = 60;   // live price must be within last minute
       const latestCandle = snapshot.candles && snapshot.candles.length > 0
         ? snapshot.candles[snapshot.candles.length - 1]
