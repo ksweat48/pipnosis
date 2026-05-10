@@ -114,6 +114,11 @@ import {
   formatAdvocateBriefsForArbiter,
   type AdvocateBrief
 } from '../config/alpha-identity';
+import {
+  ALPHA_RESPONSE_FORMAT,
+  MANDATORY_AUDIT_KEYS,
+  detectMissingAuditKeys
+} from '../config/alpha-output-schema';
 import { getDisplayNameFromStyle } from '../config/trade-styles';
 import { getStylePromptContext } from '../config/style-personalities';
 import { getPairPersonalityContext } from '../config/pair-personalities';
@@ -3315,12 +3320,22 @@ Return PURE JSON only — all required fields from the schema in my system promp
       //
       // INVARIANT: If finish_reason === 'length' fires, TOKEN_BUDGET_EXCEEDED surfaces.
       //   Raise max_tokens if that fires — production data justifies current ceiling.
-      model: 'gpt-4o',
+      // CCIP-2026-0510L: Pinned to gpt-4o-2024-08-06 because OpenAI Structured
+      // Outputs (response_format.json_schema.strict=true) requires this dated
+      // alias or newer. The plain 'gpt-4o' alias can resolve to an older model
+      // that silently ignores strict schemas and returns abbreviated completions
+      // missing the 10 mandatory audit keys (CCIP-2026-0508C gate trigger).
+      model: 'gpt-4o-2024-08-06',
       temperature: 0.3,
       max_completion_tokens: 3000,
       requestType: 'alpha_coordination',
       endpoint: 'alpha-coordinator',
-      symbol: marketContext.symbol
+      symbol: marketContext.symbol,
+      // CCIP-2026-0510L: Bind Alpha's output shape at the transport layer.
+      // OpenAI will refuse responses missing any of the 10 mandatory audit
+      // keys — this is Alpha's I/O contract made structural, not a new gate.
+      // SSOT: src/config/alpha-output-schema.ts.
+      response_format: ALPHA_RESPONSE_FORMAT
     };
 
     try {
@@ -3823,6 +3838,107 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
       if (sweepFacts && sweepFacts.sweep_detected) {
         decision.sweepFacts = sweepFacts;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-0510L: SINGLE-SHOT SCHEMA REPAIR LOOP
+      // ═══════════════════════════════════════════════════════════════════
+      // Belt-and-suspenders for the primary defense (response_format.json_schema
+      // on the arbiter call). In normal operation OpenAI refuses to return a
+      // response missing any of the 10 mandatory audit keys — the strict schema
+      // handles it at the transport layer. But if the API ever drifts, the
+      // dated-model alias is bumped, or a caller forgets to attach the schema,
+      // this loop fires ONE repair request with a minimal "fill the missing
+      // fields" prompt and merges the result back into the decision.
+      //
+      // If the repair call also returns incomplete, we fall through to the
+      // CCIP-2026-0508C HARD GATE which rewrites to NO_TRADE. The repair loop
+      // is strictly recovery — it cannot weaken the audit contract.
+      // ═══════════════════════════════════════════════════════════════════
+      try {
+        const missingAfterParse = detectMissingAuditKeys(decision as unknown);
+        if (missingAfterParse.length > 0) {
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0510L SCHEMA_REPAIR: ${missingAfterParse.length} mandatory audit keys missing ` +
+            `after primary Alpha response for ${marketContext.symbol}. Missing=${missingAfterParse.join(',')}. ` +
+            `Requesting single-shot repair.`
+          );
+
+          const repairMessages = [
+            ...buildAlphaMessages('REPAIR'),
+            {
+              role: 'assistant' as const,
+              content: JSON.stringify({
+                action: decision.action,
+                entry: decision.entry,
+                stopLoss: decision.stopLoss,
+                takeProfit: decision.takeProfit,
+                answer_sheet: (decision as any).answer_sheet ?? {}
+              })
+            },
+            {
+              role: 'user' as const,
+              content:
+                `Your previous response omitted these mandatory audit keys: ${missingAfterParse.join(', ')}. ` +
+                `Return ONLY a JSON object whose "answer_sheet" property contains ALL of the missing keys with ` +
+                `genuine values derived from the same reasoning that produced your previous decision. ` +
+                `Do not restate fields that were already present. Do not change your action, entry, stopLoss, ` +
+                `takeProfit, or confidence_tier. The response MUST conform to the AlphaDecision schema.`
+            }
+          ];
+
+          try {
+            const repairResponse = await openAIClient.chat(repairMessages, {
+              ...alphaCallOptions,
+              max_completion_tokens: 1500,
+              requestType: 'alpha_coordination_repair'
+            });
+            const repairContent = repairResponse.choices[0]?.message?.content || '{}';
+            const repairParsed = tryParseLLMResponse(repairContent) ?? {};
+            const repairSheet =
+              repairParsed && typeof repairParsed === 'object' && repairParsed !== null &&
+              'answer_sheet' in (repairParsed as Record<string, unknown>) &&
+              typeof (repairParsed as Record<string, unknown>).answer_sheet === 'object'
+                ? ((repairParsed as Record<string, unknown>).answer_sheet as Record<string, unknown>)
+                : (repairParsed as Record<string, unknown>);
+
+            const dMut = decision as Record<string, unknown>;
+            const existingSheet =
+              dMut.answer_sheet && typeof dMut.answer_sheet === 'object'
+                ? (dMut.answer_sheet as Record<string, unknown>)
+                : {};
+            const mergedSheet: Record<string, unknown> = { ...existingSheet };
+            let repairedCount = 0;
+            for (const key of MANDATORY_AUDIT_KEYS) {
+              if (
+                (mergedSheet[key] == null) &&
+                Object.prototype.hasOwnProperty.call(repairSheet, key) &&
+                repairSheet[key] != null
+              ) {
+                mergedSheet[key] = repairSheet[key];
+                repairedCount++;
+              }
+            }
+            dMut.answer_sheet = mergedSheet;
+
+            const stillMissing = detectMissingAuditKeys(decision as unknown);
+            console.log(
+              `[Alpha Coordinator] CCIP-2026-0510L SCHEMA_REPAIR complete for ${marketContext.symbol}: ` +
+              `repaired=${repairedCount}, still_missing=${stillMissing.length} (${stillMissing.join(',') || 'none'}).`
+            );
+            if (stillMissing.length === 0 && typeof (dMut as any).decision_origin === 'string') {
+              // Mark that repair was needed so analytics can track drift from the primary schema path.
+              (dMut as any).schema_repair_applied = true;
+            }
+          } catch (repairErr) {
+            console.error(
+              `[Alpha Coordinator] CCIP-2026-0510L SCHEMA_REPAIR request failed for ${marketContext.symbol}:`,
+              repairErr
+            );
+          }
+        }
+      } catch (repairLoopErr) {
+        console.error('[Alpha Coordinator] CCIP-2026-0510L repair-loop evaluation error:', repairLoopErr);
       }
 
       // ═══════════════════════════════════════════════════════════════════

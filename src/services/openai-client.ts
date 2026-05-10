@@ -41,6 +41,21 @@ interface ChatCompletionOptions {
   requestType?: string;
   endpoint?: string;
   symbol?: string;
+  /**
+   * CCIP-2026-0510L: OpenAI Structured Outputs.
+   * When supplied, OpenAI binds the response to the provided JSON schema at
+   * the transport layer — responses missing required fields cannot be returned.
+   * Requires model gpt-4o-2024-08-06 or newer.
+   * SSOT: src/config/alpha-output-schema.ts.
+   */
+  response_format?: {
+    type: 'json_schema';
+    json_schema: {
+      name: string;
+      strict?: boolean;
+      schema: Record<string, unknown>;
+    };
+  } | { type: 'json_object' };
 }
 
 interface ChatCompletionResponse {
@@ -329,7 +344,11 @@ class OpenAIClient {
         messages: messages,
         temperature: options.temperature ?? 0.7,
         max_completion_tokens: resolvedBudget,
-        store: false
+        store: false,
+        // CCIP-2026-0510L: Structured Outputs binding. Forwarded when caller
+        // supplies a json_schema contract (e.g. Alpha arbiter) so OpenAI
+        // refuses responses missing required fields.
+        ...(options.response_format ? { response_format: options.response_format } : {})
       })
     });
 
@@ -475,7 +494,9 @@ class OpenAIClient {
               // The Netlify proxy translates this field to max_completion_tokens for OpenAI.
               max_tokens: resolvedMaxTokens,
               requestType: options.requestType,
-              endpoint: options.endpoint
+              endpoint: options.endpoint,
+              // CCIP-2026-0510L: Forward structured-outputs schema to Netlify proxy.
+              ...(options.response_format ? { response_format: options.response_format } : {})
             }),
             signal: controller.signal
           });

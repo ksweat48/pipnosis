@@ -161,6 +161,20 @@ interface ChatRequest {
   stream?: boolean;
   requestType?: string;
   endpoint?: string;
+  /**
+   * CCIP-2026-0510L: OpenAI Structured Outputs.
+   * When supplied by the caller (e.g. Alpha arbiter), it is forwarded verbatim
+   * to OpenAI so the response is bound to the provided JSON schema at the
+   * transport layer. Requires gpt-4o-2024-08-06 or newer on the caller side.
+   */
+  response_format?: {
+    type: 'json_schema';
+    json_schema: {
+      name: string;
+      strict?: boolean;
+      schema: Record<string, unknown>;
+    };
+  } | { type: 'json_object' };
 }
 
 function calculateCost(model: string, promptTokens: number, completionTokens: number): number {
@@ -363,7 +377,12 @@ async function handleRequest(event: any, startTime: number) {
       // first system message — this is handled in openai-client.ts injectCacheBustFingerprint()
       // before the messages ever reach this function. Do not rely on store=false as a
       // caching defense — it provides none.
-      store: false
+      store: false,
+      // CCIP-2026-0510L: Forward structured-outputs schema when caller
+      // supplied one. OpenAI will refuse to return a response that does
+      // not conform — this is the structural enforcement that replaces the
+      // prompt-only CCIP-2026-0510K checklist.
+      ...(body.response_format ? { response_format: body.response_format } : {})
     };
 
     console.log(`[OpenAI Proxy] Calling OpenAI API: ${requestPayload.model}, ${body.messages.length} messages, max_completion_tokens=${tokenBudget}, store=false (cache disabled)`);
