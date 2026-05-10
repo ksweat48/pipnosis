@@ -2141,9 +2141,12 @@ export interface AdvocateBrief {
  * Format both advocate briefs into a block that is injected into the arbiter's user
  * prompt. The arbiter reads both cases as external evidence, not as its own prior lean.
  */
+export type AdvocatePresentationOrder = 'BUY_FIRST' | 'SELL_FIRST';
+
 export function formatAdvocateBriefsForArbiter(
   buyBrief: AdvocateBrief | null,
-  sellBrief: AdvocateBrief | null
+  sellBrief: AdvocateBrief | null,
+  presentationOrder: AdvocatePresentationOrder = 'BUY_FIRST'
 ): string {
   const fmt = (b: AdvocateBrief | null, dir: 'BUY' | 'SELL') => {
     if (!b) {
@@ -2175,8 +2178,13 @@ ${evidence}
   Best counter-argument against self: ${b.best_counter_argument_against_self}`;
   };
 
+  const firstDir: 'BUY' | 'SELL' = presentationOrder === 'BUY_FIRST' ? 'BUY' : 'SELL';
+  const secondDir: 'BUY' | 'SELL' = presentationOrder === 'BUY_FIRST' ? 'SELL' : 'BUY';
+  const firstBrief = presentationOrder === 'BUY_FIRST' ? buyBrief : sellBrief;
+  const secondBrief = presentationOrder === 'BUY_FIRST' ? sellBrief : buyBrief;
+
   return `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DUAL-ADVOCATE AUDITION (CCIP-2026-0510A)
+DUAL-ADVOCATE AUDITION (CCIP-2026-0510A | ORDER-RANDOMIZED CCIP-2026-0510C)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Two direction-locked advocates ran in parallel before this call. Each was forbidden
 from selecting the other direction — their job was solely to build the strongest
@@ -2184,15 +2192,23 @@ honest case for their locked side or formally concede. I am the arbiter. I read
 both briefs as external evidence, not as a prior lean of my own. I reconcile them
 against the raw market data below and produce the final decision.
 
-${fmt(buyBrief, 'BUY')}
+PRESENTATION ORDER FOR THIS SCAN: ${presentationOrder} (randomized per scan to eliminate
+positional anchoring bias). Order carries zero information about which side is stronger.
 
-${fmt(sellBrief, 'SELL')}
+${fmt(firstBrief, firstDir)}
+
+${fmt(secondBrief, secondDir)}
 
 ARBITER OBLIGATIONS:
 - I do NOT default to the advocate with the higher probability_estimate. Each advocate
   scored their own case — I score both against the market.
-- If both advocates produced a case, I name in my reasoning which one I took and why,
-  and I name the specific structural reason I rejected the other.
+- I do NOT favor the advocate presented first. The order above was randomized.
+- THESIS COHERENCE OBLIGATION (CCIP-2026-0510C): In my reasoning, I must restate the
+  CORE structural claim of EACH brief in one sentence before taking a side. This forces
+  genuine engagement with both cases and catches drive-by dismissals. Format:
+    "BUY advocate claims: <their core structural thesis>. SELL advocate claims: <their
+     core structural thesis>. My read: <which I take and the specific structural reason
+     I reject the other>."
 - If one advocate conceded, I read the concede_reason as a data point but verify it
   against the candle evidence myself.
 - If both advocates conceded, NO_TRADE is strongly supported but not automatic — I

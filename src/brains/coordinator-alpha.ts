@@ -3514,7 +3514,16 @@ Return PURE JSON only — all required fields from the schema in my system promp
     };
 
     const [buyBrief, sellBrief] = await Promise.all([runAdvocate('BUY'), runAdvocate('SELL')]);
-    const advocateBriefsBlock = formatAdvocateBriefsForArbiter(buyBrief, sellBrief);
+    // CCIP-2026-0510C — Randomize advocate presentation order per scan to eliminate
+    // positional anchoring bias. Persisted to alpha_decisions.advocate_briefs.presentation_order
+    // so bias_audit queries can verify no order-correlated directional skew.
+    const advocatePresentationOrder: 'BUY_FIRST' | 'SELL_FIRST' =
+      Math.random() < 0.5 ? 'BUY_FIRST' : 'SELL_FIRST';
+    const advocateBriefsBlock = formatAdvocateBriefsForArbiter(
+      buyBrief,
+      sellBrief,
+      advocatePresentationOrder
+    );
     const arbiterUserPrompt = `${advocateBriefsBlock}\n${prompt}`;
 
     const buildAlphaMessages = (retryLabel?: string) => {
@@ -3954,9 +3963,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       // CCIP-2026-0510A: Attach advocate briefs for full audit persistence.
+      // CCIP-2026-0510C: Persist randomized presentation_order for bias_audit queries.
       (decision as any).advocate_briefs = {
         buy: buyBrief,
         sell: sellBrief,
+        presentation_order: advocatePresentationOrder,
         generated_at: new Date().toISOString()
       };
 
