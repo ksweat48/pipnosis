@@ -1187,6 +1187,41 @@ class GoalSessionLiveEngine {
 
       logger.info(LogCategory.AI_TRADING, `[THESIS_FILTER] Filtered ${expiredThesisCount} expired theses. ${filteredSnapshots.length}/${tradeableSnapshots.length} symbols remain.`);
 
+      // CCIP-2026-0510D: STALE-DATA-RETRY (early short-circuit).
+      // If every decision this cycle was a pre-Alpha STALE_DATA abort (cold-start / weekend
+      // warm-up), do NOT write scan_results, do NOT emit thought-stream events, and do NOT
+      // show the "No Trades Found" modal. The data pipeline simply hasn't caught up yet —
+      // retry on the next polling tick. Only after MAX_STALE_DATA_RETRIES do we fall through
+      // and let the full no-trade flow run (which closes the session).
+      {
+        const preDecisions = Array.from(filteredDecisions.values()).filter(Boolean);
+        const allPreAlphaStale = preDecisions.length > 0 && preDecisions.every((d: any) =>
+          d?.abort_reason === 'STALE_DATA' || d?.pre_alpha_abort === true
+        );
+        if (allPreAlphaStale) {
+          this.consecutiveStaleDataCycles += 1;
+          if (this.consecutiveStaleDataCycles < this.MAX_STALE_DATA_RETRIES) {
+            logger.warn(
+              LogCategory.AI_TRADING,
+              `[STALE-DATA-RETRY] All ${preDecisions.length} symbols aborted pre-Alpha for stale data ` +
+              `(cycle ${this.consecutiveStaleDataCycles}/${this.MAX_STALE_DATA_RETRIES}). ` +
+              `Short-circuiting scan: no scan_results write, no thought-stream, no modal. ` +
+              `Will retry on next polling tick while candle cache warms up.`
+            );
+            return;
+          }
+          logger.error(
+            LogCategory.AI_TRADING,
+            `[STALE-DATA-RETRY] Reached ${this.MAX_STALE_DATA_RETRIES} consecutive stale-data cycles. ` +
+            `Data pipeline appears offline — falling through to no-trade flow.`
+          );
+          // fall through to normal flow (which will close the session)
+        } else if (preDecisions.length > 0) {
+          // Mixed outcomes (or all-real) — reset retry counter.
+          this.consecutiveStaleDataCycles = 0;
+        }
+      }
+
       // If all symbols were filtered, return early
       if (filteredSnapshots.length === 0) {
         logger.info(LogCategory.AI_TRADING, `[THESIS_FILTER] All symbols have expired theses. Waiting for new opportunities.`);
@@ -1440,33 +1475,10 @@ class GoalSessionLiveEngine {
           return;
         }
 
-        // CCIP-2026-0510D: STALE-DATA-RETRY — if every symbol rejected pre-Alpha for stale
-        // data (cold-start / weekend warm-up), suppress the NO_TRADE event and retry next
-        // polling tick. Only give up after MAX_STALE_DATA_RETRIES consecutive stale cycles.
-        const decisions = Array.from(omegaDecisions.values()).filter(Boolean);
-        const allPreAlphaStale = decisions.length > 0 && decisions.every((d: any) =>
-          d?.abort_reason === 'STALE_DATA' || d?.pre_alpha_abort === true
-        );
-        if (allPreAlphaStale) {
-          this.consecutiveStaleDataCycles += 1;
-          if (this.consecutiveStaleDataCycles < this.MAX_STALE_DATA_RETRIES) {
-            logger.warn(
-              LogCategory.AI_TRADING,
-              `[STALE-DATA-RETRY] All ${decisions.length} symbols aborted pre-Alpha for stale data ` +
-              `(cycle ${this.consecutiveStaleDataCycles}/${this.MAX_STALE_DATA_RETRIES}). ` +
-              `Suppressing NO_TRADE event; will retry on next polling tick while candle cache warms up.`
-            );
-            return;
-          }
-          logger.error(
-            LogCategory.AI_TRADING,
-            `[STALE-DATA-RETRY] Reached ${this.MAX_STALE_DATA_RETRIES} consecutive stale-data cycles. ` +
-            `Giving up and closing session — data pipeline appears offline.`
-          );
-        } else {
-          // Any non-stale rejection resets the retry counter.
-          this.consecutiveStaleDataCycles = 0;
-        }
+        // CCIP-2026-0510D: Upstream stale-data short-circuit has already handled the
+        // retry-before-give-up case. If we reach here with all-stale decisions, it means
+        // we exhausted MAX_STALE_DATA_RETRIES and are intentionally falling through to
+        // close the session.
 
         const snapshotsBySymbol = new Map<string, SymbolSnapshot>();
         snapshotResult.snapshots.forEach(snapshot => {
