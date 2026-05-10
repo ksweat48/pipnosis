@@ -105,7 +105,15 @@ import { isCrypto, isIndex, isXAUUSD } from '../utils/currencyHelpers';
 import type { ConflictInfo } from '../types/alpha-thesis';
 import { calculateSessionContext } from '../utils/marketHours';
 import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/entry';
-import { ALPHA_IDENTITY, getAlphaSystemPromptForStyle, getEntryMode } from '../config/alpha-identity';
+import {
+  ALPHA_IDENTITY,
+  getAlphaSystemPromptForStyle,
+  getEntryMode,
+  getBuyAdvocateSystemPrompt,
+  getSellAdvocateSystemPrompt,
+  formatAdvocateBriefsForArbiter,
+  type AdvocateBrief
+} from '../config/alpha-identity';
 import { getDisplayNameFromStyle } from '../config/trade-styles';
 import { getStylePromptContext } from '../config/style-personalities';
 import { getPairPersonalityContext } from '../config/pair-personalities';
@@ -263,6 +271,13 @@ export interface AlphaDecision {
   omega8_liquidity_bias?: string;
   omega9_validation?: Omega9ValidationResult;
   omega10_applied?: boolean;
+  // CCIP-2026-0510A: Dual-advocate audition briefs — parallel direction-locked case builders
+  // whose output is injected into the arbiter prompt. Persisted to alpha_decisions.advocate_briefs.
+  advocate_briefs?: {
+    buy: AdvocateBrief | null;
+    sell: AdvocateBrief | null;
+    generated_at: string;
+  };
   symbol?: string;
   timestamp?: Date;
   risk_pct?: number;
@@ -3424,6 +3439,71 @@ Return PURE JSON only — all required fields from the schema in my system promp
     const scanTs = Date.now();
     const scanFingerprint = `[SCAN:${marketContext.symbol}|${scanTs}|${scanNonce}]`;
 
+    // CCIP-2026-0510A — MECHANICAL DUAL-DIRECTION AUDITION.
+    // Two direction-locked advocate calls run in parallel BEFORE the arbiter. Each is
+    // forbidden from selecting the opposite direction. Their briefs are injected into
+    // the arbiter's user message so the arbiter reads both cases as external evidence
+    // with no prior lean of its own. Breaks anchoring mechanically by separating the
+    // reasoners. Persisted to alpha_decisions.advocate_briefs for full audit.
+    const parseAdvocateBrief = (
+      raw: string,
+      direction: 'BUY' | 'SELL'
+    ): AdvocateBrief | null => {
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return null;
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.direction !== direction) {
+          console.warn(`[Alpha Advocate ${direction}] Returned wrong direction "${parsed.direction}" — discarding.`);
+          return null;
+        }
+        return parsed as AdvocateBrief;
+      } catch (err) {
+        console.warn(`[Alpha Advocate ${direction}] Failed to parse brief:`, err);
+        return null;
+      }
+    };
+
+    const runAdvocate = async (direction: 'BUY' | 'SELL'): Promise<AdvocateBrief | null> => {
+      try {
+        const systemPrompt = direction === 'BUY'
+          ? getBuyAdvocateSystemPrompt()
+          : getSellAdvocateSystemPrompt();
+        const advocateRes = await openAIClient.chat(
+          [
+            { role: 'system', content: `${scanFingerprint}|ADV_${direction}\n\n${systemPrompt}` },
+            { role: 'user', content: prompt }
+          ],
+          {
+            model: 'gpt-4o-mini',
+            temperature: 0.3,
+            max_completion_tokens: 1200,
+            requestType: `alpha_advocate_${direction.toLowerCase()}`,
+            endpoint: 'alpha-coordinator',
+            symbol: marketContext.symbol
+          }
+        );
+        llmTokenTracker.logUsage({
+          brainName: `Alpha-${direction}-Advocate`,
+          model: 'gpt-4o-mini',
+          promptTokens: advocateRes.usage?.prompt_tokens || 0,
+          completionTokens: advocateRes.usage?.completion_tokens || 0,
+          totalTokens: advocateRes.usage?.total_tokens || 0,
+          contextType: 'alpha_coordination',
+          userId: userId,
+          sessionId: undefined
+        }).catch(() => {});
+        return parseAdvocateBrief(advocateRes.choices[0]?.message?.content || '', direction);
+      } catch (err) {
+        console.warn(`[Alpha Advocate ${direction}] Call failed:`, err);
+        return null;
+      }
+    };
+
+    const [buyBrief, sellBrief] = await Promise.all([runAdvocate('BUY'), runAdvocate('SELL')]);
+    const advocateBriefsBlock = formatAdvocateBriefsForArbiter(buyBrief, sellBrief);
+    const arbiterUserPrompt = `${advocateBriefsBlock}\n${prompt}`;
+
     const buildAlphaMessages = (retryLabel?: string) => {
       const systemFingerprint = retryLabel
         ? `${scanFingerprint}|${retryLabel}`
@@ -3435,7 +3515,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
         },
         {
           role: 'user' as const,
-          content: prompt
+          content: arbiterUserPrompt
         }
       ];
     };
@@ -3859,6 +3939,13 @@ Return PURE JSON only — all required fields from the schema in my system promp
       if (responseFingerprint) {
         decision.response_fingerprint = responseFingerprint;
       }
+
+      // CCIP-2026-0510A: Attach advocate briefs for full audit persistence.
+      (decision as any).advocate_briefs = {
+        buy: buyBrief,
+        sell: sellBrief,
+        generated_at: new Date().toISOString()
+      };
 
       // DUAL-ARENA WALL CHECK — Pure binary pass/fail enforcement
       // CCIP (2026-02-17): Walls are physics. Alpha's values are NEVER auto-adjusted.

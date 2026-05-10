@@ -168,7 +168,9 @@ class OmegaAlphaLogger {
       safety_blocked: safetyBlocked,
       block_reason: (decision as any).block_reason ?? null,
       decision_origin: (decision as any).decision_origin ?? null,
-      answer_sheet: (decision as any).answer_sheet ?? null
+      answer_sheet: (decision as any).answer_sheet ?? null,
+      // CCIP-2026-0510A: Dual-advocate audition briefs (parallel direction-locked reasoners).
+      advocate_briefs: (decision as any).advocate_briefs ?? null
     };
 
     // Add micro-regime classification fields
