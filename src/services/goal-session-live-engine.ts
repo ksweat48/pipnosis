@@ -7,6 +7,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { eventBasedLLMEngine, EventBasedEngineConfig, SimulatedTrade } from './event-based-llm-engine';
@@ -169,6 +170,19 @@ class GoalSessionLiveEngine {
   private consecutiveStaleDataCycles = 0;
   private readonly MAX_STALE_DATA_RETRIES = 3;
 
+  // CCIP-2026-0511V: Server-side session termination observers.
+  // The close_goal_session_trade RPC atomically terminates the parent session
+  // when all execution channels empty. The browser live engine must observe
+  // that state change to halt scanning + clear in-memory state.
+  private sessionStatusChannel: RealtimeChannel | null = null;
+  private sessionTerminationWatchdog: NodeJS.Timeout | null = null;
+  private readonly TERMINATION_WATCHDOG_MS = 15000;
+  private readonly TERMINAL_DB_STATUSES = new Set([
+    'stopped', 'user_stopped', 'system_stopped',
+    'goal_achieved', 'timeout', 'weekend_shutdown',
+    'expired', 'completed'
+  ]);
+
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
 
@@ -314,6 +328,7 @@ class GoalSessionLiveEngine {
       // Entry monitoring is now handled by entry-intent-monitor-mode directly
 
       this.startPolling();
+      this.startSessionTerminationObservers(config.goalSessionId);
 
       // Insert session started notification for push
       await supabase.from('goal_notifications').insert({
@@ -377,6 +392,7 @@ class GoalSessionLiveEngine {
       logger.info(LogCategory.AI_TRADING, `Stopping goal session: ${sessionId}`);
 
       this.stopPolling();
+      this.stopSessionTerminationObservers();
 
       if (this.openTrades.length > 0) {
         logger.info(LogCategory.AI_TRADING, `Closing ${this.openTrades.length} open trades...`);
@@ -484,6 +500,101 @@ class GoalSessionLiveEngine {
       clearInterval(this.pollingInterval);
       this.pollingInterval = null;
     }
+  }
+
+  /**
+   * CCIP-2026-0511V: Observe server-side session termination.
+   *
+   * The close_goal_session_trade RPC (CCIP-2026-0511S) atomically flips the
+   * parent session to 'system_stopped' / 'user_stopped' / 'goal_achieved' the
+   * moment the last trade closes and all execution channels are empty. Without
+   * this observer, the in-browser live engine keeps scanning even though the
+   * session is dead at the DB layer — producing the "stuck on Scanning" UI.
+   *
+   * Two-channel defense:
+   *   1. Postgres Realtime UPDATE on goal_sessions filtered by this session id
+   *   2. 15s watchdog poll — catches any realtime drop/throttle
+   */
+  private startSessionTerminationObservers(sessionId: string): void {
+    this.stopSessionTerminationObservers();
+
+    try {
+      this.sessionStatusChannel = supabase
+        .channel(`live-engine-session-${sessionId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'goal_sessions',
+            filter: `id=eq.${sessionId}`,
+          },
+          (payload) => {
+            const newStatus = (payload.new as { status?: string } | null)?.status;
+            if (newStatus && this.TERMINAL_DB_STATUSES.has(newStatus)) {
+              this.handleServerSideTermination(sessionId, newStatus, 'realtime');
+            }
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      logger.warn(LogCategory.AI_TRADING, `[CCIP-2026-0511V] Realtime subscribe failed: ${err}`);
+    }
+
+    this.sessionTerminationWatchdog = setInterval(async () => {
+      if (!this.activeSession || this.activeSession !== sessionId || this.isStopping) return;
+      try {
+        const { data } = await supabase
+          .from('goal_sessions')
+          .select('status')
+          .eq('id', sessionId)
+          .maybeSingle();
+        const status = data?.status;
+        if (status && this.TERMINAL_DB_STATUSES.has(status)) {
+          this.handleServerSideTermination(sessionId, status, 'watchdog');
+        }
+      } catch {
+        // Silent — watchdog retries next tick.
+      }
+    }, this.TERMINATION_WATCHDOG_MS);
+  }
+
+  private stopSessionTerminationObservers(): void {
+    if (this.sessionStatusChannel) {
+      try {
+        supabase.removeChannel(this.sessionStatusChannel);
+      } catch {
+        // Ignore cleanup errors.
+      }
+      this.sessionStatusChannel = null;
+    }
+    if (this.sessionTerminationWatchdog) {
+      clearInterval(this.sessionTerminationWatchdog);
+      this.sessionTerminationWatchdog = null;
+    }
+  }
+
+  private handleServerSideTermination(
+    sessionId: string,
+    dbStatus: string,
+    source: 'realtime' | 'watchdog'
+  ): void {
+    if (!this.activeSession || this.activeSession !== sessionId) return;
+    if (this.isStopping) return;
+
+    logger.info(
+      LogCategory.AI_TRADING,
+      `[CCIP-2026-0511V] Session ${sessionId.substring(0, 8)} terminated server-side (${dbStatus}, via ${source}). Halting live engine.`
+    );
+
+    // Immediately stop polling + observers so no further scans fire while
+    // the async stopSession() cleanup runs.
+    this.stopPolling();
+    this.stopSessionTerminationObservers();
+
+    void this.stopSession().catch((err) => {
+      logger.warn(LogCategory.AI_TRADING, `[CCIP-2026-0511V] stopSession() after server termination failed: ${err}`);
+    });
   }
 
   /**

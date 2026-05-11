@@ -28,7 +28,11 @@ export const TERMINAL_SESSION_STATUSES = [
   'completed',
   'goal_achieved',
   'expired',
-  'user_stopped'
+  'user_stopped',
+  'system_stopped',
+  'stopped',
+  'timeout',
+  'weekend_shutdown'
 ] as const;
 
 export interface SmartGoalConfig {

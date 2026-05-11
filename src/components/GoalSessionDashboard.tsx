@@ -198,7 +198,7 @@ export const GoalSessionDashboard: React.FC = () => {
                 .select('status')
                 .eq('id', sessionId)
                 .maybeSingle();
-              const terminalStatuses = ['goal_achieved', 'stopped', 'timeout', 'weekend_shutdown', 'user_stopped'];
+              const terminalStatuses = ['goal_achieved', 'stopped', 'timeout', 'weekend_shutdown', 'user_stopped', 'system_stopped', 'expired', 'completed'];
               if (sess && terminalStatuses.includes(sess.status)) {
                 console.log('[GoalSessionDashboard] Session terminal after trade close — clearing stale state');
                 setOpenTrades([]);
@@ -454,7 +454,7 @@ export const GoalSessionDashboard: React.FC = () => {
   useEffect(() => {
     if (!user || !activeSession) return;
 
-    const TERMINAL_STATUSES = ['goal_achieved', 'stopped', 'timeout', 'weekend_shutdown', 'user_stopped'];
+    const TERMINAL_STATUSES = ['goal_achieved', 'stopped', 'timeout', 'weekend_shutdown', 'user_stopped', 'system_stopped', 'expired', 'completed'];
     const sessionId = activeSession.sessionId;
 
     const statusChannel = supabase
