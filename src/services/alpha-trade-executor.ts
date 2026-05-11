@@ -31,6 +31,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { coreValidationGate } from './core-validation-gate';
 import { unifiedRiskAuthority } from './unified-risk-authority';
 import { goalAwareLotSizingCoordinator } from './goal-aware-lot-sizing-coordinator';
@@ -191,6 +192,17 @@ interface NormalizedSessionData {
 }
 
 class AlphaTradeExecutor {
+  // CCIP-2026-0511B — Client injection for RLS-correct execution context.
+  // Browser callers use the anon singleton (auth.uid() is real); server
+  // callers (Netlify monitors) inject a service-role client via the
+  // createAlphaTradeExecutor() factory so inserts into RLS-protected
+  // tables like goal_session_trades succeed without a user session.
+  private readonly db: SupabaseClient;
+
+  constructor(db: SupabaseClient = supabase) {
+    this.db = db;
+  }
+
   /**
    * Execute trade decision
    * Single unified entry point for all execution modes
@@ -808,7 +820,7 @@ class AlphaTradeExecutor {
     // SSOT: max_concurrent_trades column is authoritative (set at session creation).
     // Falls back to risk_mode inference only for legacy sessions missing the column.
     // This is a user-set account management preference, not a trading judgment gate.
-    const { data: openTrades } = await supabase
+    const { data: openTrades } = await this.db
       .from('goal_session_trades')
       .select('*')
       .eq('goal_session_id', sessionId)
@@ -1001,7 +1013,7 @@ class AlphaTradeExecutor {
         : 'executed';
 
     try {
-      await supabase.from('alpha_execution_drift_events').insert({
+      await this.db.from('alpha_execution_drift_events').insert({
         user_id: userId,
         session_id: sessionId,
         decision_id: (decision as any).decision_id ?? null,
@@ -1168,7 +1180,7 @@ class AlphaTradeExecutor {
       };
     }
 
-    const { data: trade, error } = await supabase
+    const { data: trade, error } = await this.db
       .from('goal_session_trades')
       .insert(tradeData)
       .select()
@@ -1574,7 +1586,7 @@ class AlphaTradeExecutor {
       };
     }
 
-    const { data: trade, error } = await supabase
+    const { data: trade, error } = await this.db
       .from('goal_session_trades')
       .insert(tradeData)
       .select()
@@ -1890,7 +1902,7 @@ class AlphaTradeExecutor {
       }
     );
 
-    const { data: intent, error } = await supabase
+    const { data: intent, error } = await this.db
       .from('entry_intents')
       .insert({
         session_id: sessionId,
@@ -2451,7 +2463,7 @@ class AlphaTradeExecutor {
     }
 
     try {
-      await supabase.from('lot_sizing_audit_log').insert({
+      await this.db.from('lot_sizing_audit_log').insert({
         user_id: params.userId,
         goal_session_id: params.sessionId,
         trade_id: params.tradeId,
@@ -2550,7 +2562,7 @@ class AlphaTradeExecutor {
       // Ensure metadata is a valid object
       const changeDetails = params.metadata && typeof params.metadata === 'object' ? params.metadata : {};
 
-      const { error } = await supabase.from('ccip_change_tracking').insert({
+      const { error } = await this.db.from('ccip_change_tracking').insert({
         operation_type: params.changeType.trim(),
         table_name: params.tableAffected.trim(),
         record_id: params.recordId.trim(),
@@ -2702,7 +2714,7 @@ class AlphaTradeExecutor {
         invalidation_price: decision.stopLoss
       };
 
-      const { data: entryIntent, error: intentError } = await supabase
+      const { data: entryIntent, error: intentError } = await this.db
         .from('entry_intents')
         .insert(entryIntentData)
         .select('id')
@@ -2723,7 +2735,7 @@ class AlphaTradeExecutor {
         { intentId: entryIntent.id, tradeId, symbol: decision.symbol }
       );
 
-      const { error: rpcError } = await supabase.rpc('record_entry_quality_advisory', {
+      const { error: rpcError } = await this.db.rpc('record_entry_quality_advisory', {
         p_user_id: userId,
         p_entry_intent_id: entryIntent.id,
         p_trade_id: tradeId,
@@ -2989,3 +3001,11 @@ class AlphaTradeExecutor {
 }
 
 export const alphaTradeExecutor = new AlphaTradeExecutor();
+
+// CCIP-2026-0511B — Factory for server-side callers (Netlify scheduled
+// functions). Server contexts have no auth.uid() and must bind a
+// service-role SupabaseClient so inserts into RLS-protected tables
+// (goal_session_trades, entry_intents) satisfy the service-role policy.
+export function createAlphaTradeExecutor(db: SupabaseClient): AlphaTradeExecutor {
+  return new AlphaTradeExecutor(db);
+}

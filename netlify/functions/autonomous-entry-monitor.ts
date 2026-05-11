@@ -993,15 +993,17 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
     }
     const tradeContext = tradeContextResult.context;
 
-    // Execute trade via AlphaTradeExecutor singleton (SSOT)
-    // CCIP-2026-0427K: import the exported singleton, not a non-exported class.
-    // Previously destructured `AlphaTradeExecutor` which is not exported -> `new undefined()`
-    // threw `TypeError: ... is not a constructor` and silently killed every execution cycle.
+    // Execute trade via AlphaTradeExecutor with service-role client (SSOT).
+    // CCIP-2026-0511B: server-side callers must bind a service-role Supabase
+    // client via createAlphaTradeExecutor() so inserts into RLS-protected
+    // tables succeed without an auth.uid() context. The browser singleton
+    // (alphaTradeExecutor) is anon-only and will fail RLS on server inserts.
     const executorModule = await import('../../src/services/alpha-trade-executor.js');
-    const executor = executorModule.alphaTradeExecutor;
+    const factory = executorModule.createAlphaTradeExecutor;
+    const executor = typeof factory === 'function' ? factory(supabase) : executorModule.alphaTradeExecutor;
     if (!executor || typeof executor.execute !== 'function') {
       const importKeys = Object.keys(executorModule || {});
-      const failureMsg = `alphaTradeExecutor singleton not available. Module keys: [${importKeys.join(', ')}]`;
+      const failureMsg = `AlphaTradeExecutor unavailable. Module keys: [${importKeys.join(', ')}]`;
       console.error(`[Entry Monitor] ❌ ${failureMsg}`);
       if (auditId) {
         await supabase.rpc('fail_execution_audit', {
