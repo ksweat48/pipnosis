@@ -230,7 +230,7 @@ class SharedIntelligenceCoordinator {
           ? { valid: true }
           : verifyCachedThesisIntegrity(frozenThesis);
         if (!integrityCheck.valid) {
-          logger.error('[SharedIntelligence] DB cache integrity failed - regenerating fresh thesis', {
+          logger.info('[SharedIntelligence] Cache invalidated (regime changed) - regenerating fresh thesis', {
             symbol,
             reason: integrityCheck.reason,
             regimeHash,

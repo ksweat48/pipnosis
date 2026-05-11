@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, AlertTriangle, Target, Clock, Zap, CheckCircle, XCircle } from 'lucide-react';
 import { formatPositionPrice } from '../utils/displayFormatters';
+import { CONFIDENCE_TIER_LABELS, normalizeTier, type ConfidenceTier } from '../config/confidence-tier';
 
 interface TradeEntryModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface TradeEntryModalProps {
   takeProfit: number;
   lotSize: number;
   confidence: number;
+  confidenceTier?: string | null;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   setupType?: string;
   reasoning?: string;
@@ -55,6 +57,7 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
   takeProfit,
   lotSize,
   confidence,
+  confidenceTier,
   priority,
   setupType = 'Market Setup',
   reasoning,
@@ -243,13 +246,20 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
                 </div>
                 <div className="bg-gray-800/50 rounded-xl px-3 py-2.5 border border-gray-700/30">
                   <div className="text-[10px] text-gray-400 mb-0.5">Confidence</div>
-                  <div className="text-lg font-bold text-white">{confidence}<span className="text-xs text-gray-400">%</span></div>
+                  <div className="flex items-baseline gap-1.5">
+                    <div className="text-lg font-bold text-white">{confidence}<span className="text-xs text-gray-400">%</span></div>
+                    {confidenceTier && (
+                      <div className="text-[10px] font-semibold text-gray-300 leading-tight">
+                        {CONFIDENCE_TIER_LABELS[normalizeTier(confidenceTier) as ConfidenceTier]}
+                      </div>
+                    )}
+                  </div>
                   <div className="mt-1 w-full bg-gray-700 rounded-full h-1.5">
                     <div
                       className={`h-full rounded-full transition-all ${
-                        confidence >= 80 ? 'bg-emerald-500' : confidence >= 70 ? 'bg-blue-500' : 'bg-yellow-500'
+                        confidence >= 80 ? 'bg-emerald-500' : confidence >= 70 ? 'bg-blue-500' : confidence >= 60 ? 'bg-cyan-500' : 'bg-yellow-500'
                       }`}
-                      style={{ width: `${confidence}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, confidence))}%` }}
                     />
                   </div>
                 </div>

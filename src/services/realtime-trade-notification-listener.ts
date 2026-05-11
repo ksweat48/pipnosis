@@ -135,6 +135,7 @@ class RealtimeTradeNotificationListener {
               expectedProfit: notification.metadata.expectedProfit,
               reasoning: notification.message,
               confidence: notification.metadata.confidence || undefined,
+              confidenceTier: notification.metadata.confidenceTier || undefined,
               setupType: notification.metadata.thesis || undefined,
               tp1: notification.metadata.tp1Price || undefined,
               tp2: notification.metadata.tp2Price || undefined,

@@ -1294,7 +1294,12 @@ class AlphaTradeExecutor {
         stopLoss: decision.stopLoss,
         takeProfit: decision.takeProfit,
         expectedProfit: params.expectedProfitAtTP,
-        confidence: decision.confidence,
+        // CCIP-2026-0511C — surface the continuous-band value (CCIP-2026-0510C)
+        // instead of the tier midpoint so the modal spreads across the band
+        // (60-69 for confident, 70-79 for very_confident, etc.) rather than
+        // collapsing every trade to the midpoint (65 / 75 / 88).
+        confidence: (decision as any).confidence_continuous ?? decision.confidence,
+        confidenceTier: (decision as any).confidence_tier ?? null,
         tp1Price: decision.tp1Price,
         tp2Price: decision.tp2Price,
         tp1Confidence: decision.tp1Confidence,
@@ -1685,7 +1690,9 @@ class AlphaTradeExecutor {
         symbol: decision.symbol,
         direction: decision.action.toLowerCase(),
         action: decision.action,
-        confidence: decision.confidence,
+        // CCIP-2026-0511C — continuous-band value for UI display.
+        confidence: (decision as any).confidence_continuous ?? decision.confidence,
+        confidenceTier: (decision as any).confidence_tier ?? null,
         setupType: decision.setupType,
         entryPrice,
         stopLoss: decision.stopLoss,

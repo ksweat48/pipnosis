@@ -250,6 +250,7 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           takeProfit={currentDialog.data.takeProfit}
           lotSize={currentDialog.data.lotSize}
           confidence={currentDialog.data.confidence}
+          confidenceTier={currentDialog.data.confidenceTier}
           priority={currentDialog.data.priority || 'urgent'}
           setupType={currentDialog.data.setupType}
           reasoning={currentDialog.data.reasoning}
