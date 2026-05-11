@@ -3633,11 +3633,90 @@ Return PURE JSON only — all required fields from the schema in my system promp
             ? Math.round((primaryCached / primaryPrompt) * 100)
             : 0;
 
+          // ═══════════════════════════════════════════════════════════════
+          // CCIP-2026-0511U: REPAIR GATED ON TRADE-DECISION COMPLETENESS
+          // ═══════════════════════════════════════════════════════════════
+          // Under the 60s Netlify hard ceiling, firing a second LLM round-
+          // trip for every symbol whose primary response lacks audit
+          // extras (contradictions_*, hypothesis_*, Q_SWEEP_MAP_DIRECTION,
+          // reconciliation_ledger_complete, etc.) doubles per-symbol
+          // latency and caused every 7-symbol cycle to time out at the
+          // 210s council gate, producing 7/7 SYSTEM_GATE NO_TRADEs.
+          //
+          // The primary trade decision (action + entry + stopLoss +
+          // takeProfit + thesis + confidence_tier) is authoritative on
+          // its own. Audit-extras from CCIP-2026-0508C / 0510A are
+          // governance telemetry — valuable but NOT required for the
+          // trade itself. If the primary response has a complete trade
+          // decision, we accept it, log the missing audit keys for
+          // governance, and skip the repair call.
+          //
+          // Repair fires ONLY when the trade decision itself is
+          // structurally incomplete (no action, or action is BUY/SELL
+          // without entry/SL/TP).
+          // ═══════════════════════════════════════════════════════════════
+          const dForGate = decision as Record<string, unknown>;
+          const actionVal =
+            typeof dForGate.action === 'string'
+              ? (dForGate.action as string).toUpperCase()
+              : null;
+          const hasDirectionalAction = actionVal === 'BUY' || actionVal === 'SELL';
+          const hasNoTradeAction = actionVal === 'NO_TRADE';
+          const entryOk = typeof dForGate.entry === 'number' && Number.isFinite(dForGate.entry);
+          const slOk = typeof dForGate.stopLoss === 'number' && Number.isFinite(dForGate.stopLoss);
+          const tpOk =
+            typeof dForGate.takeProfit === 'number' && Number.isFinite(dForGate.takeProfit);
+          const thesisOk =
+            typeof dForGate.thesis === 'string' && (dForGate.thesis as string).trim().length > 0;
+          const confidenceTierOk =
+            typeof dForGate.confidence_tier === 'string' &&
+            (dForGate.confidence_tier as string).trim().length > 0;
+
+          const tradeDecisionComplete =
+            (hasDirectionalAction && entryOk && slOk && tpOk && thesisOk && confidenceTierOk) ||
+            (hasNoTradeAction && thesisOk);
+
+          if (tradeDecisionComplete) {
+            console.warn(
+              `[Alpha Coordinator] CCIP-2026-0511U REPAIR_SKIPPED: trade decision complete for ${marketContext.symbol} ` +
+              `(action=${actionVal}) but ${missingAfterParse.length} audit-extras missing: ${missingAfterParse.join(',')}. ` +
+              `finish_reason=${primaryFinishReason ?? 'n/a'} prompt_tokens=${primaryPrompt} completion_tokens=${primaryCompletion} ` +
+              `cache_hit=${primaryCachePct}%. Accepting primary response; logging omission for governance.`
+            );
+            supabase.from('alpha_audit_incidents').insert({
+              symbol: marketContext.symbol,
+              style: styleName,
+              incident_type: 'repair_skipped_trade_complete',
+              missing_keys: missingAfterParse,
+              prompt_tokens: primaryPrompt || null,
+              completion_tokens: primaryCompletion || null,
+              cached_tokens: primaryCached || null,
+              cache_hit_pct: primaryPrompt > 0 ? primaryCachePct : null,
+              finish_reason: primaryFinishReason,
+              model: 'gpt-4o-2024-08-06',
+              strict_mode: true,
+              metadata: {
+                phase: 'primary_response',
+                ccip: 'CCIP-2026-0511U',
+                action: actionVal,
+                reason: 'trade_decision_complete_repair_bypassed_for_latency'
+              }
+            }).then(({ error }) => {
+              if (error) {
+                console.warn('[Alpha Coordinator] alpha_audit_incidents insert failed (non-fatal):', error.message);
+              }
+            });
+            (decision as Record<string, unknown>).schema_repair_skipped = true;
+            (decision as Record<string, unknown>).schema_repair_skipped_missing = missingAfterParse;
+            // Short-circuit: do not dispatch the repair LLM call.
+            throw new Error('__CCIP_0511U_REPAIR_SKIPPED__');
+          }
+
           console.warn(
             `[Alpha Coordinator] CCIP-2026-0510L SCHEMA_REPAIR: ${missingAfterParse.length} mandatory audit keys missing ` +
             `after primary Alpha response for ${marketContext.symbol}. Missing=${missingAfterParse.join(',')}. ` +
             `finish_reason=${primaryFinishReason ?? 'n/a'} prompt_tokens=${primaryPrompt} completion_tokens=${primaryCompletion} ` +
-            `cache_hit=${primaryCachePct}%. Requesting single-shot repair.`
+            `cache_hit=${primaryCachePct}%. Trade decision incomplete — requesting single-shot repair.`
           );
 
           // CCIP-2026-0511M: Persist incident telemetry (fire-and-forget).
@@ -3773,7 +3852,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }
         }
       } catch (repairLoopErr) {
-        console.error('[Alpha Coordinator] CCIP-2026-0510L repair-loop evaluation error:', repairLoopErr);
+        // CCIP-2026-0511U: Short-circuit signal — expected, not an error.
+        if (
+          repairLoopErr instanceof Error &&
+          repairLoopErr.message === '__CCIP_0511U_REPAIR_SKIPPED__'
+        ) {
+          // Intentional bypass; governance logged above.
+        } else {
+          console.error('[Alpha Coordinator] CCIP-2026-0510L repair-loop evaluation error:', repairLoopErr);
+        }
       }
 
       // ═══════════════════════════════════════════════════════════════════
