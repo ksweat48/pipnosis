@@ -2087,6 +2087,22 @@ If the structure has materially changed — direction broken, key level invalida
         const lastLowerWick = (Math.min(lastCandle.open, lastCandle.close) - lastCandle.low) / pipInfo.pipValue;
         const hasRejectionWick = lastUpperWick > lastBody * 1.5 || lastLowerWick > lastBody * 1.5;
 
+        // CCIP-2026-0511E: M5 BOS / sweep-wick evidence computed from the primary
+        // 30-candle window. Replaces the deleted m5SubConfirmationPrompt's 10-candle
+        // duplicate fetch. Mirrors the HTF structural evidence pattern.
+        const primaryBOSBull = recentPrimary.length >= 2 && lastCandle.close > recentPrimary[recentPrimary.length - 2].high;
+        const primaryBOSBear = recentPrimary.length >= 2 && lastCandle.close < recentPrimary[recentPrimary.length - 2].low;
+        const primarySweepWickBull = recentPrimary.slice(-2).some(c => {
+          const body = Math.abs(c.close - c.open);
+          const wick = Math.min(c.open, c.close) - c.low;
+          return body > 0 && wick / body >= 1.5;
+        });
+        const primarySweepWickBear = recentPrimary.slice(-2).some(c => {
+          const body = Math.abs(c.close - c.open);
+          const wick = c.high - Math.max(c.open, c.close);
+          return body > 0 && wick / body >= 1.5;
+        });
+
         // CCIP-2026-0421 (ALPHA SL SOVEREIGNTY): SL structural distance block removed.
         // Alpha reads recentPrimary candles directly and identifies his own structural
         // invalidation point without being shown pre-computed SL anchor prices or
@@ -2246,6 +2262,12 @@ PULLBACK ASSESSMENT RULE (${primaryTfConfig.label} TIMEFRAME):
 ${consecutiveSameDir >= 3
   ? `IMPULSIVE LEG OBSERVATION: ${consecutiveSameDir} consecutive same-direction ${primaryTfConfig.label} candles detected. This is an extended ${primaryTfConfig.label} move without a structural pullback. Document your entry_advisory verdict and the structural reasoning behind it — whether continuation, pullback probability, or other. State your assessment of what the consecutive candle count means for this specific setup and let your conviction score reflect it.`
   : `No impulsive ${primaryTfConfig.label} leg detected. Assess structural levels, EMA proximity, and wick bias to determine entry quality.`}
+
+${primaryTfConfig.label} STRUCTURAL EVIDENCE (pre-computed from same window):
+- BOS BULL (last close > prior high): ${primaryBOSBull ? 'YES' : 'NO'}
+- BOS BEAR (last close < prior low): ${primaryBOSBear ? 'YES' : 'NO'}
+- SWEEP WICK BULL (lower wick ≥1.5x body in last 2 candles): ${primarySweepWickBull ? 'YES' : 'NO'}
+- SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 candles): ${primarySweepWickBear ? 'YES' : 'NO'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] ${primaryTfConfig.label} Primary TF: ${recentPrimary.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${tfRangePips.toFixed(1)} pips`);
@@ -2422,127 +2444,12 @@ ${htfStructuralEvidenceBlock}
     const h4BackgroundPrompt = '';
 
     // ═══════════════════════════════════════════════════════════════════
-    // M5 SUB-CONFIRMATION CANDLES — CCIP-2026-0427E-STYLE-CONSOLIDATION
-    // Single-style platform: MICRO_INTRADAY = M5 (primary entry) + M15 (trend validation) + H1 (controlling).
-    // Advisory, non-blocking.
+    // CCIP-2026-0511E: m5SubConfirmationPrompt deleted. Its 10-candle M5 fetch
+    // duplicated primaryTfCandlePrompt's 30-candle M5 window. BOS and sweep-wick
+    // evidence is now computed inline in primaryTfCandlePrompt from the same
+    // 30-candle window (primaryBOSBull/Bear, primarySweepWickBull/Bear). Zero
+    // information loss — Alpha sees a wider M5 view with identical structural flags.
     // ═══════════════════════════════════════════════════════════════════
-    let m5SubConfirmationPrompt = '';
-    {
-      try {
-        const mds = MarketDataService.getInstance();
-        const m5SubCandles = await mds.getCandles(marketContext.symbol, 'M5', 10);
-
-        if (m5SubCandles && m5SubCandles.length >= 5) {
-          const recentM5Sub = m5SubCandles.slice(0, 10).reverse();
-          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-
-          // CCIP-2026-0510B-TOKEN-COMPRESSION-COLUMNAR-CANDLES (extended: + ratio% + wb)
-          const m5SubLines: string[] = recentM5Sub.map((c, i) => {
-            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
-            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
-            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
-            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-            const totalRange = (c.high - c.low) / pipInfo.pipValue;
-            const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
-            const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
-            return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}|${bodyRatio}|${wickBias}`;
-          });
-
-          const lastM5Sub = recentM5Sub[recentM5Sub.length - 1];
-          const prevM5Sub = recentM5Sub.length >= 2 ? recentM5Sub[recentM5Sub.length - 2] : lastM5Sub;
-          const m5SubTrendDir = lastM5Sub.close > prevM5Sub.close ? 'BULLISH' : lastM5Sub.close < prevM5Sub.close ? 'BEARISH' : 'NEUTRAL';
-          const lastM5Body = Math.abs(lastM5Sub.close - lastM5Sub.open) / pipInfo.pipValue;
-          const lastM5UpperWick = (lastM5Sub.high - Math.max(lastM5Sub.open, lastM5Sub.close)) / pipInfo.pipValue;
-          const lastM5LowerWick = (Math.min(lastM5Sub.open, lastM5Sub.close) - lastM5Sub.low) / pipInfo.pipValue;
-          const m5HasRejectionWick = lastM5UpperWick > lastM5Body * 1.5 || lastM5LowerWick > lastM5Body * 1.5;
-
-          const m5SubHigh = Math.max(...recentM5Sub.map(c => c.high));
-          const m5SubLow = Math.min(...recentM5Sub.map(c => c.low));
-          const m5SubRangePips = (m5SubHigh - m5SubLow) / pipInfo.pipValue;
-
-          let m5SubConsecutive = 1;
-          for (let i = recentM5Sub.length - 2; i >= 0; i--) {
-            const prevDir = recentM5Sub[i].close > recentM5Sub[i].open ? 'UP' : 'DN';
-            const lastDir = lastM5Sub.close > lastM5Sub.open ? 'UP' : 'DN';
-            if (prevDir === lastDir) m5SubConsecutive++;
-            else break;
-          }
-
-          // ═══════════════════════════════════════════════════════════════════
-          // M5 BOS and sweep-wick evidence: pre-computed facts for Alpha.
-          // Mirrors the HTF structural evidence pattern (lines 1751-1773).
-          // Alpha is sole authority on whether these justify execute_now.
-          // ═══════════════════════════════════════════════════════════════════
-          const m5SubBOSBull = recentM5Sub.length >= 2 && lastM5Sub.close > recentM5Sub[recentM5Sub.length - 2].high;
-          const m5SubBOSBear = recentM5Sub.length >= 2 && lastM5Sub.close < recentM5Sub[recentM5Sub.length - 2].low;
-          const m5SubSweepWickBull = recentM5Sub.slice(-2).some(c => {
-            const body = Math.abs(c.close - c.open);
-            const wick = Math.min(c.open, c.close) - c.low;
-            return body > 0 && wick / body >= 1.5;
-          });
-          const m5SubSweepWickBear = recentM5Sub.slice(-2).some(c => {
-            const body = Math.abs(c.close - c.open);
-            const wick = c.high - Math.max(c.open, c.close);
-            return body > 0 && wick / body >= 1.5;
-          });
-
-          const m5SubEvidenceBlock = `
-M5 SUB-CONFIRMATION EVIDENCE (pre-computed for Alpha):
-- M5 BOS BULL (last M5 close > prior M5 high): ${m5SubBOSBull ? 'YES — bullish M5 break of structure confirmed' : 'NO'}
-- M5 BOS BEAR (last M5 close < prior M5 low): ${m5SubBOSBear ? 'YES — bearish M5 break of structure confirmed' : 'NO'}
-- M5 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBull ? 'YES — bullish absorption signal on M5' : 'NO'}
-- M5 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBear ? 'YES — bearish absorption signal on M5' : 'NO'}
-
-These are raw M5 measurements from the current scan window — pre-computed structural signals for Alpha to read and evaluate.`;
-
-          m5SubConfirmationPrompt = `
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M5 CANDLE CONTEXT (${marketContext.symbol}) — MICRO_INTRADAY TIMING LAYER
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M5 data below is raw structural measurement from the current scan window. M15 defines the setup. M5 reveals the current micro-structure within that setup.
-Record entry_mode and the structural reasoning behind it in the JSON response — this is an audit field.
-FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb  — ratio=body% of range, wb=upper/lower/balanced wick bias.
-
-i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb
-${m5SubLines.join('\n')}
-
-M5 SUB-CONFIRMATION SUMMARY:
-- M5 Range (last ${recentM5Sub.length} candles): ${m5SubRangePips.toFixed(1)} pips (High: ${m5SubHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${m5SubLow.toFixed(pipInfo.decimalPlaces)})
-- M5 Current directional bias: ${m5SubTrendDir}
-- Consecutive same-direction M5 candles: ${m5SubConsecutive}
-- Last M5 candle: ${m5HasRejectionWick ? 'REJECTION WICK detected (possible exhaustion or reversal at level)' : 'Normal candle — no strong wick signal'}
-
-${m5SubEvidenceBlock}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`;
-          console.log(`[Alpha Coordinator] M5 Sub-Confirmation (MICRO_INTRADAY): ${recentM5Sub.length} candles, bias ${m5SubTrendDir}, BOS_BULL=${m5SubBOSBull} BOS_BEAR=${m5SubBOSBear}`);
-        } else {
-          m5SubConfirmationPrompt = `
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M5 SUB-CONFIRMATION (${marketContext.symbol}) — DATA UNAVAILABLE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WARNING: M5 candle data could not be retrieved (${m5SubCandles?.length ?? 0} candles found, need ≥5).
-DATA GAP: Without M5 confirmation data, the sub-confirmation trigger state is unknown.
-Document your entry_mode choice and reasoning given this data gap. State what trigger you are waiting for or why current structural context is sufficient. Your conviction score should reflect this uncertainty.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`;
-          console.warn(`[Alpha Coordinator] M5 sub-confirmation data insufficient for MICRO_INTRADAY (${m5SubCandles?.length ?? 0} candles)`);
-        }
-      } catch (error) {
-        m5SubConfirmationPrompt = `
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M5 SUB-CONFIRMATION (${marketContext.symbol}) — FETCH ERROR
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WARNING: M5 candle fetch failed. The sub-confirmation trigger state is unknown due to a data fetch error.
-Document your entry_mode choice and reasoning given this data gap. Your conviction score should reflect the absence of sub-confirmation data.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`;
-        console.warn('[Alpha Coordinator] M5 sub-confirmation fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
-      }
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     // M15 DIRECTION CANDLES — CCIP-2026-0427E-STYLE-CONSOLIDATION
@@ -2729,29 +2636,11 @@ WARNING: M15 direction fetch failed. M15 structural high/low unavailable. ATR-tr
         const distToPDL = Math.abs(currentPrice - prevDayLow) / pipInfo.pipValue;
 
         // ═══════════════════════════════════════════════════════════════════
-        // WEEKLY HIGH/LOW: Derive PWH/PWL from D1 candles (Mon-Fri of prev week).
-        // PWH/PWL are the most significant weekly liquidity reference levels.
-        // SSOT: Computed inline here since W1 candle fetch is not always available.
+        // CCIP-2026-0511E: PWH/PWL (W1 fetch) deleted. Weekly levels rarely
+        // fired within 10-pip relevance window for MICRO_INTRADAY entries;
+        // PDH/PDL + round numbers provide sufficient institutional reference.
+        // Saves ~150 tokens/call + one MarketDataService round-trip.
         // ═══════════════════════════════════════════════════════════════════
-        let pwhValue: number | null = null;
-        let pwlValue: number | null = null;
-        try {
-          const mds = MarketDataService.getInstance();
-          const w1Candles = await mds.getCandles(marketContext.symbol, 'W1', 3);
-          if (w1Candles && w1Candles.length >= 2) {
-            const prevWeekCandle = w1Candles[1];
-            pwhValue = prevWeekCandle.high;
-            pwlValue = prevWeekCandle.low;
-          }
-        } catch {
-          // Weekly candles are optional — fall back to null (non-blocking)
-        }
-        const distToPWH = pwhValue !== null ? Math.abs(currentPrice - pwhValue) / pipInfo.pipValue : null;
-        const distToPWL = pwlValue !== null ? Math.abs(currentPrice - pwlValue) / pipInfo.pipValue : null;
-        const weeklyRefBlock = (pwhValue !== null && pwlValue !== null)
-          ? `Previous Week High (PWH): ${pwhValue.toFixed(pipInfo.decimalPlaces)} — ${distToPWH !== null ? distToPWH.toFixed(1) : '?'} pips away | Price is ${currentPrice > pwhValue ? 'ABOVE' : 'below'} PWH
-Previous Week Low (PWL): ${pwlValue.toFixed(pipInfo.decimalPlaces)} — ${distToPWL !== null ? distToPWL.toFixed(1) : '?'} pips away | Price is ${currentPrice < pwlValue ? 'BELOW' : 'above'} PWL`
-          : '';
         // ROUND NUMBERS: Compute nearest round price levels for TP path audit.
         // For FX pairs: major round = 00-pip (X.XX00), minor round = 50-pip (X.XX50).
         // For indices/metals: nearest 100 and 50 levels.
@@ -2818,10 +2707,9 @@ Previous Day Date: ${prevDayDate}
 Previous Day High (PDH): ${prevDayHigh.toFixed(pipInfo.decimalPlaces)} — ${distToPDH.toFixed(1)} pips away
 Previous Day Low (PDL): ${prevDayLow.toFixed(pipInfo.decimalPlaces)} — ${distToPDL.toFixed(1)} pips away
 Previous Day Close: ${prevDayClose.toFixed(pipInfo.decimalPlaces)} (${prevDayDir} day, range: ${prevDayRange.toFixed(1)} pips)
-${weeklyRefBlock ? weeklyRefBlock + '\n' : ''}${roundNumbersBlock}
+${roundNumbersBlock}
 Current Position: ${positionContext}
-Price vs PD Range: ${pricePositionInPDRange}% from PDL (0%=at PDL, 100%=at PDH)${pwhValue !== null && pwlValue !== null ? `
-WEEKLY LEVELS RULE: PWH and PWL are the MOST SIGNIFICANT weekly liquidity reference levels. Market makers run stops above PWH and below PWL. When price is within 10 pips of PWH or PWL, include these in your TP path audit as named obstacles or potential targets. A break above PWH or below PWL with a strong body close signals institutional commitment to the weekly direction.` : ''}
+Price vs PD Range: ${pricePositionInPDRange}% from PDL (0%=at PDL, 100%=at PDH)
 
 INSTITUTIONAL LEVEL RULES:
 - PDH and PDL are MAJOR institutional reference levels. Market makers target these for liquidity sweeps.
@@ -2847,74 +2735,12 @@ INSTITUTIONAL LEVEL RULES:
     // INTRADAY:       M1 is timing refinement. M15 is primary.
     // SSOT: MarketDataService is the single authority for candle data.
     // ═══════════════════════════════════════════════════════════════════
-    let m1MicroContextPrompt = '';
-    try {
-      const mds = MarketDataService.getInstance();
-      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — MICRO_INTRADAY uses 12 M1 candles for timing refinement.
-      const m1CandleCount = 12;
-      const m1Candles = await mds.getCandles(marketContext.symbol, 'M1', m1CandleCount);
-
-      if (m1Candles && m1Candles.length >= 5) {
-        const recentM1 = m1Candles.slice(0, m1CandleCount).reverse();
-        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-
-        // CCIP-2026-0510B-TOKEN-COMPRESSION-COLUMNAR-CANDLES
-        const m1Lines: string[] = recentM1.map((c, i) => {
-          const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
-          const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
-          const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
-          const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}`;
-        });
-
-        let consecutiveSameDir = 1;
-        for (let i = recentM1.length - 2; i >= 0; i--) {
-          const prevDir = recentM1[i].close > recentM1[i].open ? 'UP' : 'DN';
-          const lastDir = recentM1[recentM1.length - 1].close > recentM1[recentM1.length - 1].open ? 'UP' : 'DN';
-          if (prevDir === lastDir) consecutiveSameDir++;
-          else break;
-        }
-
-        const lastCandleM1 = recentM1[recentM1.length - 1];
-        const lastBodyM1 = Math.abs(lastCandleM1.close - lastCandleM1.open) / pipInfo.pipValue;
-        const lastUpperWickM1 = (lastCandleM1.high - Math.max(lastCandleM1.open, lastCandleM1.close)) / pipInfo.pipValue;
-        const lastLowerWickM1 = (Math.min(lastCandleM1.open, lastCandleM1.close) - lastCandleM1.low) / pipInfo.pipValue;
-        const hasRejectionWickM1 = lastUpperWickM1 > lastBodyM1 * 1.5 || lastLowerWickM1 > lastBodyM1 * 1.5;
-
-        const m1High = Math.max(...recentM1.map(c => c.high));
-        const m1Low = Math.min(...recentM1.map(c => c.low));
-        const m1RangePips = (m1High - m1Low) / pipInfo.pipValue;
-
-        // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — MICRO_INTRADAY uses M1 as timing refinement only.
-        const m1Header = `Use M1 data to REFINE entry timing AFTER you have assessed the ${primaryTfConfig.label} structure above. M1 signals alone do NOT determine your entry_advisory verdict. The ${primaryTfConfig.label} timeframe is primary.`;
-
-        m1MicroContextPrompt = `
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M1 PRECISION TIMING (${marketContext.symbol}) — TIMING REFINEMENT (SECONDARY)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${m1Header}
-FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p
-
-i|dir|O|H|L|C|body_p|upW_p|loW_p
-${m1Lines.join('\n')}
-
-M1 SUMMARY:
-- M1 Range: ${m1RangePips.toFixed(1)} pips (High: ${m1High.toFixed(pipInfo.decimalPlaces)}, Low: ${m1Low.toFixed(pipInfo.decimalPlaces)})
-- Consecutive same-direction M1 candles: ${consecutiveSameDir}
-- Last M1 candle: ${hasRejectionWickM1 ? 'REJECTION WICK detected (possible reversal/exhaustion at M1 level)' : 'Normal candle — no strong wick signal'}
-- M1 momentum: ${consecutiveSameDir >= 4 ? 'STRONG one-way — retrace/pause likely imminent' : consecutiveSameDir >= 3 ? 'Building — watch for M1 exhaustion' : 'Mixed/choppy — normal price action'}
-
-HIERARCHY REMINDER: A single M1 rejection wick does NOT override an impulsive ${primaryTfConfig.label} leg.
-If the ${primaryTfConfig.label} shows 3+ consecutive same-direction candles, the entry_advisory should be PULLBACK_EXPECTED
-regardless of what M1 shows — unless there is exceptional breakaway evidence.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`;
-        console.log(`[Alpha Coordinator] M1 Timing (${styleName}): ${recentM1.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${m1RangePips.toFixed(1)} pips`);
-      }
-    } catch (error) {
-      console.warn('[Alpha Coordinator] M1 timing data unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
-    }
+    // ═══════════════════════════════════════════════════════════════════
+    // CCIP-2026-0511E: m1MicroContextPrompt deleted. M1 data duplicated
+    // primary M5 timing signal; pulled ~400 tokens/call with no brain lift.
+    // Alpha's M5 primary window (30 candles) already provides sufficient
+    // timing refinement via primaryBOSBull/Bear + primarySweepWickBull/Bear.
+    // ═══════════════════════════════════════════════════════════════════
 
     // ═══════════════════════════════════════════════════════════════════
     // IM SIGNAL CONTEXT: Pre-computed per-symbol intelligence from the
@@ -3149,12 +2975,10 @@ ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
 ${htfCandlePrompt}
 ${h4BackgroundPrompt}
-${m5SubConfirmationPrompt}
 ${m15DirectionPromptMicro}
 ${m15ReferencePrompt}
 ${h1CampaignPrompt}
 ${d1ContextPrompt}
-${m1MicroContextPrompt}
 ${scalpIntelligencePrompt}
 ${microIntradayMovePhaseContext}
 ${stopLossDirective}
