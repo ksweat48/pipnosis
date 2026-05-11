@@ -377,40 +377,51 @@ class OpenAIClient {
   /**
    * CCIP-CACHE-BUST-TRANSPORT-2026-04-15: Platform-wide cache bust at the transport layer.
    *
-   * WHY THIS EXISTS HERE (not in the caller):
-   * OpenAI's automatic KV-prefix caching is permanently on with no opt-out. It caches the
-   * first ~1024 tokens of the concatenated messages array. When multiple symbols share an
-   * identical system prompt (as Alpha does for all 7 symbols in a scan), OpenAI routes them
-   * to the same inference machine (based on the first ~256-token hash) and every symbol after
-   * the first gets a cache hit — producing abbreviated ~230-token completions with finish_reason=stop.
+   * CCIP-2026-0511H: RELOCATED fingerprint from first system message -> tail of last user
+   * message to RESTORE OpenAI KV-prefix caching for the stable identity block.
    *
-   * The fix (prepend a unique nonce to the first system message) must live here — at the
-   * transport layer — not in individual callers. If it lives in coordinator-alpha.ts, future
-   * code changes can remove it, a new caller can forget it, or a refactor can bypass it.
-   * By enforcing it here, every single OpenAI call made through this client is guaranteed to
-   * be cache-immune, regardless of which brain, coordinator, or service built the messages.
+   * OpenAI's automatic KV-prefix caching is permanently on. It keys on the PREFIX of the
+   * messages array. When the first system message changes on every request (previous behaviour),
+   * every call is a cache miss — the full 50-60k identity tokens are re-processed from scratch
+   * for every symbol, blowing the Netlify 60s window.
    *
-   * MECHANISM: We prepend a unique `[REQ:timestamp|nonce]` tag to the content of the first
-   * system message. Since this alters the first <128 tokens of the prompt, it changes
-   * OpenAI's cache key for this request, guaranteeing a cache miss.
+   * By keeping the system prompt BYTE-IDENTICAL across all symbols in a scan (and across
+   * scans until alpha-identity.ts changes) and moving per-request uniqueness to the END of
+   * the LAST user message, we get both:
+   *   1) high cache-hit percentage (50-90%) on symbols 2+ in a scan -> dramatically lower
+   *      input-token cost and TTFB
+   *   2) per-request uniqueness that still defeats the "identical-completion" degeneracy bug
+   *      that would otherwise produce abbreviated 230-token responses
+   *
+   * The tail fingerprint does NOT break uniqueness because the model still sees distinct
+   * input content for every call — the nonce+timestamp sits in the user turn where the
+   * model conditions generation, not in the shared identity prefix.
    *
    * COST: ~6 tokens per call — negligible.
-   * NOTE: store=false in openai-chat.ts does NOT affect caching — it only controls whether
-   * OpenAI saves the response to their dashboard. Cache behavior is unrelated to store.
    */
   private injectCacheBustFingerprint(messages: ChatMessage[], options: ChatCompletionOptions): ChatMessage[] {
     const nonce = Math.random().toString(36).slice(2, 8).toUpperCase();
     const fingerprint = `[REQ:${Date.now()}|${nonce}]`;
-    const firstSystemIdx = messages.findIndex(m => m.role === 'system');
-    if (firstSystemIdx === -1) {
-      return messages;
+    // Find the LAST user message; append fingerprint to its content.
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { lastUserIdx = i; break; }
+    }
+    if (lastUserIdx === -1) {
+      // No user message — fall back to appending to the last message regardless of role
+      // so uniqueness is preserved. This preserves the system prefix for caching.
+      if (messages.length === 0) return messages;
+      const patched = messages.slice();
+      const last = patched[patched.length - 1];
+      patched[patched.length - 1] = { ...last, content: `${last.content}\n${fingerprint}` };
+      return patched;
     }
     const patched = messages.map((m, i) => {
-      if (i !== firstSystemIdx) return m;
-      return { ...m, content: `${fingerprint}\n${m.content}` };
+      if (i !== lastUserIdx) return m;
+      return { ...m, content: `${m.content}\n${fingerprint}` };
     });
     if (options.requestType === 'alpha_coordination') {
-      console.log(`[OpenAI Client] Cache-bust fingerprint injected for ${options.symbol ?? 'unknown'}: ${fingerprint}`);
+      console.log(`[OpenAI Client] Cache-preserving fingerprint appended for ${options.symbol ?? 'unknown'}: ${fingerprint}`);
     }
     return patched;
   }
@@ -534,13 +545,19 @@ class OpenAIClient {
               finishReason: data.choices[0]?.finish_reason
             });
 
-            if (cacheHitPct > 10 && options.requestType === 'alpha_coordination') {
+            // CCIP-2026-0511H: Inverted warning. We now WANT cache hits on the stable identity
+            // prefix. Warn only if cache hit is <40% for alpha_coordination, which indicates
+            // the fingerprint is leaking into the prefix (e.g. via a refactor to system message).
+            if (
+              options.requestType === 'alpha_coordination' &&
+              totalPrompt > 1024 &&
+              cacheHitPct < 40
+            ) {
               console.warn(
-                `[OpenAI Client] CCIP-CACHE-BUST WARNING: Alpha scan cache hit=${cacheHitPct}% ` +
+                `[OpenAI Client] CCIP-2026-0511H WARNING: Alpha scan cache hit=${cacheHitPct}% ` +
                 `(${cachedTokens}/${totalPrompt} cached prompt tokens) for endpoint=${options.endpoint ?? 'unknown'} symbol=${options.symbol ?? 'unknown'}. ` +
-                `A cache hit >10% on an alpha_coordination request indicates the scan fingerprint ` +
-                `may not be defeating OpenAI's prompt cache. Degenerate abbreviated completions are likely. ` +
-                `Investigate coordinator-alpha.ts buildAlphaMessages() fingerprint injection.`
+                `Cache hit <40% suggests the identity-block prefix is not stable across calls. ` +
+                `Verify injectCacheBustFingerprint appends to the last USER message, not the system block.`
               );
             }
 

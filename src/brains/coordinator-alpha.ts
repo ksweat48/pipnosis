@@ -108,11 +108,7 @@ import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/en
 import {
   ALPHA_IDENTITY,
   getAlphaSystemPromptForStyle,
-  getEntryMode,
-  getBuyAdvocateSystemPrompt,
-  getSellAdvocateSystemPrompt,
-  formatAdvocateBriefsForArbiter,
-  type AdvocateBrief
+  getEntryMode
 } from '../config/alpha-identity';
 import {
   ALPHA_RESPONSE_FORMAT,
@@ -280,11 +276,13 @@ export interface AlphaDecision {
   omega8_liquidity_bias?: string;
   omega9_validation?: Omega9ValidationResult;
   omega10_applied?: boolean;
-  // CCIP-2026-0510A: Dual-advocate audition briefs — parallel direction-locked case builders
-  // whose output is injected into the arbiter prompt. Persisted to alpha_decisions.advocate_briefs.
+  // CCIP-2026-0511H: Dual-advocate architecture collapsed to single-pass arbiter.
+  // Alpha now reasons both BUY and SELL internally (see alpha-identity.ts + alpha-output-schema.ts
+  // buy_case_reasoning / sell_case_reasoning / case_comparison / winning_direction fields).
+  // The advocate_briefs persistence slot is preserved on the interface for historical records.
   advocate_briefs?: {
-    buy: AdvocateBrief | null;
-    sell: AdvocateBrief | null;
+    buy: unknown;
+    sell: unknown;
     generated_at: string;
   };
   symbol?: string;
@@ -3022,118 +3020,42 @@ Return PURE JSON only — all required fields from the schema in my system promp
       });
     }
 
-    // CCIP-CACHE-BUST-2026-04-15: Root cause fix for OpenAI prompt cache degenerate scans.
+    // CCIP-2026-0511H — SINGLE-PASS DUAL-REASONING ARBITER.
     //
-    // ROOT CAUSE (CORRECTED UNDERSTANDING):
-    // OpenAI caches the entire messages array as a concatenated prefix, starting from
-    // the SYSTEM message. The system prompt is thousands of tokens of static text identical
-    // across all 7 symbols in a scan cycle — this is precisely what was being cached at
-    // 49-55%. The prior fix (fingerprint in user message) was architecturally wrong:
-    // the user message appears AFTER the system message in the concatenated prompt, well
-    // beyond the cached prefix boundary. OpenAI had already matched the cache key on the
-    // system prompt before reaching the user message fingerprint — so the fingerprint had
-    // no effect on the cache hit rate.
+    // Replaces CCIP-2026-0510A (dual-advocate, 3 LLM calls per symbol) with a
+    // single-pass arbiter that internally reasons both BUY and SELL cases before
+    // committing to a direction. The reasoning obligations live in alpha-identity.ts
+    // and are enforced structurally by the schema (buy_case_reasoning,
+    // sell_case_reasoning, case_comparison, winning_direction, why_losing_case_rejected).
+    // Alpha still audits both sides — the audit is now inside his own head, not
+    // distributed across two gpt-4o-mini calls.
     //
-    // FIX: Inject the fingerprint as the FIRST line of the SYSTEM message. OpenAI's cache
-    // key is computed from the first ~1024 tokens of the concatenated messages array,
-    // beginning with the system message. Prepending a unique fingerprint to the system
-    // message guarantees a cache miss on every single scan because the cache key changes
-    // with every request. This is the only position in the message array that defeats the
-    // automatic prefix-caching mechanism at its root.
+    // Why this is reasoning-preserving (and not a constraint removal):
+    //   - Alpha's own prompt mandates the internal dual audit.
+    //   - The schema REQUIRES the five dual-reasoning fields — missing any of them
+    //     is a transport-layer rejection.
+    //   - hypothesis_buy / hypothesis_sell / winning_hypothesis / win_reason /
+    //     losing_hypothesis_disqualifier remain mandatory answer_sheet keys.
     //
-    // COST: ~10 tokens per scan — negligible.
-    // EXPECTED OUTCOME: Cache hit rate drops from 49-55% to 0-5%.
-    //                   Completion tokens return to 600-1500 genuine analysis range.
-    const scanNonce = Math.random().toString(36).slice(2, 8).toUpperCase();
-    const scanTs = Date.now();
-    const scanFingerprint = `[SCAN:${marketContext.symbol}|${scanTs}|${scanNonce}]`;
-
-    // CCIP-2026-0510A — MECHANICAL DUAL-DIRECTION AUDITION.
-    // Two direction-locked advocate calls run in parallel BEFORE the arbiter. Each is
-    // forbidden from selecting the opposite direction. Their briefs are injected into
-    // the arbiter's user message so the arbiter reads both cases as external evidence
-    // with no prior lean of its own. Breaks anchoring mechanically by separating the
-    // reasoners. Persisted to alpha_decisions.advocate_briefs for full audit.
-    const parseAdvocateBrief = (
-      raw: string,
-      direction: 'BUY' | 'SELL'
-    ): AdvocateBrief | null => {
-      try {
-        const jsonMatch = raw.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) return null;
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.direction !== direction) {
-          console.warn(`[Alpha Advocate ${direction}] Returned wrong direction "${parsed.direction}" — discarding.`);
-          return null;
-        }
-        return parsed as AdvocateBrief;
-      } catch (err) {
-        console.warn(`[Alpha Advocate ${direction}] Failed to parse brief:`, err);
-        return null;
-      }
-    };
-
-    const runAdvocate = async (direction: 'BUY' | 'SELL'): Promise<AdvocateBrief | null> => {
-      try {
-        const systemPrompt = direction === 'BUY'
-          ? getBuyAdvocateSystemPrompt()
-          : getSellAdvocateSystemPrompt();
-        const advocateRes = await openAIClient.chat(
-          [
-            { role: 'system', content: `${scanFingerprint}|ADV_${direction}\n\n${systemPrompt}` },
-            { role: 'user', content: prompt }
-          ],
-          {
-            model: 'gpt-4o-mini',
-            temperature: 0.3,
-            max_completion_tokens: 1200,
-            requestType: `alpha_advocate_${direction.toLowerCase()}`,
-            endpoint: 'alpha-coordinator',
-            symbol: marketContext.symbol
-          }
-        );
-        llmTokenTracker.logUsage({
-          brainName: `Alpha-${direction}-Advocate`,
-          model: 'gpt-4o-mini',
-          promptTokens: advocateRes.usage?.prompt_tokens || 0,
-          completionTokens: advocateRes.usage?.completion_tokens || 0,
-          totalTokens: advocateRes.usage?.total_tokens || 0,
-          contextType: 'alpha_coordination',
-          userId: userId,
-          sessionId: undefined
-        }).catch(() => {});
-        return parseAdvocateBrief(advocateRes.choices[0]?.message?.content || '', direction);
-      } catch (err) {
-        console.warn(`[Alpha Advocate ${direction}] Call failed:`, err);
-        return null;
-      }
-    };
-
-    const [buyBrief, sellBrief] = await Promise.all([runAdvocate('BUY'), runAdvocate('SELL')]);
-    // CCIP-2026-0510C — Randomize advocate presentation order per scan to eliminate
-    // positional anchoring bias. Persisted to alpha_decisions.advocate_briefs.presentation_order
-    // so bias_audit queries can verify no order-correlated directional skew.
-    const advocatePresentationOrder: 'BUY_FIRST' | 'SELL_FIRST' =
-      Math.random() < 0.5 ? 'BUY_FIRST' : 'SELL_FIRST';
-    const advocateBriefsBlock = formatAdvocateBriefsForArbiter(
-      buyBrief,
-      sellBrief,
-      advocatePresentationOrder
-    );
-    const arbiterUserPrompt = `${advocateBriefsBlock}\n${prompt}`;
-
-    const buildAlphaMessages = (retryLabel?: string) => {
-      const systemFingerprint = retryLabel
-        ? `${scanFingerprint}|${retryLabel}`
-        : scanFingerprint;
+    // Why this restores caching:
+    //   - The system message is now byte-identical across all symbols in a scan
+    //     and across scans until alpha-identity.ts changes. OpenAI KV-prefix cache
+    //     hits on the huge identity block. Per-request uniqueness moves to the
+    //     tail of the user message via injectCacheBustFingerprint().
+    //
+    // Why wall-clock drops ~2/3:
+    //   - 3 LLM calls per symbol -> 1 LLM call per symbol.
+    //   - At 2-wide concurrency, 9 symbols = 5 waves × ~22s = ~110s total,
+    //     comfortably within the council timeout.
+    const buildAlphaMessages = () => {
       return [
         {
           role: 'system' as const,
-          content: `${systemFingerprint}\n\n${getAlphaSystemPromptForStyle(styleName, huntContextForPrompt)}`
+          content: getAlphaSystemPromptForStyle(styleName, huntContextForPrompt)
         },
         {
           role: 'user' as const,
-          content: arbiterUserPrompt
+          content: prompt
         }
       ];
     };
@@ -3322,7 +3244,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
           const retryLabel = `RETRY:1|NONCE:${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
           try {
-            const retryResponse = await openAIClient.chat(buildAlphaMessages(retryLabel), alphaCallOptions);
+            // CCIP-2026-0511H: retryLabel no longer threaded into messages (cache-bust
+          // fingerprint moved to openai-client.ts injectCacheBustFingerprint tail of
+          // last user message). retryLabel is retained only for observability logging.
+          void retryLabel;
+          const retryResponse = await openAIClient.chat(buildAlphaMessages(), alphaCallOptions);
             const retryCompletionTokens = retryResponse.usage?.completion_tokens ?? 0;
             const retryFinishReason = retryResponse.choices[0]?.finish_reason ?? 'unknown';
             const retryContent = retryResponse.choices[0]?.message?.content || '{}';
@@ -3568,14 +3494,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
         decision.response_fingerprint = responseFingerprint;
       }
 
-      // CCIP-2026-0510A: Attach advocate briefs for full audit persistence.
-      // CCIP-2026-0510C: Persist randomized presentation_order for bias_audit queries.
-      (decision as any).advocate_briefs = {
-        buy: buyBrief,
-        sell: sellBrief,
-        presentation_order: advocatePresentationOrder,
-        generated_at: new Date().toISOString()
-      };
+      // CCIP-2026-0511H: Dual-advocate architecture collapsed. Alpha now audits
+      // BUY and SELL cases internally within a single arbiter call — see
+      // alpha-output-schema.ts buy_case_reasoning / sell_case_reasoning /
+      // case_comparison / winning_direction fields. The legacy advocate_briefs
+      // slot is no longer populated.
 
       // DUAL-ARENA WALL CHECK — Pure binary pass/fail enforcement
       // CCIP (2026-02-17): Walls are physics. Alpha's values are NEVER auto-adjusted.
@@ -3708,7 +3631,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           );
 
           const repairMessages = [
-            ...buildAlphaMessages('REPAIR'),
+            ...buildAlphaMessages(),
             {
               role: 'assistant' as const,
               content: JSON.stringify({

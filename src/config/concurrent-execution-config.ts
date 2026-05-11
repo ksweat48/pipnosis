@@ -304,7 +304,13 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // 3 concurrent symbols = 3 parallel Netlify invocations; all complete within 53s safely.
     // Queue budget: 3 symbols × 1 LLM call × 100ms = 0.3s — well within OpenAI 20 req/s.
     // Scan speed: 9 symbols @ 3-wide → ceil(9/3) = 3 waves; early-exit often terminates in wave 1.
-    maxConcurrentSymbols: 3,
+    //
+    // CCIP-2026-0511H: Temporarily dropped 3 -> 2 while the prompt-size / single-pass
+    // arbiter work lands. At 3-wide, concurrent cold-start Netlify invocations were
+    // saturating the 60s window under load (dual-advocate architecture = 3 LLM calls
+    // per symbol). Once single-pass arbiter + cached identity prefix reduce per-symbol
+    // wall-clock to ~20-25s, this can be raised back to 3.
+    maxConcurrentSymbols: 2,
     // CCIP-2026-03-13a (POST-LLM-PIPELINE-FIX): Raised 25s → 40s.
     // ROOT CAUSE: Production console showed Alpha LLM completing at 26-31s, AFTER the 25s
     // abort fires. The 25s budget was derived from the OpenAI call alone (18s + 4s overhead
@@ -345,9 +351,12 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     //   Total normal: 12s + 25s + 8s = 45s — well within 90s symbolTimeoutMs.
     symbolTimeoutMs: 90000,
     batchTimeoutMs: 300000,
-    // 9 symbols, 3-wide rolling pool = ceil(9/3) = 3 waves × 90s = 270s.
-    // 300s = 270s actual + 30s safety buffer.
-    councilTimeoutMs: 300000,
+    // CCIP-2026-0511H: Trimmed 300s -> 210s after concurrency drop to 2-wide.
+    // 9 symbols, 2-wide rolling pool = ceil(9/2) = 5 waves × 90s = 450s worst case, but
+    // early-exit at confidence 50 typically terminates in wave 1-2. The hard ceiling is
+    // there to bound pathological scans; 210s is enough headroom for the common case
+    // while still surfacing runaway scans instead of hiding them behind 300s.
+    councilTimeoutMs: 210000,
 
     useSessionTimeouts: true,
     // Session timeouts mirror symbolTimeoutMs (90s). One LLM call per symbol.
