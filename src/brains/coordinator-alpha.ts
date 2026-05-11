@@ -570,6 +570,25 @@ export interface AlphaDecision {
    */
   sl_structural_reference?: string;
   /**
+   * CCIP-2026-0511B: M5 TP CONTRACT proof fields — mandatory evidence that TP
+   * placement was anchored to M5 leg reality rather than H1/M15 structure or
+   * round numbers. Extracted directly from Alpha's answer_sheet + top-level
+   * response. The coordinator rejects output whose proof fields are missing or
+   * reference H1/M15/round-number anchors.
+   */
+  tp_structural_justification?: string;
+  tp_m5_leg_length_pips?: number;
+  tp_m5_consecutive_same_color_candles?: number;
+  tp_m5_nearest_exhaustion_price?: number;
+  tp_m5_nearest_exhaustion_reference?: string;
+  tp1_m5_anchor_price?: number;
+  tp1_m5_anchor_reference?: string;
+  tp1_placement_vs_anchor?: 'before_anchor' | 'at_anchor' | 'beyond_pocket';
+  tp2_m5_anchor_price?: number;
+  tp2_m5_anchor_reference?: string;
+  tp2_sequential_leg_justification?: string;
+  tp_is_scalp_only?: boolean;
+  /**
    * CCIP-2026-0427-A: Wait-intent-available-but-suppressed-by-monitor-off subclass.
    * Set true when entryMonitorActive === false AND Alpha returned wait_pullback or
    * push_confirmation. The decision is downstream NO_TRADE (executor cannot deliver
@@ -5837,7 +5856,18 @@ Return PURE JSON only — all required fields from the schema in my system promp
           const tp1Pips = calculatePipDistance(symbol, entry, alphaTP1);
           const tp1Distance = Math.abs(alphaTP1 - entry);
           const tp1RR = slDistance > 0 ? tp1Distance / slDistance : 0;
-          tp1Reasoning = `Alpha conservative target at ${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1 R:R)`;
+          // CCIP-2026-0511B: Prefer Alpha's own M5-anchored reasoning. The generic
+          // pip/RR fallback only engages when Alpha fails to emit tp1_reasoning —
+          // the schema now requires it, so the fallback is a safety net for older
+          // model responses or schema drift.
+          const alphaTp1Reasoning = typeof (parsed as Record<string, unknown>).tp1_reasoning === 'string'
+            ? ((parsed as Record<string, unknown>).tp1_reasoning as string).trim()
+            : (typeof (parsed as { answer_sheet?: Record<string, unknown> }).answer_sheet?.tp1_reasoning === 'string'
+                ? (((parsed as { answer_sheet: Record<string, unknown> }).answer_sheet.tp1_reasoning as string).trim())
+                : '');
+          tp1Reasoning = alphaTp1Reasoning
+            ? alphaTp1Reasoning
+            : `Alpha conservative target at ${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1 R:R)`;
           console.log(`[Alpha TP Authority] ${tradeStyle}: TP1=${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1) | TP2=${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1)`);
 
           // CCIP (2026-02-17): TP1 R:R check is DIAGNOSTIC ONLY.
@@ -5884,7 +5914,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
           };
         }
         tp2Price = takeProfit;
-        tp2Reasoning = `Alpha full target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
+        // CCIP-2026-0511B: Prefer Alpha's own M5-anchored TP2 reasoning.
+        const alphaTp2Reasoning = typeof (parsed as Record<string, unknown>).tp2_reasoning === 'string'
+          ? ((parsed as Record<string, unknown>).tp2_reasoning as string).trim()
+          : (typeof (parsed as { answer_sheet?: Record<string, unknown> }).answer_sheet?.tp2_reasoning === 'string'
+              ? (((parsed as { answer_sheet: Record<string, unknown> }).answer_sheet.tp2_reasoning as string).trim())
+              : '');
+        tp2Reasoning = alphaTp2Reasoning
+          ? alphaTp2Reasoning
+          : `Alpha full target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
 
         // CCIP-2026-0418A: When TP1 and TP2 are identical, the market only offered one
         // structural level — collapse to single-TP rather than blocking.
@@ -5954,6 +5992,111 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
       }
 
+      // ------------------------------------------------------------------
+      // CCIP-2026-0511B: M5 TP CONTRACT — extract proof fields + validate.
+      // ------------------------------------------------------------------
+      // TP placement must be anchored to the CURRENT M5 leg's deliverable reach.
+      // Alpha emits proof fields on every BUY/SELL output. The coordinator:
+      //   (a) extracts each field from answer_sheet (fallback: top-level),
+      //   (b) persists them for audit + post-trade analysis,
+      //   (c) logs a governance advisory when anchors reference H1/M15/round
+      //       numbers or when TP1 is placed beyond the M5 exhaustion pocket.
+      // This is the Q-field enforcement pattern: schema forces presence, the
+      // coordinator enforces semantic quality.
+      const sheetForM5 = (parsed as { answer_sheet?: Record<string, unknown> }).answer_sheet ?? {};
+      const topForM5 = parsed as Record<string, unknown>;
+      const readSheetString = (key: string): string | undefined => {
+        const v = (sheetForM5 as Record<string, unknown>)[key] ?? topForM5[key];
+        return typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined;
+      };
+      const readSheetNumber = (key: string): number | undefined => {
+        const v = (sheetForM5 as Record<string, unknown>)[key] ?? topForM5[key];
+        return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+      };
+      const readSheetInteger = (key: string): number | undefined => {
+        const v = readSheetNumber(key);
+        return v == null ? undefined : Math.round(v);
+      };
+      const readSheetBoolean = (key: string): boolean | undefined => {
+        const v = (sheetForM5 as Record<string, unknown>)[key] ?? topForM5[key];
+        return typeof v === 'boolean' ? v : undefined;
+      };
+
+      const tpStructuralJustification = readSheetString('tp_structural_justification');
+      const tpM5LegLengthPips = readSheetNumber('tp_m5_leg_length_pips');
+      const tpM5ConsecutiveSameColor = readSheetInteger('tp_m5_consecutive_same_color_candles');
+      const tpM5NearestExhaustionPrice = readSheetNumber('tp_m5_nearest_exhaustion_price');
+      const tpM5NearestExhaustionReference = readSheetString('tp_m5_nearest_exhaustion_reference');
+      const tp1M5AnchorPrice = readSheetNumber('tp1_m5_anchor_price');
+      const tp1M5AnchorReference = readSheetString('tp1_m5_anchor_reference');
+      const rawTp1PlacementVsAnchor = readSheetString('tp1_placement_vs_anchor');
+      const tp1PlacementVsAnchor: 'before_anchor' | 'at_anchor' | 'beyond_pocket' | undefined =
+        rawTp1PlacementVsAnchor === 'before_anchor' || rawTp1PlacementVsAnchor === 'at_anchor' || rawTp1PlacementVsAnchor === 'beyond_pocket'
+          ? rawTp1PlacementVsAnchor
+          : undefined;
+      const tp2M5AnchorPrice = readSheetNumber('tp2_m5_anchor_price');
+      const tp2M5AnchorReference = readSheetString('tp2_m5_anchor_reference');
+      const tp2SequentialLegJustification = readSheetString('tp2_sequential_leg_justification');
+      const tpIsScalpOnly = readSheetBoolean('tp_is_scalp_only');
+
+      if (correctedAction === 'BUY' || correctedAction === 'SELL') {
+        const advisories: string[] = [];
+        if (!tpStructuralJustification) advisories.push('tp_structural_justification_missing');
+        if (tpM5LegLengthPips == null) advisories.push('tp_m5_leg_length_pips_missing');
+        if (!tp1M5AnchorReference || tp1M5AnchorPrice == null) advisories.push('tp1_m5_anchor_missing');
+        if (!tp1PlacementVsAnchor) advisories.push('tp1_placement_vs_anchor_missing');
+        if (tp1PlacementVsAnchor === 'beyond_pocket') advisories.push('tp1_placed_beyond_m5_pocket');
+
+        // Forbidden anchor vocabulary — H1/M15 or round-number references as the PRIMARY anchor.
+        const ROUND_NUMBER_RE = /\b(round\s*(number|level)|whole\s*(hundred|thousand)|psychological|\d{2,}0{2,}(\.0+)?)\b/i;
+        const HTF_ANCHOR_RE = /\b(h1|h4|d1|w1|m15|1h|4h|daily|weekly|higher\s*time\s*frame|htf)\b/i;
+        const anchorsToCheck = [
+          { key: 'tp_structural_justification', val: tpStructuralJustification },
+          { key: 'tp1_m5_anchor_reference', val: tp1M5AnchorReference },
+          { key: 'tp2_m5_anchor_reference', val: tp2M5AnchorReference },
+          { key: 'tp_m5_nearest_exhaustion_reference', val: tpM5NearestExhaustionReference },
+        ];
+        for (const { key, val } of anchorsToCheck) {
+          if (!val) continue;
+          if (HTF_ANCHOR_RE.test(val)) advisories.push(`${key}_references_HTF_anchor`);
+          if (ROUND_NUMBER_RE.test(val)) advisories.push(`${key}_references_round_number`);
+        }
+
+        // TP1 distance > M5 leg length ⇒ asking the next leg to do current-leg work.
+        if (tp1Price != null && tpM5LegLengthPips != null) {
+          const tp1PipsFromEntry = calculatePipDistance(symbol, entry, tp1Price);
+          if (tp1PipsFromEntry > tpM5LegLengthPips * 1.05) {
+            advisories.push(`tp1_distance_${tp1PipsFromEntry.toFixed(1)}p_exceeds_m5_leg_${tpM5LegLengthPips.toFixed(1)}p`);
+          }
+        }
+
+        if (tp2Price != null && (!tp2M5AnchorReference || tp2M5AnchorPrice == null || !tp2SequentialLegJustification)) {
+          advisories.push('tp2_present_but_m5_anchor_or_sequential_justification_missing');
+        }
+
+        if (advisories.length > 0) {
+          console.warn(
+            `[Alpha M5 TP Contract] ${symbol} ${correctedAction} — advisories: ${advisories.join(', ')}`
+          );
+          logViolation({
+            violationType: 'M5_TP_CONTRACT_ADVISORY',
+            symbol,
+            attemptedOperation: 'm5_tp_contract_validation',
+            callLocation: 'coordinator-alpha/parseDecision',
+            blocked: false,
+            errorDetails: {
+              advisories,
+              tp1Price,
+              tp2Price,
+              tpM5LegLengthPips,
+              tp1PlacementVsAnchor,
+              tpIsScalpOnly,
+              userId: userId || 'unknown',
+            },
+          }).catch(() => {});
+        }
+      }
+
       return {
         // CCIP-2026-0415A: Use correctedAction — may differ from original action const after tier correction.
         action: correctedAction as 'BUY' | 'SELL' | 'NO_TRADE',
@@ -6000,6 +6143,19 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // from the parsed response. Both fields are now passed through for DB audit.
         tp_structural_reference: typeof parsed.tp_structural_reference === 'string' ? parsed.tp_structural_reference : undefined,
         sl_structural_reference: typeof parsed.sl_structural_reference === 'string' ? parsed.sl_structural_reference : undefined,
+        // CCIP-2026-0511B: M5 TP CONTRACT proof fields — persisted to goal_session_trades.
+        tp_structural_justification: tpStructuralJustification,
+        tp_m5_leg_length_pips: tpM5LegLengthPips,
+        tp_m5_consecutive_same_color_candles: tpM5ConsecutiveSameColor,
+        tp_m5_nearest_exhaustion_price: tpM5NearestExhaustionPrice,
+        tp_m5_nearest_exhaustion_reference: tpM5NearestExhaustionReference,
+        tp1_m5_anchor_price: tp1M5AnchorPrice,
+        tp1_m5_anchor_reference: tp1M5AnchorReference,
+        tp1_placement_vs_anchor: tp1PlacementVsAnchor,
+        tp2_m5_anchor_price: tp2M5AnchorPrice,
+        tp2_m5_anchor_reference: tp2M5AnchorReference,
+        tp2_sequential_leg_justification: tp2SequentialLegJustification,
+        tp_is_scalp_only: tpIsScalpOnly,
         // CCIP-2026-0427-A: WAIT_INTENT_AVAILABLE_MONITOR_OFF subclass.
         // When the user has the Entry Monitor disabled, the executor cannot deliver
         // wait_pullback or push_confirmation entries. Alpha's prompt branch already

@@ -193,6 +193,35 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
 
   // SL placement (CCIP-2026-0507A)
   sl_placement_rationale: { type: ['string', 'null'] },
+
+  // ------------------------------------------------------------------
+  // CCIP-2026-0511B: M5 TP CONTRACT — MANDATORY (Q-field pattern)
+  // ------------------------------------------------------------------
+  // TP placement must be anchored to M5 timeframe reality (what the current
+  // 5-minute leg can actually deliver), NOT H1 structure, M15 bias, or round
+  // psychological numbers. These fields are the proof-fields Alpha fills to
+  // demonstrate he reasoned from M5 first principles. The coordinator
+  // rejects output that leaves them null, references H1/M15/round numbers,
+  // or places TP1 beyond the current M5 leg's exhaustion pocket.
+  //
+  // These mirror the Q-field enforcement pattern used for Q1-Q12: the
+  // schema forces presence, the coordinator validates semantic quality.
+  tp_m5_leg_length_pips: { type: ['number', 'null'] },
+  tp_m5_consecutive_same_color_candles: { type: ['integer', 'null'] },
+  tp_m5_nearest_exhaustion_price: { type: ['number', 'null'] },
+  tp_m5_nearest_exhaustion_reference: { type: ['string', 'null'] },
+  tp1_m5_anchor_price: { type: ['number', 'null'] },
+  tp1_m5_anchor_reference: { type: ['string', 'null'] },
+  tp1_placement_vs_anchor: {
+    anyOf: [
+      { type: 'string', enum: ['before_anchor', 'at_anchor', 'beyond_pocket'] },
+      { type: 'null' },
+    ],
+  },
+  tp2_m5_anchor_price: { type: ['number', 'null'] },
+  tp2_m5_anchor_reference: { type: ['string', 'null'] },
+  tp2_sequential_leg_justification: { type: ['string', 'null'] },
+  tp_is_scalp_only: { type: ['boolean', 'null'] },
 };
 
 const ANSWER_SHEET_REQUIRED = Object.keys(ANSWER_SHEET_PROPERTIES);
@@ -224,6 +253,9 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       'trader_statement',
       'entry_mode',
       'tp_structural_reference',
+      'tp_structural_justification',
+      'tp1_reasoning',
+      'tp2_reasoning',
       'sl_structural_reference',
       'max_entry_deviation_pips',
       'tp_multiplier_override',
@@ -258,6 +290,9 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
         ],
       },
       tp_structural_reference: { type: ['string', 'null'] },
+      tp_structural_justification: { type: ['string', 'null'] },
+      tp1_reasoning: { type: ['string', 'null'] },
+      tp2_reasoning: { type: ['string', 'null'] },
       sl_structural_reference: { type: ['string', 'null'] },
       max_entry_deviation_pips: { type: ['number', 'null'] },
       tp_multiplier_override: { type: ['number', 'null'] },
