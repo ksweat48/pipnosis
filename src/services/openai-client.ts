@@ -569,8 +569,36 @@ class OpenAIClient {
           }
 
           if (this.isRetryableError(response.status) && attempt < this.maxRetries) {
-            const delay = this.baseDelayMs * Math.pow(2, attempt);
-            console.warn(`[OpenAI Client] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${this.maxRetries})`);
+            // CCIP-2026-0511M: Jittered exponential backoff on 5xx retries.
+            // Deterministic backoff (2s, 4s, 8s) causes simultaneous retries across
+            // concurrent symbols to hit OpenAI at the same millisecond, amplifying
+            // the 504 condition. Adding 0-750ms of jitter spreads the herd.
+            // Also pulls the server-side errorCode (set by netlify/functions/openai-chat.ts
+            // on upstream 504s) so the console shows WHY the call failed, not just
+            // "HTTP 504".
+            const backoff = this.baseDelayMs * Math.pow(2, attempt);
+            const jitter = Math.floor(Math.random() * 750);
+            const delay = backoff + jitter;
+            let errorCode = 'unknown';
+            let details = '';
+            try {
+              const clone = response.clone();
+              const errorData = (await clone.json().catch(() => ({}))) as {
+                errorCode?: string;
+                details?: string;
+                error?: string;
+              };
+              errorCode = errorData.errorCode || errorData.error || 'unknown';
+              details = (errorData.details || '').split('\n')[0].slice(0, 200);
+            } catch {
+              // non-JSON body on 5xx is normal (e.g. Netlify CDN HTML page)
+            }
+            console.warn(
+              `[OpenAI Client] CCIP-2026-0511M retryable ${response.status} ` +
+              `errorCode=${errorCode} details="${details}" ` +
+              `symbol=${options.symbol ?? 'unknown'} requestType=${options.requestType ?? 'unknown'} ` +
+              `retrying in ${delay}ms (${backoff}ms base + ${jitter}ms jitter, attempt ${attempt + 1}/${this.maxRetries})`
+            );
             await this.sleep(delay);
             continue;
           }

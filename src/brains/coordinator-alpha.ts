@@ -3624,11 +3624,41 @@ Return PURE JSON only — all required fields from the schema in my system promp
       try {
         const missingAfterParse = detectMissingAuditKeys(decision as unknown);
         if (missingAfterParse.length > 0) {
+          const primaryFinishReason =
+            (response.choices?.[0] as { finish_reason?: string } | undefined)?.finish_reason ?? null;
+          const primaryCached = response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+          const primaryPrompt = response.usage?.prompt_tokens ?? 0;
+          const primaryCompletion = response.usage?.completion_tokens ?? 0;
+          const primaryCachePct = primaryPrompt > 0
+            ? Math.round((primaryCached / primaryPrompt) * 100)
+            : 0;
+
           console.warn(
             `[Alpha Coordinator] CCIP-2026-0510L SCHEMA_REPAIR: ${missingAfterParse.length} mandatory audit keys missing ` +
             `after primary Alpha response for ${marketContext.symbol}. Missing=${missingAfterParse.join(',')}. ` +
-            `Requesting single-shot repair.`
+            `finish_reason=${primaryFinishReason ?? 'n/a'} prompt_tokens=${primaryPrompt} completion_tokens=${primaryCompletion} ` +
+            `cache_hit=${primaryCachePct}%. Requesting single-shot repair.`
           );
+
+          // CCIP-2026-0511M: Persist incident telemetry (fire-and-forget).
+          supabase.from('alpha_audit_incidents').insert({
+            symbol: marketContext.symbol,
+            style: styleName,
+            incident_type: primaryFinishReason === 'length' ? 'truncation' : 'schema_repair',
+            missing_keys: missingAfterParse,
+            prompt_tokens: primaryPrompt || null,
+            completion_tokens: primaryCompletion || null,
+            cached_tokens: primaryCached || null,
+            cache_hit_pct: primaryPrompt > 0 ? primaryCachePct : null,
+            finish_reason: primaryFinishReason,
+            model: 'gpt-4o-2024-08-06',
+            strict_mode: true,
+            metadata: { phase: 'primary_response' }
+          }).then(({ error }) => {
+            if (error) {
+              console.warn('[Alpha Coordinator] alpha_audit_incidents insert failed (non-fatal):', error.message);
+            }
+          });
 
           const repairMessages = [
             ...buildAlphaMessages(),
@@ -3696,11 +3726,50 @@ Return PURE JSON only — all required fields from the schema in my system promp
               // Mark that repair was needed so analytics can track drift from the primary schema path.
               (dMut as any).schema_repair_applied = true;
             }
+
+            // CCIP-2026-0511M: Persist repair outcome.
+            const repairedKeys = MANDATORY_AUDIT_KEYS.filter(k => {
+              const v = (mergedSheet as Record<string, unknown>)[k];
+              return v != null;
+            });
+            supabase.from('alpha_audit_incidents').insert({
+              symbol: marketContext.symbol,
+              style: styleName,
+              incident_type: stillMissing.length === 0 ? 'repair_success' : 'repair_failure',
+              missing_keys: stillMissing.length > 0 ? stillMissing : null,
+              repaired_keys: repairedKeys,
+              prompt_tokens: repairResponse.usage?.prompt_tokens ?? null,
+              completion_tokens: repairResponse.usage?.completion_tokens ?? null,
+              cached_tokens: repairResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
+              finish_reason:
+                (repairResponse.choices?.[0] as { finish_reason?: string } | undefined)?.finish_reason ?? null,
+              model: 'gpt-4o-2024-08-06',
+              strict_mode: true,
+              metadata: { phase: 'repair_response', repaired_count: repairedCount }
+            }).then(({ error }) => {
+              if (error) {
+                console.warn('[Alpha Coordinator] repair outcome insert failed (non-fatal):', error.message);
+              }
+            });
           } catch (repairErr) {
             console.error(
               `[Alpha Coordinator] CCIP-2026-0510L SCHEMA_REPAIR request failed for ${marketContext.symbol}:`,
               repairErr
             );
+            supabase.from('alpha_audit_incidents').insert({
+              symbol: marketContext.symbol,
+              style: styleName,
+              incident_type: 'repair_failure',
+              missing_keys: missingAfterParse,
+              error_message: repairErr instanceof Error ? repairErr.message : String(repairErr),
+              model: 'gpt-4o-2024-08-06',
+              strict_mode: true,
+              metadata: { phase: 'repair_exception' }
+            }).then(({ error }) => {
+              if (error) {
+                console.warn('[Alpha Coordinator] repair failure insert failed (non-fatal):', error.message);
+              }
+            });
           }
         }
       } catch (repairLoopErr) {

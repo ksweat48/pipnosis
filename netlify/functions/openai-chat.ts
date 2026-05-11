@@ -385,7 +385,18 @@ async function handleRequest(event: any, startTime: number) {
       ...(body.response_format ? { response_format: body.response_format } : {})
     };
 
-    console.log(`[OpenAI Proxy] Calling OpenAI API: ${requestPayload.model}, ${body.messages.length} messages, max_completion_tokens=${tokenBudget}, store=false (cache disabled)`);
+    // CCIP-2026-0511M: Strict-mode + dated-alias verification log. Proves whether
+    // response_format.json_schema.strict=true and model=gpt-4o-2024-08-06 actually
+    // reach OpenAI. Missing mandatory audit keys on the client side means either
+    // (a) strict mode drifted, (b) the model alias resolved to a non-dated gpt-4o,
+    // or (c) Alpha truncated under token pressure. This log distinguishes them.
+    const rfAny = (requestPayload as Record<string, unknown>).response_format as
+      | { type?: string; json_schema?: { name?: string; strict?: boolean } }
+      | undefined;
+    console.log(
+      `[OpenAI Proxy] Calling OpenAI API: model=${requestPayload.model}, messages=${body.messages.length}, max_completion_tokens=${tokenBudget}, ` +
+      `response_format=${rfAny?.type ?? 'none'}, schema_name=${rfAny?.json_schema?.name ?? 'none'}, strict=${rfAny?.json_schema?.strict === true}, store=false`
+    );
 
     // Create AbortController for timeout
     const controller = new AbortController();

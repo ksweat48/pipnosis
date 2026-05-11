@@ -349,7 +349,14 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     //   Server aborts at 45s if OpenAI slow; clean JSON 504 returns by ~53s
     //   Post-LLM work (confidence engine, audit, reward): ~3-8s
     //   Total normal: 12s + 25s + 8s = 45s — well within 90s symbolTimeoutMs.
-    symbolTimeoutMs: 90000,
+    //
+    // CCIP-2026-0511M: Raised 90s -> 120s as temporary headroom while the
+    // alpha-identity.ts prose compression work lands. Production logs showed
+    // EURUSD occasionally crossing 90s on cold Netlify workers when the 60k-token
+    // prompt cache missed. 120s absorbs a single clean retry (53s x 2 + 2s delay =
+    // 108s worst case) without tripping the symbol guard. Revert to 90s once the
+    // prompt shrink + cached prefix reduce wall-clock back to ~20-25s per symbol.
+    symbolTimeoutMs: 120000,
     batchTimeoutMs: 300000,
     // CCIP-2026-0511H: Trimmed 300s -> 210s after concurrency drop to 2-wide.
     // 9 symbols, 2-wide rolling pool = ceil(9/2) = 5 waves × 90s = 450s worst case, but
@@ -362,12 +369,15 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // Session timeouts mirror symbolTimeoutMs (90s). One LLM call per symbol.
     // CCIP-2026-03-13e: Full pipeline worst-case: 12s pre-work + 45s LLM + 8s post-work = 65s.
     // 90s = 65s worst-case + 25s safety margin.
+    // CCIP-2026-0511M: Mirrors symbolTimeoutMs (120s). Every session uses the same
+    // headroom until the prompt-size fix lands and Alpha consistently completes
+    // within 25s per symbol.
     sessionTimeouts: {
-      asian: 90000,
-      london: 90000,
-      nyse: 90000,
-      overlap: 90000,
-      off_hours: 90000,
+      asian: 120000,
+      london: 120000,
+      nyse: 120000,
+      overlap: 120000,
+      off_hours: 120000,
     },
   },
 
