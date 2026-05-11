@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/update-sw-version.cjs && npm run validate:architecture",
+    "prebuild": "node scripts/update-sw-version.cjs && npm run audit:alpha && npm run validate:architecture",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "audit:alpha": "node scripts/audit-alpha-identity.cjs",
     "validate:architecture": "jest src/tests/architectural-compliance.test.ts --passWithNoTests || echo 'Architectural violations detected (non-blocking)'",
     "test": "jest",
     "test:watch": "jest --watch",
