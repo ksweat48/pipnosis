@@ -132,29 +132,31 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   contradictions_unresolved_count: { type: 'integer' },
   reconciliation_ledger_complete: { type: 'boolean' },
 
-  // Canonical Q1-Q12 checklist
-  Q1_trend_alignment: { type: ['string', 'null'] },
-  Q2_structure_level: { type: ['string', 'null'] },
-  Q3_prior_rejections: { type: ['string', 'null'] },
-  Q4_momentum_stage: { type: ['string', 'null'] },
+  // Canonical Q1-Q12 audit spine — MANDATORY (CCIP-2026-0511Z)
+  // Promoted to non-nullable so OpenAI strict-mode rejects any response
+  // missing the audit spine at the transport layer. Alpha fills these as
+  // the RECORD of reasoning he already performed (decision-first /
+  // audit-second) — no prompt teaching added; the contract is structural.
+  // Extended Q-variants (Q4B, Q5B, Q7 judgment, Q8B/C/D) remain nullable
+  // because they are context enrichments, not the core audit spine.
+  Q1_trend_alignment: { type: 'string' },
+  Q2_structure_level: { type: 'string' },
+  Q3_prior_rejections: { type: 'string' },
+  Q4_momentum_stage: { type: 'string' },
   Q4B_realtime_participant_read: { type: ['string', 'null'] },
-  Q5_failure_mode: { type: ['string', 'null'] },
-  Q5_failure_probability: { type: ['number', 'null'] },
+  Q5_failure_mode: { type: 'string' },
+  Q5_failure_probability: { type: 'number' },
   Q5B_objective_alignment: { type: ['string', 'null'] },
-  Q6_entry_trigger: { type: ['string', 'null'] },
-  Q7_confluence_confirmed: { type: ['string', 'null'] },
+  Q6_entry_trigger: { type: 'string' },
+  Q7_confluence_confirmed: { type: 'string' },
   Q7_confluence_judgment: { type: ['string', 'null'] },
-  Q8_move_position_pct: { type: ['number', 'null'] },
+  Q8_move_position_pct: { type: 'number' },
   Q8B_session_range_pct: { type: ['number', 'null'] },
   Q8C_price_location_zone: { type: ['string', 'null'] },
   Q8D_weekly_narrative: { type: ['string', 'null'] },
-  Q9_sl_wick_proximity: { type: ['string', 'null'] },
-  Q10_entry_conviction: { type: ['string', 'null'] },
-  Q11_zone_entry_quality: { type: ['string', 'null'] },
-  // CCIP-2026-0510O: Q12_market_phase is mandatory. Every decision — BUY,
-  // SELL, or NO_TRADE — must name the active market phase. The coordinator's
-  // Q12_MARKET_PHASE_OMITTED advisory becomes unreachable when the schema
-  // enforces presence at the transport layer.
+  Q9_sl_wick_proximity: { type: 'string' },
+  Q10_entry_conviction: { type: 'string' },
+  Q11_zone_entry_quality: { type: 'string' },
   Q12_market_phase: { type: 'string' },
 
   // Narrative / structural fields

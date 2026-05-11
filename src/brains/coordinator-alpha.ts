@@ -4011,116 +4011,58 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // CCIP-2026-0511Y: Q1-Q12 PRESENCE VALIDATION + COMPUTED LEDGER
+        // CCIP-2026-0511Z: LEDGER INTEGRITY OVERRIDE (narrow semantic scope)
         // ───────────────────────────────────────────────────────────────────
-        // Alpha was self-reporting `reconciliation_ledger_complete: true`
-        // while Q1-Q8 were null. The old gate trusted the boolean. The
-        // forensic trail on the two losing XAUUSD SELLs showed both had
-        // Q1-Q8 null yet claimed a complete ledger.
+        // Q1-Q12 presence is now enforced at the transport layer by
+        // alpha-output-schema.ts (strict-mode JSON Schema). OpenAI will not
+        // return a response to the coordinator with missing Q-fields, so the
+        // old Q-missing downgrade path (CCIP-2026-0511Y) is structurally
+        // unreachable and has been retired.
         //
-        // Fix: compute the ledger locally. It is complete ONLY when
-        //   (all Q1-Q12 present, non-null, non-empty)
-        //   AND (contradictions_unresolved_count === 0)
-        //   AND (winning_hypothesis === action)
-        // If the computed value disagrees with Alpha's self-report, we
-        // override the field so the CCIP-2026-0511A downgrade path below
-        // triggers naturally. Alpha's BRAIN is unchanged; the VALIDATOR
-        // is finally enforcing what the contract already promised.
+        // This validator now only polices the two semantic contradictions
+        // strict-mode cannot express:
+        //   1. winning_hypothesis !== action (direction integrity)
+        //   2. contradictions_unresolved_count > 0 while ledger claims true
+        //
+        // Entry mode choices (wait_pullback, push_confirmation) are NOT
+        // downgrades — they are Alpha's legitimate timing preference. This
+        // block never touches entry_mode and never forces low_quality for a
+        // clean-audit directional call. Only a ledger INTEGRITY failure
+        // overrides confidence.
         // ═══════════════════════════════════════════════════════════════════
-        const Q_AUDIT_KEYS = [
-          'Q1_trend_alignment',
-          'Q2_structure_level',
-          'Q3_prior_rejections',
-          'Q4_momentum_stage',
-          'Q5_failure_mode',
-          'Q6_entry_trigger',
-          'Q7_confluence_confirmed',
-          'Q8_move_position_pct',
-          'Q9_sl_wick_proximity',
-          'Q10_entry_conviction',
-          'Q11_zone_entry_quality',
-          'Q12_market_phase',
-        ];
-        const missingQFields: string[] = [];
-        for (const qKey of Q_AUDIT_KEYS) {
-          const qVal = pickField(qKey);
-          const isEmpty =
-            qVal == null ||
-            (typeof qVal === 'string' && qVal.trim().length === 0);
-          if (isEmpty) missingQFields.push(qKey);
-        }
-        if (missingQFields.length > 0) {
-          missing.push(...missingQFields);
-        }
-
-        const allQPresent = missingQFields.length === 0;
         const unresolvedResolved =
           typeof unresolvedCount === 'number' && unresolvedCount === 0;
         const winnerMatchesAction =
           isDirectional &&
           (winningNorm === 'BUY' || winningNorm === 'SELL') &&
           winningNorm === actionNorm;
-        const ledgerCompleteComputed =
-          allQPresent && unresolvedResolved && winnerMatchesAction;
+        const ledgerIntegrityOK = unresolvedResolved && winnerMatchesAction;
 
-        if (isDirectional && ledgerComplete === true && !ledgerCompleteComputed) {
+        if (isDirectional && ledgerComplete === true && !ledgerIntegrityOK) {
           const reasons: string[] = [];
-          if (!allQPresent) reasons.push(`Q_MISSING=[${missingQFields.join(',')}]`);
           if (!unresolvedResolved) reasons.push(`unresolved=${String(unresolvedCount)}`);
           if (!winnerMatchesAction) reasons.push(`winner=${winningNorm}!=action=${actionNorm}`);
-          invalid.push(
-            `LEDGER_SELF_REPORT_OVERRIDE: reconciliation_ledger_complete claimed true but computed false (${reasons.join('; ')})`
-          );
           if (asRaw && typeof asRaw === 'object') {
             (asRaw as Record<string, unknown>).reconciliation_ledger_complete = false;
           }
           (decision as Record<string, unknown>).reconciliation_ledger_complete = false;
           console.warn(
-            `[Alpha Coordinator] CCIP-2026-0511Y LEDGER OVERRIDE: Alpha self-reported complete but audit is incomplete. ${reasons.join(' | ')}`
+            `[Alpha Coordinator] CCIP-2026-0511Z LEDGER INTEGRITY OVERRIDE: ${reasons.join(' | ')}`
           );
-        }
 
-        // CCIP-2026-0508D: Core 10-field presence is mandatory on ALL outputs.
-        // For NO_TRADE we only relax the three execute_now-specific sub-checks
-        // (ledger_complete=true, unresolved=0, winning=NONE is allowed).
-        const presenceOnlyViolations = [
-          ...missing.map((f) => `MISSING:${f}`),
-          ...invalid.filter((v) =>
-            !v.startsWith('reconciliation_ledger_complete=false') &&
-            !v.startsWith('contradictions_unresolved_count=') &&
-            !v.startsWith('winning_hypothesis=NONE for directional') &&
-            !v.startsWith('DIRECTION_MISMATCH') &&
-            !v.startsWith('SWEEP_RECLAIM_SELF_CONTRADICTION')
-          ),
-        ];
-        const fullViolations = [...missing.map((f) => `MISSING:${f}`), ...invalid];
-
-        // CCIP-2026-0511A — NO_TRADE eliminated from vocabulary (confidence-tier.ts SSOT).
-        // The gate no longer rewrites decisions to NO_TRADE. When a directional decision
-        // is missing mandatory audit fields, we preserve the BUY/SELL action but downgrade
-        // conviction to low_quality wait_pullback and flag the audit gap for governance.
-        // The old !isDirectional (NO_TRADE) branch is now unreachable and removed.
-        if (isDirectional && fullViolations.length > 0) {
-          const blockReason = `CCIP-2026-0511A_AUDIT_INCOMPLETE_DOWNGRADED: ${fullViolations.join(' | ')}`;
-
-          console.warn(
-            `[Alpha Coordinator] CCIP-2026-0511A AUDIT DOWNGRADE: ${blockReason}. ` +
-            `Symbol=${marketContext.symbol}, Action=${actionNorm}. ` +
-            `Action preserved; conviction downgraded to low_quality wait_pullback.`
-          );
+          const blockReason = `SYSTEM_LEDGER_INTEGRITY_OVERRIDE: ${reasons.join(' | ')}`;
 
           logViolation({
-            violationType: 'CCIP_0511A_AUDIT_INCOMPLETE_DOWNGRADED',
+            violationType: 'CCIP_0511Z_LEDGER_INTEGRITY_OVERRIDE',
             symbol: marketContext.symbol,
-            attemptedOperation: 'mandatory_audit_gate',
+            attemptedOperation: 'ledger_integrity_gate',
             callLocation: 'coordinator-alpha/coordinate',
             blocked: false,
             errorDetails: {
-              missing,
-              invalid,
               action: actionNorm,
               entry_mode: entryMode,
               winning_hypothesis: winningNorm,
+              unresolved_count: unresolvedCount,
               userId: userId || 'unknown',
             },
           }).catch(() => {});
@@ -4129,15 +4071,13 @@ Return PURE JSON only — all required fields from the schema in my system promp
           const priorTier = dMut.confidence_tier;
           const priorContinuous = dMut.confidence_continuous;
           dMut.confidence_tier = 'low_quality';
-          dMut.entry_mode = 'wait_pullback';
           dMut.block_reason = blockReason;
-          dMut.decision_origin = 'SYSTEM_DOWNGRADE_0511A';
+          dMut.decision_origin = 'SYSTEM_LEDGER_INTEGRITY_OVERRIDE';
 
-          // CCIP-2026-0511D: Recompute continuous confidence against the
-          // new tier band. Without this, the decision carries a
-          // low_quality tier (band [0,59]) alongside a stale continuous
-          // value (e.g. 65) that lies outside the band — a mathematical
-          // impossibility that causes "every trade = 65%" in the UI.
+          // Note: entry_mode is NOT forced here. If Alpha chose wait_pullback
+          // or push_confirmation, that choice stands — it's his timing
+          // preference, not a system override.
+
           const q5Raw = (decision as any)?.answer_sheet?.Q5_failure_probability;
           const counterRaw = (decision as any)?.counter_thesis_probability;
           const q5Fail = typeof q5Raw === 'number' ? q5Raw : null;
@@ -4148,7 +4088,17 @@ Return PURE JSON only — all required fields from the schema in my system promp
           dMut.confidence_continuous = recomputed;
           (decision as any).confidence = recomputed;
           console.info(
-            `[Alpha Coordinator] CCIP-2026-0511D downgrade recompute: tier ${String(priorTier)} -> low_quality, continuous ${String(priorContinuous)} -> ${recomputed}`
+            `[Alpha Coordinator] CCIP-2026-0511Z integrity recompute: tier ${String(priorTier)} -> low_quality, continuous ${String(priorContinuous)} -> ${recomputed}`
+          );
+        }
+
+        // missing/invalid arrays remain populated by the upper 10-field
+        // presence gate for audit visibility, but no longer drive a
+        // downgrade — schema-layer enforcement guarantees presence on every
+        // accepted response.
+        if (missing.length > 0 || invalid.length > 0) {
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0511Z audit diagnostics (non-blocking) — missing=[${missing.join(',')}] invalid=[${invalid.join(' | ')}]`
           );
         }
       } catch (gateErr) {
