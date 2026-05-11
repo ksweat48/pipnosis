@@ -259,13 +259,17 @@ class OpenAIClient {
   //
   // INVARIANTS (must never be violated):
   //   1. OPENAI_REQUEST_TIMEOUT_MS + max_pre_work < FUNCTION_TIMEOUT_MS
-  //      (45s + 8s = 53s < 55s ✓  — 2s safety margin)
+  //      (52s + 6s = 58s ≤ 58s ✓  — zero margin; FUNCTION_TIMEOUT kills first if OpenAI slow)
   //   2. FUNCTION_TIMEOUT_MS < netlify.toml openai-chat timeout
-  //      (55s < 60s ✓  — 5s safety margin)
-  //   3. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
-  //      (65s >= 45s + 8s = 53s ✓  — 12s safety buffer)
+  //      (58s < 60s ✓  — 2s safety margin)
+  //   3. fetchTimeoutMs >= FUNCTION_TIMEOUT_MS + network_overhead
+  //      (65s >= 58s + 7s ✓  — matches server self-kill window)
   //   4. symbolTimeoutMs > pre-work_max + fetchTimeoutMs
   //      (90s > 12s + 65s = 77s ✓  — 13s safety margin)
+  //
+  // CCIP-2026-0511T: Server budget raised from 45s→52s to cover P99 Alpha latency (~42s
+  // observed at 60k prompt tokens). See openai-chat.ts for rationale. Client fetchTimeoutMs
+  // unchanged at 65s — still satisfies invariant #3 against the new 58s server ceiling.
   //
   // SSOT: OPENAI_REQUEST_TIMEOUT_MS is owned by netlify/functions/openai-chat.ts.
   //       If OPENAI_REQUEST_TIMEOUT_MS changes, recalculate all values per the invariants above.

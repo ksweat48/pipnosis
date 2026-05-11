@@ -128,17 +128,19 @@ const supabase = getSupabaseAdmin();
 //   1. OPENAI_REQUEST_TIMEOUT_MS + max_pre_work < FUNCTION_TIMEOUT_MS
 //      (45s + 8s = 53s < 55s ✓  — 2s safety margin)
 //   2. FUNCTION_TIMEOUT_MS < netlify.toml timeout for openai-chat
-//      (55s < 60s ✓  — 5s safety margin)
+//      (58s < 60s ✓  — 2s safety margin, tightest we can run without triggering Netlify 504)
 //   3. fetchTimeoutMs in openai-client.ts MUST be >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
-//      = 45s + 8s = 53s minimum → set to 65s (12s safety buffer). See openai-client.ts.
+//      = 52s + 8s = 60s minimum → set to 65s (5s safety buffer). See openai-client.ts.
 //   4. symbolTimeoutMs (90s) > pre-work_max (12s) + fetchTimeoutMs (65s) = 77s ✓
 //
 // gpt-4o-mini token generation speed: ~60-90 tokens/sec. For 1500 tokens: 17-25s.
-// For 500 tokens (max_tokens default from openai-client.ts): 6-9s.
-// coordinator-alpha.ts explicitly passes max_tokens: 1500 — this is the binding budget.
-// At 45s, even a 1500-token slow response (25s generation + 8s overhead = 33s) completes safely.
-const FUNCTION_TIMEOUT_MS = 55000; // CCIP-2026-03-13e: Self-kill at 55s, 5s before Netlify 60s hard limit.
-const OPENAI_REQUEST_TIMEOUT_MS = 45000; // CCIP-2026-03-13e: Restored to 45s — 20s was too short for 1500-token responses.
+// Alpha coordination calls observed at 60k-prompt-tokens + 1900-completion land 27-42s P50-P99.
+// A 45s abort was cutting the P99 tail — 504s visible to users. CCIP-2026-0511T raises budget:
+// OPENAI_REQUEST_TIMEOUT_MS: 45s → 52s (7s of P99 headroom)
+// FUNCTION_TIMEOUT_MS:       55s → 58s (keeps 2s below Netlify 60s hard ceiling)
+// Next structural fix: compress alpha-identity.ts prompt from 60k → ~12k tokens (Phase 2).
+const FUNCTION_TIMEOUT_MS = 58000; // CCIP-2026-0511T: Self-kill at 58s, 2s before Netlify 60s hard limit.
+const OPENAI_REQUEST_TIMEOUT_MS = 52000; // CCIP-2026-0511T: 52s gives P99 Alpha (~42s) 10s headroom.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {
