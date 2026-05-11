@@ -583,6 +583,26 @@ class GoalSessionLiveEngine {
       const config = this.config;
       activeSession = this.activeSession;
 
+      // CCIP-2026-0511G: User-rescan governance. When an intent is abandoned
+      // (SL cross or 24h safety ceiling), the session is parked in
+      // 'awaiting_user_rescan'. Polling must halt until the user taps
+      // "Scan Again" — no automatic scans, no next_scan_time writes.
+      {
+        const { data: sessionRow } = await supabase
+          .from('goal_sessions')
+          .select('status')
+          .eq('id', activeSession)
+          .maybeSingle();
+
+        if (sessionRow?.status === 'awaiting_user_rescan') {
+          logger.info(
+            LogCategory.AI_TRADING,
+            `[CCIP-2026-0511G] Session ${activeSession} is awaiting user rescan — skipping scan cycle.`
+          );
+          return;
+        }
+      }
+
       // 🔍 CRITICAL: Log entry to processMultiSymbolCycle for debugging
 
       // 💭 THOUGHT STREAM: Clear old thoughts
@@ -2593,6 +2613,9 @@ class GoalSessionLiveEngine {
         await this.sendAIThinkingUpdate(latestCandle, sortedCandles, result);
       }
 
+      // CCIP-2026-0511G: Do not write next_scan_time when session is parked
+      // in awaiting_user_rescan. User-driven rescan governance forbids the
+      // engine from auto-scheduling any future scan.
       await supabase
         .from('goal_sessions')
         .update({
@@ -2600,7 +2623,8 @@ class GoalSessionLiveEngine {
           next_scan_time: new Date(Date.now() + this.POLLING_INTERVAL_MS).toISOString(),
           client_last_seen: new Date().toISOString()
         })
-        .eq('id', this.activeSession);
+        .eq('id', this.activeSession)
+        .neq('status', 'awaiting_user_rescan');
 
     } catch (error) {
       console.error('[Goal Live Engine] Autonomous processing error:', error);

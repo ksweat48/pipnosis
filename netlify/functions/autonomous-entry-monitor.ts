@@ -263,36 +263,52 @@ export const handler: Handler = async (event, context) => {
               results.push({ intentId: intent.intent_id, symbol: intent.symbol, success: false, action: 'execution_failed_at_timeout' });
             }
           } else {
-            console.log(`[Entry Monitor] ⏰ Intent ${intent.intent_id.substring(0, 8)} expired and price is outside zone — abandoning`);
-            await handleTimeout(intent);
+            // CCIP-2026-0511G: 24h safety ceiling fired. No thesis invalidation
+            // occurred, but we refuse to hold intents forever. Park the session
+            // in awaiting_user_rescan — the user must tap Scan Again.
+            console.log(`[Entry Monitor] ⏰ Intent ${intent.intent_id.substring(0, 8)} hit 24h safety ceiling — parking session for user rescan`);
+            await abandonIntentAndParkSession(
+              intent,
+              'safety_ceiling_24h',
+              '24h safety ceiling reached without thesis invalidation',
+              `${intent.symbol} wait intent reached the 24h safety ceiling without the thesis being invalidated. Tap Scan Again to continue.`
+            );
             abandonedCount++;
             successCount++;
             results.push({
               intentId: intent.intent_id,
               symbol: intent.symbol,
               success: true,
-              action: 'timeout'
+              action: 'safety_ceiling_24h'
             });
           }
           continue;
         }
 
-        // Check invalidation price (stop loss crossed)
+        // CCIP-2026-0511G: SL cross is the ONLY natural thesis-invalidation
+        // signal. Wall-clock timers no longer abandon wait intents. When the
+        // invalidation price is breached, park the session in
+        // awaiting_user_rescan — no auto-rescan.
         if (intent.invalidation_price) {
           const isInvalidated = intent.direction === 'long'
             ? intent.current_price <= intent.invalidation_price
             : intent.current_price >= intent.invalidation_price;
 
           if (isInvalidated) {
-            console.log(`[Entry Monitor] 🚫 Intent ${intent.intent_id.substring(0, 8)} invalidated (price crossed stop loss)`);
-            await abandonIntent(intent.intent_id, 'Price crossed invalidation level');
+            console.log(`[Entry Monitor] 🚫 Intent ${intent.intent_id.substring(0, 8)} thesis invalidated (price crossed SL ${intent.invalidation_price})`);
+            await abandonIntentAndParkSession(
+              intent,
+              'thesis_invalidated_sl_cross',
+              `Price ${intent.current_price} crossed invalidation level ${intent.invalidation_price}`,
+              `${intent.symbol} thesis invalidated — price crossed the stop loss before reaching the entry zone. Tap Scan Again to continue.`
+            );
             abandonedCount++;
             successCount++;
             results.push({
               intentId: intent.intent_id,
               symbol: intent.symbol,
               success: true,
-              action: 'invalidated'
+              action: 'thesis_invalidated'
             });
             continue;
           }
@@ -341,94 +357,11 @@ export const handler: Handler = async (event, context) => {
 
         console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: elapsed=${minutesElapsed.toFixed(1)}min, tolerance=${zoneTolerancePips}p, inZone=${isInZone}`);
 
-        // PHASE 3 TIMEOUT ABANDONMENT: If max wait exceeded AND price is outside zone, abandon immediately
-        // Per CCIP: Trades degrade intelligently - they do not silently hang forever
-        // User requirement: Abandon when time expires, reset state, allow manual rescan
-        if (minutesElapsed >= thresholds.max_wait_min && !isInZone) {
-          console.log(`[Entry Monitor] ⏰ ABANDONING ${intent.symbol}: Max wait ${thresholds.max_wait_min}min exceeded and price never reached zone`);
-          console.log(`[Entry Monitor] Time elapsed: ${minutesElapsed.toFixed(1)}min | Phase ${urgencyPhase} | Tolerance: ${zoneTolerancePips} pips`);
-          console.log(`[Entry Monitor] Price: ${intent.current_price} | Zone: ${intent.entry_zone_min}-${intent.entry_zone_max}`);
-          console.log(`[Entry Monitor] Reason: Entry opportunity expired - price movement did not favor entry`);
-
-          try {
-            // Step 1: Mark intent as expired
-            await supabase
-              .from('entry_intents')
-              .update({
-                status: 'expired_no_entry',
-                canceled_at: new Date().toISOString(),
-                canceled_reason: `Max wait time ${thresholds.max_wait_min} minutes exceeded - price never reached entry zone (Phase ${urgencyPhase})`
-              })
-              .eq('id', intent.intent_id);
-
-            // Step 2: Reset monitor state to allow new scans
-            // CRITICAL: This unblocks the scanner so user can manually rescan
-            if (intent.session_id) {
-              const { error: transitionError } = await supabase.rpc('transition_entry_monitor_state', {
-                p_session_id: intent.session_id,
-                p_new_state: 'DISCOVERY_SCANNING',
-                p_locked_symbol: null,
-                p_locked_direction: null
-              });
-
-              if (transitionError) {
-                console.error(`[Entry Monitor] ⚠️ Failed to reset monitor state:`, transitionError);
-              } else {
-                console.log(`[Entry Monitor] ✅ Monitor state reset to DISCOVERY_SCANNING`);
-              }
-            }
-
-            const abandonMsg = intent.intent_mode === 'push_confirmation_zone'
-              ? `${intent.symbol} push confirmation timed out after ${minutesElapsed.toFixed(0)}min — price never pushed into the confirmation zone. Rescanning automatically.`
-              : `${intent.symbol} entry timed out after ${minutesElapsed.toFixed(0)}min — price never reached the entry zone. Rescanning automatically.`;
-
-            // Step 3a: In-app notification
-            await supabase.from('goal_notifications').insert({
-              user_id: intent.user_id,
-              goal_session_id: intent.session_id,
-              type: 'entry_abandoned',
-              title: `Entry Cancelled: ${intent.symbol}`,
-              message: abandonMsg,
-              priority: 'medium',
-              metadata: {
-                symbol: intent.symbol,
-                direction: intent.direction,
-                reason: 'timeout_no_entry',
-                intent_mode: intent.intent_mode ?? 'pullback_to_zone',
-                minutes_elapsed: Math.round(minutesElapsed),
-                max_wait_minutes: thresholds.max_wait_min,
-                phase: urgencyPhase,
-                price: intent.current_price,
-                zone_min: intent.entry_zone_min,
-                zone_max: intent.entry_zone_max
-              }
-            });
-
-            // Step 3b: Push notification to mobile
-            await sendAbandonmentPushNotification(intent, abandonMsg);
-
-            abandonedCount++;
-            console.log(`[Entry Monitor] ✅ Abandoned ${intent.symbol} and reset state - ready for new scan`);
-
-            results.push({
-              intentId: intent.intent_id,
-              symbol: intent.symbol,
-              success: true,
-              action: 'abandoned_timeout'
-            });
-          } catch (error) {
-            console.error(`[Entry Monitor] ❌ Error during abandonment:`, error);
-            errorCount++;
-            errors.push({
-              context: 'abandon_timeout',
-              intent_id: intent.intent_id,
-              symbol: intent.symbol,
-              error: (error as Error).message
-            });
-          }
-
-          continue;
-        }
+        // CCIP-2026-0511G: Phase-3 wall-clock abandonment REMOVED.
+        // Wait intents now end only on (a) SL-cross thesis invalidation or
+        // (b) the 24h safety ceiling — both handled earlier in the loop.
+        // Phase tolerances still widen zone acceptance over time; they no
+        // longer drive abandonment.
 
         const edgeDecayPercent = Math.min(100, (minutesElapsed / thresholds.max_wait_min) * 100);
 
@@ -1156,6 +1089,79 @@ async function abandonIntent(intentId: string, reason: string): Promise<void> {
 
   if (error) {
     console.error('[Entry Monitor] ⚠️ Failed to abandon intent:', error.message);
+  }
+}
+
+// CCIP-2026-0511G: Abandon intent AND park session in awaiting_user_rescan.
+// The Postgres trigger that used to auto-reschedule the session has been
+// dropped — this helper is the only abandonment path for wait intents.
+async function abandonIntentAndParkSession(
+  intent: IntentForMonitoring,
+  abandonmentReason: 'thesis_invalidated_sl_cross' | 'safety_ceiling_24h',
+  intentCanceledReason: string,
+  userMessage: string
+): Promise<void> {
+  try {
+    const { error: intentError } = await supabase
+      .from('entry_intents')
+      .update({
+        status: 'timeout',
+        canceled_at: new Date().toISOString(),
+        canceled_reason: intentCanceledReason,
+        abandonment_reason: abandonmentReason
+      })
+      .eq('id', intent.intent_id);
+
+    if (intentError) {
+      console.error('[Entry Monitor] ⚠️ Failed to mark intent abandoned:', intentError.message);
+    }
+
+    if (intent.session_id) {
+      const { error: sessionError } = await supabase
+        .from('goal_sessions')
+        .update({ status: 'awaiting_user_rescan' })
+        .eq('id', intent.session_id)
+        .in('status', ['scanning', 'trade_pending', 'active', 'initializing']);
+
+      if (sessionError) {
+        console.error('[Entry Monitor] ⚠️ Failed to park session in awaiting_user_rescan:', sessionError.message);
+      } else {
+        console.log(`[Entry Monitor] 🅿️ Session ${intent.session_id} parked in awaiting_user_rescan`);
+      }
+
+      const { error: transitionError } = await supabase.rpc('transition_entry_monitor_state', {
+        p_session_id: intent.session_id,
+        p_new_state: 'DISCOVERY_SCANNING',
+        p_locked_symbol: null,
+        p_locked_direction: null
+      });
+      if (transitionError) {
+        console.warn('[Entry Monitor] ⚠️ Failed to reset monitor state:', transitionError.message);
+      }
+    }
+
+    await supabase.from('goal_notifications').insert({
+      user_id: intent.user_id,
+      goal_session_id: intent.session_id,
+      type: 'entry_abandoned',
+      title: `Entry Cancelled: ${intent.symbol}`,
+      message: userMessage,
+      priority: 'medium',
+      metadata: {
+        symbol: intent.symbol,
+        direction: intent.direction,
+        reason: abandonmentReason,
+        intent_mode: intent.intent_mode ?? 'pullback_to_zone',
+        price: intent.current_price,
+        zone_min: intent.entry_zone_min,
+        zone_max: intent.entry_zone_max,
+        invalidation_price: intent.invalidation_price
+      }
+    });
+
+    await sendAbandonmentPushNotification(intent, userMessage);
+  } catch (err) {
+    console.error('[Entry Monitor] ❌ abandonIntentAndParkSession failed:', err);
   }
 }
 

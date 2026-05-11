@@ -759,6 +759,27 @@ export const GoalSessionDashboard: React.FC = () => {
     }
   };
 
+  // CCIP-2026-0511G: User-driven rescan after intent abandonment.
+  // When a wait intent ends (SL cross or 24h safety ceiling), the session
+  // is parked in 'awaiting_user_rescan'. The user taps "Scan Again" here
+  // to restart scanning — no automatic restarts are permitted.
+  const handleUserRescan = async () => {
+    if (!user || !activeSession) return;
+    try {
+      await supabase
+        .from('goal_sessions')
+        .update({
+          status: 'scanning',
+          last_scan_time: new Date().toISOString(),
+          next_scan_time: new Date().toISOString(),
+        })
+        .eq('id', activeSession.sessionId);
+      await loadSessionData();
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Error triggering user rescan:', error);
+    }
+  };
+
   const handleViewAchievements = () => {
     console.log('[GoalSessionDashboard] View All Achievements clicked - navigating...');
     window.dispatchEvent(new CustomEvent('switch-to-achievements-tab'));
@@ -1835,6 +1856,38 @@ export const GoalSessionDashboard: React.FC = () => {
         )}
         </div>
       </div>
+
+      {activeSession && activeSession.status === 'awaiting_user_rescan' && openTrades.length === 0 && (
+        <div className="bg-gray-900/60 border border-amber-500/40 rounded-xl p-5">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <AlertTriangle className="w-6 h-6 text-amber-400" />
+            </div>
+            <div className="flex-1">
+              <h4 className="text-amber-200 font-semibold mb-2">Entry Abandoned</h4>
+              <p className="text-gray-300 text-sm mb-4">
+                The previous entry plan ended (stop-loss crossed or 24-hour safety ceiling). Review
+                current market conditions and tap Scan Again when you're ready for Alpha to hunt the
+                next setup.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleUserRescan}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold transition-colors"
+                >
+                  Scan Again
+                </button>
+                <button
+                  onClick={handleStopSession}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  End Session
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeSession && activeSession.status === 'scanning' && openTrades.length === 0 && (
         <div>
