@@ -4010,6 +4010,76 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // CCIP-2026-0511Y: Q1-Q12 PRESENCE VALIDATION + COMPUTED LEDGER
+        // ───────────────────────────────────────────────────────────────────
+        // Alpha was self-reporting `reconciliation_ledger_complete: true`
+        // while Q1-Q8 were null. The old gate trusted the boolean. The
+        // forensic trail on the two losing XAUUSD SELLs showed both had
+        // Q1-Q8 null yet claimed a complete ledger.
+        //
+        // Fix: compute the ledger locally. It is complete ONLY when
+        //   (all Q1-Q12 present, non-null, non-empty)
+        //   AND (contradictions_unresolved_count === 0)
+        //   AND (winning_hypothesis === action)
+        // If the computed value disagrees with Alpha's self-report, we
+        // override the field so the CCIP-2026-0511A downgrade path below
+        // triggers naturally. Alpha's BRAIN is unchanged; the VALIDATOR
+        // is finally enforcing what the contract already promised.
+        // ═══════════════════════════════════════════════════════════════════
+        const Q_AUDIT_KEYS = [
+          'Q1_trend_alignment',
+          'Q2_structure_level',
+          'Q3_prior_rejections',
+          'Q4_momentum_stage',
+          'Q5_failure_mode',
+          'Q6_entry_trigger',
+          'Q7_confluence_confirmed',
+          'Q8_move_position_pct',
+          'Q9_sl_wick_proximity',
+          'Q10_entry_conviction',
+          'Q11_zone_entry_quality',
+          'Q12_market_phase',
+        ];
+        const missingQFields: string[] = [];
+        for (const qKey of Q_AUDIT_KEYS) {
+          const qVal = pickField(qKey);
+          const isEmpty =
+            qVal == null ||
+            (typeof qVal === 'string' && qVal.trim().length === 0);
+          if (isEmpty) missingQFields.push(qKey);
+        }
+        if (missingQFields.length > 0) {
+          missing.push(...missingQFields);
+        }
+
+        const allQPresent = missingQFields.length === 0;
+        const unresolvedResolved =
+          typeof unresolvedCount === 'number' && unresolvedCount === 0;
+        const winnerMatchesAction =
+          isDirectional &&
+          (winningNorm === 'BUY' || winningNorm === 'SELL') &&
+          winningNorm === actionNorm;
+        const ledgerCompleteComputed =
+          allQPresent && unresolvedResolved && winnerMatchesAction;
+
+        if (isDirectional && ledgerComplete === true && !ledgerCompleteComputed) {
+          const reasons: string[] = [];
+          if (!allQPresent) reasons.push(`Q_MISSING=[${missingQFields.join(',')}]`);
+          if (!unresolvedResolved) reasons.push(`unresolved=${String(unresolvedCount)}`);
+          if (!winnerMatchesAction) reasons.push(`winner=${winningNorm}!=action=${actionNorm}`);
+          invalid.push(
+            `LEDGER_SELF_REPORT_OVERRIDE: reconciliation_ledger_complete claimed true but computed false (${reasons.join('; ')})`
+          );
+          if (asRaw && typeof asRaw === 'object') {
+            (asRaw as Record<string, unknown>).reconciliation_ledger_complete = false;
+          }
+          (decision as Record<string, unknown>).reconciliation_ledger_complete = false;
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0511Y LEDGER OVERRIDE: Alpha self-reported complete but audit is incomplete. ${reasons.join(' | ')}`
+          );
+        }
+
         // CCIP-2026-0508D: Core 10-field presence is mandatory on ALL outputs.
         // For NO_TRADE we only relax the three execute_now-specific sub-checks
         // (ledger_complete=true, unresolved=0, winning=NONE is allowed).
