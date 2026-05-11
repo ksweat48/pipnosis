@@ -229,13 +229,12 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       'tp_multiplier_override',
       'rr_ceiling_override',
       'spread_estimate_pips',
-      'no_trade_statement',
       'directional_lean',
       'lean_confidence',
       'answer_sheet',
     ],
     properties: {
-      action: { type: 'string', enum: ['BUY', 'SELL', 'NO_TRADE'] },
+      action: { type: 'string', enum: ['BUY', 'SELL'] },
       entry: { type: ['number', 'null'] },
       stopLoss: { type: ['number', 'null'] },
       takeProfit: { type: ['number', 'null'] },
@@ -264,12 +263,11 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       tp_multiplier_override: { type: ['number', 'null'] },
       rr_ceiling_override: { type: ['number', 'null'] },
       spread_estimate_pips: { type: ['number', 'null'] },
-      // CCIP-2026-0510O: NO_TRADE transparency block.
-      // On BUY/SELL these are null; on NO_TRADE Alpha must fill them with a
-      // specific price-level + trigger-event sentence (no_trade_statement) and
-      // a directional opinion (directional_lean / lean_confidence). Schema-
-      // level presence pairs with the coordinator's 0333 quality gate.
-      no_trade_statement: { type: ['string', 'null'] },
+      // CCIP-2026-0511A: Always-execute mandate. NO_TRADE has been eliminated
+      // from the vocabulary (see confidence-tier.ts SSOT). Alpha must always
+      // produce a directional decision (BUY or SELL). `directional_lean` and
+      // `lean_confidence` remain as conviction-tilt diagnostics but no longer
+      // serve a NO_TRADE transparency purpose.
       directional_lean: {
         anyOf: [
           { type: 'string', enum: ['BUY_LEAN', 'SELL_LEAN', 'NEUTRAL'] },

@@ -3327,7 +3327,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // missing the 10 mandatory audit keys (CCIP-2026-0508C gate trigger).
       model: 'gpt-4o-2024-08-06',
       temperature: 0.3,
-      max_completion_tokens: 3000,
+      max_completion_tokens: 5000,
       requestType: 'alpha_coordination',
       endpoint: 'alpha-coordinator',
       symbol: marketContext.symbol,
@@ -3890,7 +3890,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           try {
             const repairResponse = await openAIClient.chat(repairMessages, {
               ...alphaCallOptions,
-              max_completion_tokens: 1500,
+              max_completion_tokens: 2500,
               requestType: 'alpha_coordination_repair'
             });
             const repairContent = repairResponse.choices[0]?.message?.content || '{}';
@@ -4103,21 +4103,26 @@ Return PURE JSON only — all required fields from the schema in my system promp
         ];
         const fullViolations = [...missing.map((f) => `MISSING:${f}`), ...invalid];
 
+        // CCIP-2026-0511A — NO_TRADE eliminated from vocabulary (confidence-tier.ts SSOT).
+        // The gate no longer rewrites decisions to NO_TRADE. When a directional decision
+        // is missing mandatory audit fields, we preserve the BUY/SELL action but downgrade
+        // conviction to low_quality wait_pullback and flag the audit gap for governance.
+        // The old !isDirectional (NO_TRADE) branch is now unreachable and removed.
         if (isDirectional && fullViolations.length > 0) {
-          const blockReason = `CCIP-2026-0508C_MANDATORY_AUDIT_INCOMPLETE: ${fullViolations.join(' | ')}`;
+          const blockReason = `CCIP-2026-0511A_AUDIT_INCOMPLETE_DOWNGRADED: ${fullViolations.join(' | ')}`;
 
-          console.error(
-            `[Alpha Coordinator] CCIP-2026-0508C HARD GATE FIRED: ${blockReason}. ` +
-            `Symbol=${marketContext.symbol}, Action=${actionNorm}, EntryMode=${entryMode}. ` +
-            `Rewriting decision to NO_TRADE.`
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0511A AUDIT DOWNGRADE: ${blockReason}. ` +
+            `Symbol=${marketContext.symbol}, Action=${actionNorm}. ` +
+            `Action preserved; conviction downgraded to low_quality wait_pullback.`
           );
 
           logViolation({
-            violationType: 'CCIP_0508C_MANDATORY_AUDIT_INCOMPLETE',
+            violationType: 'CCIP_0511A_AUDIT_INCOMPLETE_DOWNGRADED',
             symbol: marketContext.symbol,
             attemptedOperation: 'mandatory_audit_gate',
             callLocation: 'coordinator-alpha/coordinate',
-            blocked: true,
+            blocked: false,
             errorDetails: {
               missing,
               invalid,
@@ -4129,42 +4134,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }).catch(() => {});
 
           const dMut = decision as Record<string, unknown>;
-          dMut.action = 'NO_TRADE';
-          dMut.decision = 'NO_TRADE';
-          dMut.entry_mode = null;
-          dMut.confidence_tier = null;
+          dMut.confidence_tier = 'low_quality';
+          dMut.entry_mode = 'wait_pullback';
           dMut.block_reason = blockReason;
-          dMut.decision_origin = 'SYSTEM_GATE_0508C';
-        } else if (!isDirectional && presenceOnlyViolations.length > 0) {
-          // CCIP-2026-0508D: NO_TRADE output missing the 10 mandatory audit
-          // fields. We keep action=NO_TRADE but loudly audit the incompleteness
-          // so governance review surfaces every unaudited reasoning instance.
-          const blockReason = `CCIP-2026-0508D_NOTRADE_AUDIT_INCOMPLETE: ${presenceOnlyViolations.join(' | ')}`;
-
-          console.error(
-            `[Alpha Coordinator] CCIP-2026-0508D NO_TRADE AUDIT GATE FIRED: ${blockReason}. ` +
-            `Symbol=${marketContext.symbol}. NO_TRADE preserved but flagged for reinforcement.`
-          );
-
-          logViolation({
-            violationType: 'CCIP_0508D_NOTRADE_AUDIT_INCOMPLETE',
-            symbol: marketContext.symbol,
-            attemptedOperation: 'mandatory_audit_gate_notrade',
-            callLocation: 'coordinator-alpha/coordinate',
-            blocked: false,
-            errorDetails: {
-              missing,
-              invalid: presenceOnlyViolations,
-              action: actionNorm,
-              entry_mode: entryMode,
-              winning_hypothesis: winningNorm,
-              userId: userId || 'unknown',
-            },
-          }).catch(() => {});
-
-          const dMut = decision as Record<string, unknown>;
-          dMut.block_reason = blockReason;
-          dMut.decision_origin = 'SYSTEM_GATE_0508D_NOTRADE_AUDIT';
+          dMut.decision_origin = 'SYSTEM_DOWNGRADE_0511A';
         }
       } catch (gateErr) {
         console.error('[Alpha Coordinator] CCIP-2026-0508C gate evaluation error:', gateErr);
@@ -4207,11 +4180,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       // CCIP-2026-0325A: Q12 market phase omission audit.
       // Advisory violation only — trade is NOT blocked. Logged for governance audit trail.
-      if (
-        decision.answer_sheet &&
-        (!decision.answer_sheet.Q12_market_phase ||
-          decision.answer_sheet.Q12_market_phase.trim() === '')
-      ) {
+      const q12Raw = decision.answer_sheet?.Q12_market_phase;
+      const q12Str = typeof q12Raw === 'string' ? q12Raw.trim() : '';
+      if (decision.answer_sheet && q12Str === '') {
         logViolation({
           violationType: 'Q12_MARKET_PHASE_OMITTED',
           symbol: marketContext.symbol,
