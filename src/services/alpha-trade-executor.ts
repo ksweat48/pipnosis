@@ -2283,6 +2283,13 @@ class AlphaTradeExecutor {
       scalpAtrTraveled: (decision as any).scalp_atr_traveled ?? null
     });
 
+    // CCIP-2026-0511D: diagnostic — surface (tier, continuous, confidence)
+    // triple at persistence so we can verify the downgrade-recompute reaches
+    // the goal_session_trades row (not just the alpha_decisions row).
+    console.info(
+      `[AlphaTradeExecutor] CCIP-2026-0511D insert triple: tier=${decision.confidence_tier ?? 'null'} continuous=${(decision as any).confidence_continuous ?? 'null'} confidence=${decision.confidence ?? 'null'}`
+    );
+
     return {
       user_id: userId,
       goal_session_id: sessionId,

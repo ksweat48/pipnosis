@@ -263,6 +263,7 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       'spread_estimate_pips',
       'directional_lean',
       'lean_confidence',
+      'counter_thesis_probability',
       'answer_sheet',
     ],
     properties: {
@@ -310,6 +311,13 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
         ],
       },
       lean_confidence: { type: ['number', 'null'] },
+      // CCIP-2026-0511D: counter_thesis_probability (0-100). Alpha's estimate
+      // that the losing hypothesis is actually correct. Paired with
+      // Q5_failure_probability to drive the continuous-confidence blend inside
+      // the tier band (see confidence-tier.ts deriveContinuousConfidence).
+      // Without this field, OpenAI strict mode strips it and every trade
+      // collapses to the tier midpoint — users see the same 65% forever.
+      counter_thesis_probability: { type: ['integer', 'null'] },
       answer_sheet: {
         type: 'object',
         additionalProperties: false,

@@ -4153,10 +4153,30 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }).catch(() => {});
 
           const dMut = decision as Record<string, unknown>;
+          const priorTier = dMut.confidence_tier;
+          const priorContinuous = dMut.confidence_continuous;
           dMut.confidence_tier = 'low_quality';
           dMut.entry_mode = 'wait_pullback';
           dMut.block_reason = blockReason;
           dMut.decision_origin = 'SYSTEM_DOWNGRADE_0511A';
+
+          // CCIP-2026-0511D: Recompute continuous confidence against the
+          // new tier band. Without this, the decision carries a
+          // low_quality tier (band [0,59]) alongside a stale continuous
+          // value (e.g. 65) that lies outside the band — a mathematical
+          // impossibility that causes "every trade = 65%" in the UI.
+          const q5Raw = (decision as any)?.answer_sheet?.Q5_failure_probability;
+          const counterRaw = (decision as any)?.counter_thesis_probability;
+          const q5Fail = typeof q5Raw === 'number' ? q5Raw : null;
+          const rewardProb = typeof counterRaw === 'number'
+            ? Math.max(0, Math.min(100, 100 - counterRaw))
+            : null;
+          const recomputed = deriveContinuousConfidence('low_quality', q5Fail, rewardProb);
+          dMut.confidence_continuous = recomputed;
+          (decision as any).confidence = recomputed;
+          console.info(
+            `[Alpha Coordinator] CCIP-2026-0511D downgrade recompute: tier ${String(priorTier)} -> low_quality, continuous ${String(priorContinuous)} -> ${recomputed}`
+          );
         }
       } catch (gateErr) {
         console.error('[Alpha Coordinator] CCIP-2026-0508C gate evaluation error:', gateErr);
