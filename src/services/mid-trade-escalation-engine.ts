@@ -61,7 +61,7 @@ interface OpenTrade {
   opened_at: string | null;
   trade_style: string | null;
   mid_trade_plan: MidTradePlan | null;
-  alpha_reasoning_snapshot: any;
+  alpha_reasoning_snapshot: string | null;
   alpha_recheck_verdict: any;
   thesis_status: string | null;
   last_alpha_recheck_at: string | null;
