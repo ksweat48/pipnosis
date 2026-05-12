@@ -222,97 +222,45 @@ class MultiTimeframePatternIntelligence {
   }
 
   /**
-   * Format pattern intelligence for Alpha's LLM prompt
+   * Format pattern intelligence for Alpha's LLM prompt.
+   *
+   * CCIP-2026-0512A RAW-DATA DOCTRINE:
+   * Emits raw pattern geometry only. No intent labels, no direction bias,
+   * no alignment verdicts, no SUPPORTS/CONFLICTS narratives, no warnings,
+   * no "Overall Reasoning" sentences. Alpha receives the pattern types
+   * detected at each timeframe plus the geometric levels (liquidity
+   * targets, invalidation price) and interprets them himself.
    */
   formatForAlphaPrompt(result: PatternIntelligenceResult): string {
     const lines: string[] = [];
 
-    lines.push('=== MULTI-TIMEFRAME PATTERN INTELLIGENCE ===');
+    lines.push('=== MULTI-TIMEFRAME PATTERN GEOMETRY (raw readings) ===');
     lines.push('');
 
-    // HTF Analysis
-    lines.push(`HTF (${result.htfScan.timeframe}) - Campaign Intent:`);
-    if (result.htfScan.primaryPattern) {
-      lines.push(`  Pattern: ${result.htfScan.primaryPattern.patternType} (${result.htfScan.primaryPattern.strength})`);
-      lines.push(`  Direction: ${result.htfScan.primaryPattern.direction}`);
-      lines.push(`  Intent: ${result.intentAnalysis.htf.intent} (${result.intentAnalysis.htf.confidence}%)`);
-    } else {
-      lines.push(`  No clear pattern - ${result.intentAnalysis.htf.intent}`);
-    }
+    const tfLine = (label: string, scan: PatternIntelligenceResult['htfScan']) => {
+      if (scan.primaryPattern) {
+        lines.push(`${label} ${scan.timeframe}: ${scan.primaryPattern.patternType}`);
+      } else {
+        lines.push(`${label} ${scan.timeframe}: no_primary_pattern_detected`);
+      }
+    };
+
+    tfLine('HTF', result.htfScan);
+    tfLine('MTF', result.mtfScan);
+    tfLine('LTF', result.ltfScan);
     lines.push('');
 
-    // MTF Analysis
-    lines.push(`MTF (${result.mtfScan.timeframe}) - Expansion Preparation:`);
-    if (result.mtfScan.primaryPattern) {
-      lines.push(`  Pattern: ${result.mtfScan.primaryPattern.patternType} (${result.mtfScan.primaryPattern.strength})`);
-      lines.push(`  Direction: ${result.mtfScan.primaryPattern.direction}`);
-      lines.push(`  Intent: ${result.intentAnalysis.mtf.intent} (${result.intentAnalysis.mtf.confidence}%)`);
-    } else {
-      lines.push(`  No clear pattern - ${result.intentAnalysis.mtf.intent}`);
-    }
-    lines.push('');
-
-    // LTF Analysis
-    lines.push(`LTF (${result.ltfScan.timeframe}) - Execution Timing:`);
-    if (result.ltfScan.primaryPattern) {
-      lines.push(`  Pattern: ${result.ltfScan.primaryPattern.patternType} (${result.ltfScan.primaryPattern.strength})`);
-      lines.push(`  Direction: ${result.ltfScan.primaryPattern.direction}`);
-      lines.push(`  Intent: ${result.intentAnalysis.ltf.intent} (${result.intentAnalysis.ltf.confidence}%)`);
-    } else {
-      lines.push(`  No clear pattern - ${result.intentAnalysis.ltf.intent}`);
-    }
-    lines.push('');
-
-    // Overall Analysis
-    lines.push('PATTERN ALIGNMENT:');
-    lines.push(`  Score: ${result.intentAnalysis.alignmentScore}/3`);
-    lines.push(`  Overall Intent: ${result.intentAnalysis.overallIntent}`);
-    lines.push(`  Direction Bias: ${result.intentAnalysis.directionBias}`);
-    lines.push(`  Direction Aligned: ${result.intentAnalysis.directionAlignment ? 'YES' : 'NO'}`);
-    lines.push('');
-
-    // Pattern Signals (raw observations — Alpha prices these into his own confidence)
-    const allSignals = [
-      ...result.confidenceAdjustment.boosts.map(b => `SUPPORTS: ${b.reason}`),
-      ...result.confidenceAdjustment.penalties.map(p => `CONFLICTS: ${p.reason}`)
-    ];
-    if (allSignals.length > 0) {
-      lines.push('PATTERN SIGNALS:');
-      allSignals.forEach(s => lines.push(`  ${s}`));
-      lines.push('');
-    }
-
-    // Liquidity Targets
     if (result.liquidityTargets.length > 0) {
-      lines.push('PATTERN LIQUIDITY TARGETS:');
+      lines.push('Pattern-derived liquidity levels (raw prices):');
       result.liquidityTargets.forEach((target, i) => {
-        lines.push(`  Target ${i + 1}: ${target.toFixed(5)}`);
+        lines.push(`  L${i + 1}: ${target.toFixed(5)}`);
       });
       lines.push('');
     }
 
-    // Invalidation
     if (result.invalidationPoint) {
-      lines.push('PATTERN INVALIDATION:');
-      lines.push(`  Price: ${result.invalidationPoint.price.toFixed(5)}`);
-      lines.push(`  Reason: ${result.invalidationPoint.reasoning}`);
-      lines.push('');
+      lines.push(`Pattern invalidation level (raw price): ${result.invalidationPoint.price.toFixed(5)}`);
     }
-
-    // Warnings
-    if (result.intentAnalysis.conflictWarnings.length > 0) {
-      lines.push('⚠️ PATTERN WARNINGS:');
-      result.intentAnalysis.conflictWarnings.forEach(warning => {
-        lines.push(`  - ${warning}`);
-      });
-      lines.push('');
-    }
-
-    // Summary
-    lines.push('PATTERN VERDICT:');
-    lines.push(`  Supports Trade: ${result.patternsSupportTrade ? 'YES ✓' : 'NO ✗'}`);
-    lines.push(`  Opposes Trade: ${result.patternsOpposeTrade ? 'YES ⚠️' : 'NO ✓'}`);
-    lines.push(`  Overall Reasoning: ${result.intentAnalysis.reasoning}`);
 
     return lines.join('\n');
   }

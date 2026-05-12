@@ -80,7 +80,9 @@ import type { ATRValue } from '../types/atr';
 import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
-import { rrSuccessTracker } from '../services/rr-success-tracker';
+// CCIP-2026-0512A RAW-DATA DOCTRINE: rrSuccessTracker import removed.
+// The service remains available for dashboards but is forbidden from the
+// coordinator prompt pipeline.
 import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER, deriveContinuousConfidence } from '../config/confidence-tier';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
@@ -910,9 +912,14 @@ class AlphaCoordinatorBrain {
     // Parallelize all independent data fetches (bidirectional for dual-arena)
     // CCIP-2026-0506E FRESH-SCAN ISOLATION: The ai_trade_analysis historical query was
     // removed from this pipeline. Prior trade outcomes must NEVER flow into Alpha's prompt —
-    // each scan must reason from live market data alone. Contamination from historical
-    // win/loss records was producing pattern-matched SELL bias (see CCIP-2026-0506E).
-    const [, dailyNarrative, riskResultLong, riskResultShort, rrResult, monitorPrefRaw] = await Promise.all([
+    // each scan must reason from live market data alone.
+    // CCIP-2026-0512A RAW-DATA DOCTRINE: The rrSuccessTracker.getRecentPerformanceSummary()
+    // call was excised here. That feed was surfacing win/loss aggregates, R:R success rates,
+    // best/worst performing setups, and SL stop-out warnings into every scan — a direct
+    // violation of the raw-data-only mandate. Alpha receives live market data only; trade
+    // history is invisible to the live decision prompt. The service itself remains available
+    // for dashboards/analytics but MUST NOT be called from the coordinator.
+    const [, dailyNarrative, riskResultLong, riskResultShort, monitorPrefRaw] = await Promise.all([
       this.fetchPlatformIntelligence(marketContext.symbol),
       dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price),
       (userId && goalContext) ? professionalRiskManager.evaluateTrade({
@@ -933,8 +940,6 @@ class AlphaCoordinatorBrain {
         currentATR: extractATRValue(marketContext.atr),
         goalSessionId: undefined
       }).catch(err => { console.error('[Alpha Coordinator] Failed to get short risk assessment:', err); return null; }) : Promise.resolve(null),
-      userId ? rrSuccessTracker.getRecentPerformanceSummary(userId, marketContext.symbol)
-        .catch(err => { console.error('[Alpha Coordinator] Failed to fetch R:R performance:', err); return null; }) : Promise.resolve(null),
       userId ? supabase
         .from('user_monitor_preferences')
         .select('entry_price_monitor_enabled')
@@ -1083,9 +1088,11 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       shortWarnings: riskResultShort?.criticalWarnings?.filter((w: string) => w.toLowerCase().includes('correlat')) || [],
     } : null;
 
+    // CCIP-2026-0512A RAW-DATA DOCTRINE: narrative conflictDescription and authority
+    // sentence removed. Raw conflict flags only — Alpha interprets.
     let conflictContext = '';
     if (conflictInfo && conflictInfo.hasConflict) {
-      conflictContext = `\nOMEGA CONFLICT DETECTED:\nType: ${conflictInfo.conflictType} | Severity: ${conflictInfo.severity}\n${conflictInfo.conflictDescription}\n\nYou have authority to override if justified.\n`;
+      conflictContext = `\nOMEGA CONFLICT FLAGS: type=${conflictInfo.conflictType} severity=${conflictInfo.severity}\n`;
     }
 
     // CCIP-2026-0324A: Regime-Location Conflict Advisory
@@ -1133,12 +1140,10 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
     // Build advisory context (Adversarial Detector + Regime Oracle)
     let advisoryContext = this.buildAdvisoryContext(adversarialSignal, regimeSnapshot);
 
-    // CCIP 2026-02-17: Build Advanced Patterns Context (Priority 1 & 2 Upgrades)
-    // Build R:R performance context from parallel result
-    let rrPerformanceContext = '';
-    if (rrResult && rrResult.length > 100) {
-      rrPerformanceContext = `\n${rrResult}\n`;
-    }
+    // CCIP-2026-0512A RAW-DATA DOCTRINE: rrPerformanceContext was deleted here.
+    // Alpha must not see any historical performance aggregates, R:R success rates,
+    // SL stop-out warnings, or best/worst performing tallies. Only live raw sensor
+    // data is permitted in the prompt.
 
     const volatilityRegime = this.detectVolatilityRegime(marketContext);
     const stopQuality = this.calculateStopQualityScore(votes.omega8, null);
@@ -1180,23 +1185,14 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       dailyNarrativeContext = `\nDAILY CONTEXT (raw measurements):\n`;
       dailyNarrativeContext += `Daily high: ${dailyNarrative.dailyHigh} | Daily low: ${dailyNarrative.dailyLow} | Daily open: ${dailyNarrative.dailyOpen}\n`;
       dailyNarrativeContext += `Daily range: ${dailyNarrative.dailyRange.toFixed(1)} pips | Price position in range: ${dailyNarrative.rangePosition.toFixed(0)}% (0=low end, 100=high end)\n`;
-      dailyNarrativeContext += `Total daily displacement: ${dailyNarrative.dailyDisplacement.toFixed(1)} pips | Structure: ${dailyNarrative.structureQuality}\n`;
+      // CCIP-2026-0512A RAW-DATA DOCTRINE: structureQuality label and "Observation:" lines
+      // removed. Sweep facts surface as boolean flags with no narrative framing.
+      dailyNarrativeContext += `Total daily displacement: ${dailyNarrative.dailyDisplacement.toFixed(1)} pips\n`;
       dailyNarrativeContext += `Current session: ${dailyNarrative.currentSession}\n`;
       if (dailyNarrative.asianRange) {
         dailyNarrativeContext += `Asian session range: high=${dailyNarrative.asianRange.high} low=${dailyNarrative.asianRange.low}\n`;
       }
-      if (dailyNarrative.liquiditySweeps.asianLowSwept) {
-        dailyNarrativeContext += `Observation: Asian session low has been traded through\n`;
-      }
-      if (dailyNarrative.liquiditySweeps.asianHighSwept) {
-        dailyNarrativeContext += `Observation: Asian session high has been traded through\n`;
-      }
-      if (dailyNarrative.liquiditySweeps.dailyHighTested) {
-        dailyNarrativeContext += `Observation: Current daily high is being tested\n`;
-      }
-      if (dailyNarrative.liquiditySweeps.dailyLowTested) {
-        dailyNarrativeContext += `Observation: Current daily low is being tested\n`;
-      }
+      dailyNarrativeContext += `asian_low_swept=${dailyNarrative.liquiditySweeps.asianLowSwept} asian_high_swept=${dailyNarrative.liquiditySweeps.asianHighSwept} daily_high_tested=${dailyNarrative.liquiditySweeps.dailyHighTested} daily_low_tested=${dailyNarrative.liquiditySweeps.dailyLowTested}\n`;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1254,11 +1250,12 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
             // Dynamic baseline confirmed — full regime classification is reliable.
             console.log(`[Alpha Coordinator] Micro-Regime: ${regimeResult.regime} | Direction: ${regimeResult.direction} | Confidence: ${regimeResult.confidence}% | Samples: ${regimeResult.thresholds.sampleCount}`);
 
-            microRegimeContext = `\nMICRO-REGIME CLASSIFICATION (dynamic baseline — ${regimeResult.thresholds.sampleCount} real ${marketContext.symbol} ${regimeSessionCtx.sessionName ?? ''} readings):\n`;
+            // CCIP-2026-0512A RAW-DATA DOCTRINE: Regime label, direction verdict, and
+            // classification confidence removed. Alpha receives the raw indicator readings
+            // and the baseline percentile thresholds and interprets them himself.
+            microRegimeContext = `\nLIVE MARKET INDICATORS (vs ${regimeResult.thresholds.sampleCount}-sample ${marketContext.symbol} ${regimeSessionCtx.sessionName ?? ''} baseline):\n`;
             microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-            microRegimeContext += `Regime: ${regimeResult.regime.toUpperCase().replace(/_/g, ' ')} (${regimeResult.confidence}% classification confidence)\n`;
-            microRegimeContext += `Direction: ${regimeResult.direction.toUpperCase()}\n\n`;
-            microRegimeContext += `Raw Sensor Readings vs this symbol+session baseline:\n`;
+            microRegimeContext += `Raw sensor readings and baseline percentile thresholds:\n`;
             microRegimeContext += `  ATR Expansion: ${regimeResult.indicators.atrExpansion.toFixed(2)}x (top-30%>${regimeResult.thresholds.atrExpansionP70.toFixed(2)}, top-15%>${regimeResult.thresholds.atrExpansionP85.toFixed(2)}, bottom-30%<${regimeResult.thresholds.atrExpansionP30.toFixed(2)})\n`;
             microRegimeContext += `  EMA50 Displacement: ${regimeResult.indicators.emaDisplacement.toFixed(2)}% (p80=${regimeResult.thresholds.emaDisplacementP80.toFixed(2)}, p90=${regimeResult.thresholds.emaDisplacementP90.toFixed(2)}, p95=${regimeResult.thresholds.emaDisplacementP95.toFixed(2)})\n`;
             microRegimeContext += `  RSI: ${regimeResult.indicators.rsi.toFixed(0)}\n`;
@@ -1330,7 +1327,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
             liquidityIntentContext += `Nearest equal-${sweepFacts.sweep_type}s cluster: ${sweepFacts.nearest_cluster_price.toFixed(priceDecimals)}\n`;
           }
           liquidityIntentContext += `BOS confirmed post-sweep: ${sweepFacts.has_bos ? 'YES' : 'NO'}\n`;
-          liquidityIntentContext += `Sweep candle wick-to-body ratio: ${sweepFacts.wick_to_body_ratio.toFixed(2)}x (${sweepFacts.wick_to_body_ratio >= 2 ? 'strong wick — aggressive liquidity take' : sweepFacts.wick_to_body_ratio >= 1 ? 'moderate wick' : 'shallow wick'})\n`;
+          liquidityIntentContext += `Sweep candle wick-to-body ratio: ${sweepFacts.wick_to_body_ratio.toFixed(2)}x\n`;
           liquidityIntentContext += `Sweep candle volume vs average: ${sweepFacts.volume_ratio > 0 ? sweepFacts.volume_ratio.toFixed(2) + 'x average' : 'no volume data'}\n`;
           liquidityIntentContext += `Equal-highs clusters swept: ${sweepFacts.equal_highs_count}\n`;
           liquidityIntentContext += `Equal-lows clusters swept: ${sweepFacts.equal_lows_count}\n`;
@@ -1563,14 +1560,16 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       }
 
       if (liquidityZones.length > 0) {
-        liquidityContext = `\nLIQUIDITY ZONES (Both Directions):\n`;
-        liquidityContext += `ABOVE PRICE (Long targets):\n`;
+        // CCIP-2026-0512A RAW-DATA DOCTRINE: directional labels "Long targets"/"Short targets"
+        // removed. Zones are reported by raw geometric position (above/below current price).
+        liquidityContext = `\nLIQUIDITY ZONES (raw geometric levels):\n`;
+        liquidityContext += `ABOVE current price:\n`;
         longLiquidityZones.slice(0, 3).forEach((zone, idx) => {
-          liquidityContext += `  ${idx + 1}. ${zone.type.toUpperCase()} @ ${zone.price.toFixed(5)} (${zone.distance_pips.toFixed(1)} pips, ${zone.strength})\n`;
+          liquidityContext += `  ${idx + 1}. ${zone.type} @ ${zone.price.toFixed(5)} (${zone.distance_pips.toFixed(1)} pips, strength=${zone.strength})\n`;
         });
-        liquidityContext += `BELOW PRICE (Short targets):\n`;
+        liquidityContext += `BELOW current price:\n`;
         shortLiquidityZones.slice(0, 3).forEach((zone, idx) => {
-          liquidityContext += `  ${idx + 1}. ${zone.type.toUpperCase()} @ ${zone.price.toFixed(5)} (${zone.distance_pips.toFixed(1)} pips, ${zone.strength})\n`;
+          liquidityContext += `  ${idx + 1}. ${zone.type} @ ${zone.price.toFixed(5)} (${zone.distance_pips.toFixed(1)} pips, strength=${zone.strength})\n`;
         });
       }
     }
@@ -1861,23 +1860,16 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
 
     // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — only MICRO_INTRADAY.
+    // CCIP-2026-0512A RAW-DATA DOCTRINE: The HUNTER'S TP CONTRACT paragraph and the
+    // M5-exit-narrative teaching block were removed. They were telling Alpha *how* to
+    // think about TP placement. Alpha already knows how to trade. The prompt surfaces
+    // the timeframe facts and the required JSON audit fields only.
     const styleIdentityPrompt = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: MICRO_INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are operating as a M5 MICRO_INTRADAY trader.
-Timeframe stack: M5 (entry lens — my primary signal) | M15 (trend validation and direction confirmation) | H1 (macro bias only) | D1 (macro orientation).
-I read M5 candles as my primary entry signal. M15 confirms the trend direction — it tells me which way the structural energy is aligned. H1 orients the macro bias. Neither M15 nor H1 defines my TP destination — they define the directional context I am trading within.
-TP is where the M5 leg exhausts. I am trading a M5 momentum move. My exit is where the M5 candle sequence visibly runs out of energy — a prior M5 swing already printed in the direction of travel, equal highs/lows already established on M5, pace fading on the M5 candle bodies, a M5 FVG already filled. That is my TP zone — exhaustion of the M5 leg, not a named M15 structural destination.
-
-HUNTER'S TP CONTRACT (MICRO_INTRADAY):
-I am a hunter. My first question is: where does this M5 leg run out of energy? I look for: a prior M5 swing high/low already printed in the direction of travel, M5 equal highs/lows clustering that signal absorption, M5 candle bodies compressing and wicks extending (pace fading), M5 momentum visibly stalling. That is my TP1 zone (the fast partial — the scalp slice). If a clear second zone of M5 exhaustion exists further along — a second prior swing, a second cluster of equal highs/lows — I place TP2 there (the full intraday target).
-M15 tells me the direction is valid. H1 tells me the macro story. Neither tells me where to exit. The exit is the M5 leg's natural endpoint.
-I name the specific M5 exhaustion signal I am targeting for each TP AND state how many pips from entry it sits AND why the M5 momentum is most likely to die at that exact location. No fixed buffers. No formulas. I read the M5 tape and commit.
-Name the specific M5 structural level you are entering from in m5_structural_confirmation.
-Format: "[structure type] at [exact price] — [what confirms it]". Example: "M5 BOS at 1.08230 confirmed long bias on M15 trend".
-Valid M5 anchors: named M5 S/R levels, M5 range boundaries, session highs/lows, equal highs/lows, VWAP, EMA rejections, prior M5 swing points.
-Record m5_structural_confirmation, m5_move_phase, and m5_atr_traveled in the JSON response — these are audit fields that document my structural read for governance review regardless of action.
+Timeframe stack: M5 | M15 | H1 | D1.
+Record m5_structural_confirmation, m5_move_phase, and m5_atr_traveled in the JSON response — these are audit fields.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
@@ -1923,9 +1915,10 @@ Record m5_structural_confirmation, m5_move_phase, and m5_atr_traveled in the JSO
       //
       // The calculator still runs (required for omega9ConstraintProvider TP range calc and
       // lot sizing). Its output is NOT shown to Alpha.
+      // CCIP-2026-0512A RAW-DATA DOCTRINE: SL/TP AUTHORITY teaching sentence removed.
+      // Alpha's sovereignty is codified in governance, not re-asserted in every prompt.
       stopLossDirective = `
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: ${riskMode.toUpperCase()}
-SL/TP AUTHORITY: You have FULL authority to place SL and TP where structure justifies it. Read the candle sequence, identify the structural invalidation point for this setup, and commit. Only Omega-9 (mathematical impossibility — geometry, spread floor) can veto.
 `;
     }
 
@@ -1957,43 +1950,13 @@ SL/TP AUTHORITY: You have FULL authority to place SL and TP where structure just
       );
 
       if (cachedThesis && cachedThesis.fromCache) {
-        const ageMinutes = Math.round(cachedThesis.cacheAgeSeconds / 60);
-
-        // CCIP-2026-02-24: detectOmegaThesisConflict removed (was counting Omega votes).
-        // Thesis validation now uses the raw market briefing — Alpha reads current
-        // price action data and decides if the cached thesis still holds.
-        cachedThesisPrompt = `
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CACHED MARKET THESIS (Age: ${ageMinutes}min)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-The following thesis was generated ${ageMinutes} minutes ago for the same regime:
-
-Direction Bias: ${cachedThesis.directionBias}
-Regime: ${cachedThesis.regime}
-Narrative: ${cachedThesis.narrative}
-Liquidity Context: ${cachedThesis.liquidityContext || 'Not specified'}
-Confidence Band: ${cachedThesis.confidenceBand}
-
-THESIS VALIDATION INSTRUCTIONS:
-Compare the cached thesis against the CURRENT MARKET INTELLIGENCE BRIEFING below.
-
-CRITICAL: You MUST return your final response as valid JSON regardless of your thesis decision.
-DO NOT return plain text. DO NOT return REJECT_THESIS as a raw string outside of JSON.
-
-If current price action and structure SUPPORT the thesis direction:
-  → Include "thesis_status": "ACCEPTED_THESIS" in your JSON response
-  → Proceed with BUY/SELL/NO_TRADE decision as normal
-
-If current data CONTRADICTS the thesis:
-  → Include "thesis_status": "REJECT_THESIS" and "thesis_rejection_reason": "[brief reason]" in your JSON
-  → Set "action": "NO_TRADE" and explain in "reasoning" why the thesis is invalid
-  → Example: {"action": "NO_TRADE", "thesis_status": "REJECT_THESIS", "thesis_rejection_reason": "Bearish reversal invalidates bullish thesis", "reasoning": "...", "confidence": 0, "stopLoss": 0, "takeProfit": 0}
-
-If the structure has materially changed — direction broken, key level invalidated, or momentum reversed — reject and analyze fresh. If structure is intact and the thesis direction remains supported by current candle evidence, proceed with your own judgment on the current opportunity. The decision is yours.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`;
+        // CCIP-2026-0512A RAW-DATA DOCTRINE: Prior-thesis direction bias, narrative,
+        // and validation instructions removed. Replaying a cached verdict into the
+        // prompt is interpretation injection. Alpha re-reasons from the live raw
+        // sensor payload below. The cache remains as a cost-avoidance optimization
+        // on the infrastructure side only — nothing about the prior decision is
+        // surfaced back into the prompt body.
+        cachedThesisPrompt = '';
         console.log(`[Alpha Coordinator] Cached thesis available (${ageMinutes}min old), raw briefing attached for validation`);
       }
     } catch (error) {
@@ -2253,14 +2216,8 @@ ${primaryLines.join('\n')}
 ${primaryTfConfig.label} STRUCTURE SUMMARY:
 - ${primaryTfConfig.label} Range: ${tfRangePips.toFixed(1)} pips (High: ${tfHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${tfLow.toFixed(pipInfo.decimalPlaces)})
 - Consecutive same-direction ${primaryTfConfig.label} candles: ${consecutiveSameDir}
-- Last ${primaryTfConfig.label} candle: ${hasRejectionWick ? 'REJECTION WICK detected' : 'Normal candle'} (body: ${lastBody.toFixed(1)}p, upper wick: ${lastUpperWick.toFixed(1)}p, lower wick: ${lastLowerWick.toFixed(1)}p)
-- ${primaryTfConfig.label} Momentum: ${consecutiveSameDir >= 3 ? 'IMPULSIVE MOVE — ' + consecutiveSameDir + ' consecutive same-direction ' + primaryTfConfig.label + ' candles. Pullback is highly probable before continuation.' : consecutiveSameDir >= 2 ? 'Developing trend — 2 consecutive ' + primaryTfConfig.label + ' candles, monitor for continuation or pullback' : 'Mixed/consolidating — no impulsive leg detected on ' + primaryTfConfig.label}
+- Last ${primaryTfConfig.label} candle: body=${lastBody.toFixed(1)}p upper_wick=${lastUpperWick.toFixed(1)}p lower_wick=${lastLowerWick.toFixed(1)}p
 ${emaContextBlock}
-PULLBACK ASSESSMENT RULE (${primaryTfConfig.label} TIMEFRAME):
-${consecutiveSameDir >= 3
-  ? `IMPULSIVE LEG OBSERVATION: ${consecutiveSameDir} consecutive same-direction ${primaryTfConfig.label} candles detected. This is an extended ${primaryTfConfig.label} move without a structural pullback. Document your entry_advisory verdict and the structural reasoning behind it — whether continuation, pullback probability, or other. State your assessment of what the consecutive candle count means for this specific setup and let your conviction score reflect it.`
-  : `No impulsive ${primaryTfConfig.label} leg detected. Assess structural levels, EMA proximity, and wick bias to determine entry quality.`}
-
 ${primaryTfConfig.label} STRUCTURAL EVIDENCE (pre-computed from same window):
 - BOS BULL (last close > prior high): ${primaryBOSBull ? 'YES' : 'NO'}
 - BOS BEAR (last close < prior low): ${primaryBOSBear ? 'YES' : 'NO'}
@@ -2523,11 +2480,11 @@ M15 DIRECTION SUMMARY:
 - M15 Structural Range (last ${recentM15Dir.length} candles): ${m15DirRangePips.toFixed(1)} pips | High: ${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} | Low: ${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}
 - M15 Current trend direction: ${m15DirTrend}
 - Consecutive same-direction M15 candles: ${m15DirConsecutive}
-- Last M15 candle: ${m15DirRejectionWick ? 'REJECTION WICK detected — possible exhaustion or reversal at M15 level' : 'Normal candle — no strong wick signal'}
-- M15 BOS BULL (last M15 close > prior M15 high): ${m15DirBOSBull ? 'YES — bullish M15 break of structure confirmed' : 'NO'}
-- M15 BOS BEAR (last M15 close < prior M15 low): ${m15DirBOSBear ? 'YES — bearish M15 break of structure confirmed' : 'NO'}
-- M15 SWEEP WICK BULL (lower wick ≥1.5x body, last 2 candles): ${m15DirSweepWickBull ? 'YES — bullish absorption on M15' : 'NO'}
-- M15 SWEEP WICK BEAR (upper wick ≥1.5x body, last 2 candles): ${m15DirSweepWickBear ? 'YES — bearish absorption on M15' : 'NO'}
+- Last M15 rejection wick flag: ${m15DirRejectionWick ? 'YES' : 'NO'}
+- M15 BOS BULL (last M15 close > prior M15 high): ${m15DirBOSBull ? 'YES' : 'NO'}
+- M15 BOS BEAR (last M15 close < prior M15 low): ${m15DirBOSBear ? 'YES' : 'NO'}
+- M15 SWEEP WICK BULL (lower wick >=1.5x body, last 2 candles): ${m15DirSweepWickBull ? 'YES' : 'NO'}
+- M15 SWEEP WICK BEAR (upper wick >=1.5x body, last 2 candles): ${m15DirSweepWickBear ? 'YES' : 'NO'}
 
 The M15 structural high and low above are the reference points for the move stage advisory. I read the M15 candle sequence directly to assess whether the M5 entry direction is aligned with the M15 trend.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2931,7 +2888,7 @@ I read macro intelligence first, then interpret candle evidence through that len
 
 ADVISORY SOURCES (context inputs — not decision gates):
 - Regime Oracle: session and volatility regime context
-- Adversarial Detector: manipulation and trap pattern warnings
+- Adversarial Detector: raw stop-run / fake-breakout readings
 - Session Constraints: time-based liquidity context
 - Advisory signals inform my reasoning. They are context — I read them and reason about what they mean for this specific setup. They do not produce arithmetic deductions from my confidence. My confidence is my honest conviction that this trade wins.
 - Omega Sensors (Omega-8 through Omega-10): pure price-structure sensor readings — liquidity sweeps, FVGs, orderflow patterns, volume anomalies. These are raw structural observations about what the market has done. They carry no directional vote and no abstention. There is no "Omega disagreement" — there are only structural facts I interpret. I read them as evidence and build my judgment from that evidence.
@@ -2959,7 +2916,7 @@ These three questions replace the need for a "perfect setup". Structure + range 
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${momentumTrajectoryContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
+${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${momentumTrajectoryContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
 EXECUTION ANCHORS (price/ATR/spread already in briefing above — these are execution-only rules):
 - Entry/SL/TP price anchor: ${(marketContext.livePrice ?? marketContext.price).toFixed(pipInfoForLegend.decimalPlaces)}
@@ -6192,17 +6149,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
       parts.push(`  Observed Patterns: ${adversarial.patterns.join(', ')}`);
     }
     if (adversarial.stop_run_classification && adversarial.stop_run_classification.type !== 'none') {
-      parts.push(`  Stop-Run Type: ${adversarial.stop_run_classification.type} (${adversarial.stop_run_classification.candles_ago} candles ago)`);
-      parts.push(`  BOS Confirmed: ${adversarial.stop_run_classification.has_bos ? 'Yes' : 'No'}`);
-      parts.push(`  Reasoning: ${adversarial.stop_run_classification.reasoning}`);
-
-      // CCIP-2026-0422A: When a stop run is active and BOS has NOT fired, inject an explicit
-      // structural timing note. This is a sensor reading — Alpha interprets it and decides.
-      // The note surfaces the information Alpha needs for sweep-reclaim reasoning without
-      // pre-scoring the decision or blocking any entry_mode.
-      if (!adversarial.stop_run_classification.has_bos) {
-        parts.push(`  [STRUCTURAL NOTE — CCIP-2026-0422A]: Stop run detected, Break of Structure NOT YET confirmed. The sweep has fired but price has not yet reclaimed the swept level with a ${adversarial.stop_run_classification.type === 'active_stop_run' ? 'fresh directional close' : 'structural close above/below the sweep extreme'}. Sweep-reclaim protocol (4B) applies to any reversal thesis at this level. Alpha reads this and determines entry timing.`);
-      }
+      // CCIP-2026-0512A RAW-DATA DOCTRINE: narrative "Reasoning" string and
+      // "[STRUCTURAL NOTE]" interpretive paragraph removed. Alpha receives the
+      // raw classification fields and reads them himself.
+      parts.push(`  stop_run_type=${adversarial.stop_run_classification.type} candles_ago=${adversarial.stop_run_classification.candles_ago} bos_confirmed=${adversarial.stop_run_classification.has_bos}`);
     }
 
     return parts.join('\n');

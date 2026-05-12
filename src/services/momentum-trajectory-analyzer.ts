@@ -332,23 +332,18 @@ function getHuntDescription(phase: MomentumPhase): string {
  * Alpha's hunting authority is NEVER restricted by this context.
  */
 export function formatMomentumTrajectoryForPrompt(t: MomentumTrajectory): string {
+  // CCIP-2026-0512A RAW-DATA DOCTRINE: Phase label, "Hunt" narrative, and
+  // state-label columns (stripped to the numeric ratios only). Alpha reads
+  // the raw ratios and interprets momentum himself.
   const lines: string[] = [];
 
-  lines.push('\nMOMENTUM TRAJECTORY — advisory only, does not restrict entry authority');
+  lines.push('\nMOMENTUM RATIOS (raw measurements):');
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push(`Phase: ${t.phase.toUpperCase().replace(/_/g, ' ')} | Style: ${t.tradeStyle} | Session: ${t.session}`);
-  lines.push(`Hunt: ${getHuntDescription(t.phase)}`);
-  lines.push('');
-  lines.push(`Velocity:    ${t.velocityState.padEnd(14)} (last5/prior10 close-delta ratio: ${t.raw.velocityRatio.toFixed(2)}x)`);
-  lines.push(`ATR Range:   ${t.atrExpansionState.padEnd(14)} (current/mean20 range ratio: ${t.raw.atrRatio.toFixed(2)}x)`);
-  lines.push(`Volume:      ${t.volumeState.padEnd(14)} (last5/prior10 volume ratio: ${t.raw.volumeRatio.toFixed(2)}x)`);
-  lines.push(`Body Ratio:  ${t.bodyRatioState.padEnd(14)} (avg body/range last 10 candles: ${(t.raw.bodyRatio * 100).toFixed(0)}%)`);
-
-  if (t.sweepFollowThrough !== 'none') {
-    lines.push(`Sweep FT:    ${t.sweepFollowThrough.toUpperCase()} — post-sweep momentum state`);
-  }
-
-  lines.push(`Candles:     ${t.raw.candleCount} analysed`);
+  lines.push(`Velocity ratio (last5/prior10 close-delta): ${t.raw.velocityRatio.toFixed(2)}x`);
+  lines.push(`ATR range ratio (current/mean20): ${t.raw.atrRatio.toFixed(2)}x`);
+  lines.push(`Volume ratio (last5/prior10): ${t.raw.volumeRatio.toFixed(2)}x`);
+  lines.push(`Body/range avg (last 10 candles): ${(t.raw.bodyRatio * 100).toFixed(0)}%`);
+  lines.push(`Candles analysed: ${t.raw.candleCount}`);
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   return lines.join('\n');

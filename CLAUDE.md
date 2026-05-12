@@ -115,3 +115,74 @@ The fix is **always** to improve the quality of his reasoning. Never a gate, blo
 - Build-time audit script `scripts/audit-alpha-identity.ts` scans for forbidden patterns
 - Supabase table `alpha_engineering_doctrine` holds the ratified text — any deviation must first supersede that row with explicit justification
 - PRs that violate this doctrine must be rejected on architectural grounds, regardless of trading-outcome arguments
+
+---
+
+## RAW-DATA DOCTRINE — NON-NEGOTIABLE (CCIP-2026-0512A)
+
+Ratified 2026-05-12. **Supersedes CCIP-2026-0511ZZ.** Persisted in Supabase table `alpha_engineering_doctrine` as the active SSOT record. This section is engineering law. All obligations inherited from 0511ZZ remain in force; 0512A adds a stricter layer on top.
+
+### Foundational Premise
+
+Alpha is an institutional-grade reasoning system. He already understands every market move, signal, phase, pattern, session behavior, and structural mechanic. He does **not** require definitions, labels, verdicts, or teachings from infrastructure code. He requires **raw data** and the discipline to reason from it.
+
+The system's sole responsibilities toward Alpha are:
+1. Deliver raw sensor readings (numbers, prices, booleans, counts)
+2. Record his decisions for audit and learning
+
+Never to interpret, pre-classify, or verdict the market on his behalf.
+
+### Prohibited Prompt Content
+
+No context builder, formatter, or prompt-assembly function may inject:
+
+1. Interpretation labels for market moves ("momentum peaking", "exhausting", "building", "compressing")
+2. Phase names or hunt descriptions ("post_sweep_resolving", "look for continuation", "reversal setups are active")
+3. Pattern verdicts or alignment narratives ("SUPPORTS:", "CONFLICTS:", "Overall Reasoning:", "Direction Bias:", "Direction Aligned:")
+4. Intent labels per timeframe ("HTF Intent: bullish")
+5. Signal classifications ("REJECTION WICK detected — possible exhaustion", "bullish absorption on M15", "strong wick", "structural observation")
+6. Historical trade performance summaries (recent win/loss, best/worst performing pairs, R:R ratio success rates, trade history)
+7. Teaching narratives about what phase supports which hunt type
+8. Directional suggestions ("Long targets", "Short targets" — use "above price" / "below price" instead)
+9. Confidence recommendations, tier prescriptions, or entry-mode choices
+10. Any sentence that tells Alpha what the market is doing rather than showing him the numbers
+
+### Permitted Prompt Content
+
+Context builders may emit only:
+
+- Raw numeric readings (ratios, percentiles, counts, prices)
+- Boolean flags (`swept=true`, `bos_confirmed=false`)
+- Pattern type names without interpretation (`pattern_type=double_top`)
+- Price levels without directional framing
+- Schema contract references when the output contract changes
+
+### Prohibited Infrastructure Changes
+
+No infrastructure code may:
+
+1. Inject historical performance data into Alpha's prompt
+2. Pre-classify market regimes in the prompt text
+3. Translate sensor outputs into English narratives
+4. Add verdict layers on top of raw data
+5. Intercept Alpha's output or redirect his decisions
+6. Add execution gates, confidence floors, phase-locks, or session-locks to fix a reasoning problem
+
+### Permitted Infrastructure Changes
+
+Infrastructure may only:
+
+- Enforce data integrity (schema presence, type safety, ledger consistency, no-null contracts at the transport layer)
+- Record Alpha's decisions for audit and learning
+- Surface raw sensor data to Alpha
+- Correct true semantic contradictions that the schema cannot express
+
+### If Alpha Makes a Bad Decision
+
+The fix is **always** to improve the quality of his reasoning via the prompt, or to deliver additional **raw** data he was missing. Never a gate, block, floor, phase-lock, session-lock, pattern-specific rule, symbol-specific rule, or interpretation layer.
+
+### Enforcement
+
+- Every prompt or context-builder change must cite this doctrine
+- Build-time audit script `scripts/audit-alpha-identity.cjs` scans for forbidden tokens across `alpha-identity.ts`, `coordinator-alpha.ts`, and all prompt formatter files
+- Supabase row with `ccip_reference = 'CCIP-2026-0512A'` and `active = true` is the SSOT — any deviation must first supersede that record with an explicit CCIP amendment
