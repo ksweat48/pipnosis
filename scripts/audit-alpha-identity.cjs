@@ -41,6 +41,13 @@ const IDENTITY_FORBIDDEN = [
   { pattern: /\banchor\s+SL\s+to\b/i, label: 'Anchor-SL-to procedural language (0513A)' },
   { pattern: /\bplace\s+SL\s+at\s+structure\b/i, label: 'Place-SL-at-structure procedural language (0513A)' },
   { pattern: /\bplace\s+the\s+stop\s+at\s+the\s+nearest\b/i, label: 'Nearest-structure stop placement procedure (0513A)' },
+  // CCIP-2026-0513B: Trap-Aware Geometry Doctrine — anchor-to-structure SL
+  // language masks trap-awareness. Symmetric buy/sell coverage.
+  { pattern: /\babove\s+the\s+recent\s+swing\b/i, label: 'Anchor-to-structure SL language (0513B)' },
+  { pattern: /\bbelow\s+the\s+recent\s+swing\b/i, label: 'Anchor-to-structure SL language (0513B)' },
+  { pattern: /\bstructural\s+breathing\s+room\b/i, label: 'Structural-breathing-room anchor framing (0513B)' },
+  { pattern: /\babove\s+the\s+swing\s+high\b/i, label: 'Anchor-to-swing-high SL language (0513B)' },
+  { pattern: /\bbelow\s+the\s+swing\s+low\b/i, label: 'Anchor-to-swing-low SL language (0513B)' },
 ];
 
 // ─── 0512A: Raw-Data Doctrine guard for prompt-producing files ───────────────

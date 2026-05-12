@@ -245,6 +245,37 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
     ],
   },
   rr_profitability_resolution: { type: ['string', 'null'] },
+
+  // ------------------------------------------------------------------
+  // CCIP-2026-0513B: TRAP-AWARE GEOMETRY DOCTRINE (amendment to 0513A)
+  // ------------------------------------------------------------------
+  // Alpha maps liquidity pools on both sides of price on every scan and
+  // reconciles entry, stop-loss, and take-profit against that map.
+  // Applies symmetrically to hypothesis_buy and hypothesis_sell. The
+  // schema enforces presence of the reconciliation; Alpha's reasoning
+  // enforces that entry/SL/TP are actually consistent with it.
+  trap_map_invalidation_side: { type: ['string', 'null'] },
+  trap_map_reward_side: { type: ['string', 'null'] },
+  sl_sweep_risk_acknowledged: { type: ['string', 'null'] },
+  entry_sweep_alignment: {
+    anyOf: [
+      {
+        type: 'string',
+        enum: ['waits_for_sweep', 'executes_before_sweep', 'no_sweep_expected'],
+      },
+      { type: 'null' },
+    ],
+  },
+  tp_sweep_alignment: {
+    anyOf: [
+      {
+        type: 'string',
+        enum: ['at_reward_sweep', 'beyond_reward_sweep', 'before_reward_sweep', 'no_reward_sweep'],
+      },
+      { type: 'null' },
+    ],
+  },
+  trap_reconciliation_complete: { type: ['boolean', 'null'] },
 };
 
 const ANSWER_SHEET_REQUIRED = Object.keys(ANSWER_SHEET_PROPERTIES);

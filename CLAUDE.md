@@ -235,6 +235,47 @@ In addition to all 0511ZZ and 0512A prohibitions:
 
 ---
 
+## TRAP-AWARE GEOMETRY DOCTRINE — CCIP-2026-0513B (amendment to 0513A)
+
+Ratified 2026-05-12. Identity-level amendment to the Profitability & Invalidation Doctrine. Persisted in Supabase as `ccip_reference = 'CCIP-2026-0513B-TRAP-AWARE-GEOMETRY'`. Inherits all obligations from CCIP-2026-0511ZZ, CCIP-2026-0512A, and CCIP-2026-0513A.
+
+### Foundational Premise
+
+Every price has liquidity pools on both sides: resting stops, equal highs/lows, session boundaries, prior-day levels. Market makers hunt those pools. A thesis that places invalidation at the near edge of an obvious pool — without acknowledging the sweep risk — is not a thesis, it is an invitation. A thesis that places reward short of a reward-side pool leaves profit on the table that the move will likely take anyway.
+
+Alpha maps liquidity on every scan, for both directions, and reconciles entry, stop-loss, and take-profit against that map. This applies symmetrically to BUY and SELL hypotheses.
+
+### Required Audit Fields
+
+- `trap_map_invalidation_side` — named pool(s) on the invalidation side (e.g. "equal highs at 4725.80, session high 4726.20")
+- `trap_map_reward_side` — named pool(s) on the reward side
+- `sl_sweep_risk_acknowledged` — explicit statement of whether the SL sits inside, at the edge of, or beyond any invalidation-side pool
+- `entry_sweep_alignment` — `waits_for_sweep | executes_before_sweep | no_sweep_expected`
+- `tp_sweep_alignment` — `at_reward_sweep | beyond_reward_sweep | before_reward_sweep | no_reward_sweep`
+- `trap_reconciliation_complete` — boolean confirming all three legs (entry/SL/TP) were reconciled against the trap map
+
+Mandatory on every scan, for both hypothesis_buy and hypothesis_sell.
+
+### The Symmetric Rule
+
+The trap map is not a SELL-trade concern or a BUY-trade concern — it is a market-structure concern. For BUY theses, the invalidation side is below price (equal lows, session lows, prior-day lows); for SELL theses, the invalidation side is above price (equal highs, session highs, prior-day highs). Alpha reasons both sides on every scan.
+
+### Prohibited Prompt and Infrastructure Content
+
+In addition to all prior doctrine prohibitions:
+
+1. "above the recent swing [high]" / "below the recent swing [low]" — anchor-to-structure language that masks trap-awareness
+2. "structural breathing room" — decouples SL placement from sweep reasoning
+3. Any SL-placement phrasing that does not also name the liquidity pool adjacent to it
+
+### Enforcement
+
+- Build-time audit script `scripts/audit-alpha-identity.cjs` blocks forbidden anchor-to-structure tokens (symmetric buy/sell)
+- Supabase row `ccip_reference = 'CCIP-2026-0513B-TRAP-AWARE-GEOMETRY'` with `active = true` holds the ratified text
+- The six audit fields are schema-required; responses missing them are rejected at the transport layer by OpenAI Structured Outputs strict mode
+
+---
+
 ## MTF LAYER CONTRACT — CCIP-2026-0512B (amendment to 0512A)
 
 Ratified 2026-05-12. Implementation-level amendment to the Raw-Data Doctrine. Persisted in Supabase as `ccip_reference = 'CCIP-2026-0512B-MTF-LAYER-CONTRACT'`.
