@@ -10,79 +10,96 @@
  * - Single source of truth for all entry intent data access
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   getActiveEntryIntent,
   getEntryIntentById,
+  getRecentlyFinalizedIntent,
   type EntryIntentData
 } from '../services/entry-intent-monitor-mode';
 
 interface UseActiveEntryIntentResult {
   activeIntent: EntryIntentData | null;
+  finalizedIntent: EntryIntentData | null;
   loading: boolean;
   error: Error | null;
   refresh: () => Promise<void>;
 }
 
+const REALTIME_RELOAD_DEBOUNCE_MS = 300;
+
 /**
- * Hook to get active entry intent for a session
- * SSOT: Uses getActiveEntryIntent from entry-intent-monitor-mode.ts
+ * Hook to get active entry intent for a session.
+ *
+ * CCIP-2026-0513D fixes:
+ * - Active channel only returns monitoring | executed (never leaks finalized rows).
+ * - Separate finalizedIntent channel surfaces recently canceled/abandoned/timeout
+ *   intents so the UI can render an explicit "ended" state instead of unmounting.
+ * - useEffect depends on [sessionId] only; loadIntent is held in a ref to prevent
+ *   subscription churn when parent re-renders.
+ * - Realtime-driven reloads are coalesced through a 300ms debounce so heartbeat
+ *   bursts collapse to a single reload.
  */
 export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIntentResult {
   const [activeIntent, setActiveIntent] = useState<EntryIntentData | null>(null);
+  const [finalizedIntent, setFinalizedIntent] = useState<EntryIntentData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
+  const sessionIdRef = useRef<string | null>(sessionId);
+  sessionIdRef.current = sessionId;
+
   const loadIntent = useCallback(async () => {
-    if (!sessionId) {
+    const sid = sessionIdRef.current;
+    if (!sid) {
       setActiveIntent(null);
+      setFinalizedIntent(null);
       setLoading(false);
       return;
     }
 
     try {
-      // Don't toggle loading on refresh - only set false when done
-      // Loading is only true on initial mount
       setError(null);
 
-      console.log('[useActiveEntryIntent] 🔄 Loading intent for session:', sessionId.substring(0, 8));
+      const [active, finalized] = await Promise.all([
+        getActiveEntryIntent(sid),
+        getRecentlyFinalizedIntent(sid)
+      ]);
 
-      const intent = await getActiveEntryIntent(sessionId);
-
-      console.log('[useActiveEntryIntent] 📦 Received intent:', {
-        hasIntent: !!intent,
-        intentId: intent?.id?.substring(0, 8),
-        status: intent?.status,
-        symbol: intent?.symbol
-      });
-
-      setActiveIntent(intent);
+      setActiveIntent(active);
+      // Only surface a finalized intent if no active one exists — an active
+      // monitoring intent always wins over a dead one.
+      setFinalizedIntent(active ? null : finalized);
     } catch (err) {
-      console.error('[useActiveEntryIntent] ❌ Error loading intent:', err);
+      console.error('[useActiveEntryIntent] Error loading intent:', err);
       setError(err instanceof Error ? err : new Error('Failed to load entry intent'));
       setActiveIntent(null);
+      setFinalizedIntent(null);
     } finally {
       setLoading(false);
     }
-  }, [sessionId]);
+  }, []);
+
+  const loadIntentRef = useRef(loadIntent);
+  loadIntentRef.current = loadIntent;
 
   useEffect(() => {
-    // Always load intent initially - loadIntent() handles null sessionId by setting loading to false
-    // CCIP CHANGE: This ensures loading state is properly initialized even when sessionId is null,
-    // fixing the skeleton loader stuck state in EntryPriceMonitor
-    loadIntent();
+    loadIntentRef.current();
 
     if (!sessionId) {
       return;
     }
 
-    // Set up realtime subscription for entry_intents table changes
-    console.log('[useActiveEntryIntent] 📡 Setting up realtime subscription for session:', sessionId.substring(0, 8));
-
-    // Declare channel variable in outer scope so cleanup can access it
-    // CRITICAL: Must be declared here, not inside try block, for proper cleanup
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    let debounceHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleReload = () => {
+      if (debounceHandle) clearTimeout(debounceHandle);
+      debounceHandle = setTimeout(() => {
+        loadIntentRef.current();
+      }, REALTIME_RELOAD_DEBOUNCE_MS);
+    };
 
     try {
       channel = supabase
@@ -90,76 +107,46 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
         .on(
           'postgres_changes',
           {
-            event: '*', // Listen for INSERT, UPDATE, DELETE
+            event: '*',
             schema: 'public',
             table: 'entry_intents',
             filter: `session_id=eq.${sessionId}`
           },
           (payload) => {
-            console.log('[useActiveEntryIntent] 🔔 Realtime update received:', {
-              event: payload.eventType,
-              intentId: payload.new?.id?.substring(0, 8) || payload.old?.id?.substring(0, 8),
-              status: payload.new?.status
-            });
-
-            // Smart refresh: Only reload if meaningful fields changed
             if (payload.eventType === 'INSERT') {
-              // New intent created - always reload
-              console.log('[useActiveEntryIntent] 🆕 New intent detected, reloading...');
-              loadIntent();
+              scheduleReload();
             } else if (payload.eventType === 'UPDATE') {
-              // Check if status changed (meaningful) or just heartbeat (ignore)
               const oldStatus = payload.old?.status;
               const newStatus = payload.new?.status;
-
-              // Only reload if status actually changed (both values defined and different)
+              // Only reload on real status transitions; ignore heartbeat-only updates.
               if (oldStatus && newStatus && oldStatus !== newStatus) {
-                console.log('[useActiveEntryIntent] 📊 Status changed, reloading...', {oldStatus, newStatus});
-                loadIntent();
-              } else {
-                console.log('[useActiveEntryIntent] 💓 Heartbeat update, skipping reload');
-                // Don't reload - just a heartbeat update or incomplete payload
+                scheduleReload();
               }
             } else if (payload.eventType === 'DELETE') {
-              // Intent removed - clear state
-              console.log('[useActiveEntryIntent] 🗑️ Intent deleted');
-              setActiveIntent(null);
+              scheduleReload();
             }
           }
         )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('[useActiveEntryIntent] 📡 Realtime subscription CONNECTED for session:', sessionId.substring(0, 8));
-          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            // Log as info, not warning - fallback polling will handle updates
-            console.log('[useActiveEntryIntent] ℹ️ Realtime subscription unavailable, using polling fallback (normal for some network configs)');
-          } else if (status === 'CLOSED') {
-            console.log('[useActiveEntryIntent] 📡 Realtime subscription CLOSED');
-          }
-        });
+        .subscribe();
     } catch (error) {
-      console.log('[useActiveEntryIntent] ℹ️ Realtime subscription error:', error);
+      console.log('[useActiveEntryIntent] Realtime subscription error:', error);
     }
 
-    // Cleanup function with defensive null checking
     return () => {
-      console.log('[useActiveEntryIntent] 🧹 Cleaning up subscription');
-
-      // Defensive cleanup: Check if channel exists before removing
+      if (debounceHandle) clearTimeout(debounceHandle);
       if (channel) {
         try {
           supabase.removeChannel(channel);
-          console.log('[useActiveEntryIntent] ✅ Channel removed successfully');
-        } catch (error) {
-          // Log but don't throw - cleanup should never crash
-          console.log('[useActiveEntryIntent] ⚠️ Error removing channel (non-critical):', error);
+        } catch {
+          // cleanup errors are non-critical
         }
       }
     };
-  }, [loadIntent, sessionId]);
+  }, [sessionId]);
 
   return {
     activeIntent,
+    finalizedIntent,
     loading,
     error,
     refresh: loadIntent

@@ -41,7 +41,7 @@ export const EntryPriceMonitor: React.FC<EntryPriceMonitorProps> = ({ onLiveStat
   const [previousPrice, setPreviousPrice] = useState<number | null>(null);
 
   const sessionId = useMemo(() => activeSession?.id || null, [activeSession?.id]);
-  const { activeIntent, loading: loadingIntent } = useActiveEntryIntent(sessionId);
+  const { activeIntent, finalizedIntent, loading: loadingIntent } = useActiveEntryIntent(sessionId);
 
   useEffect(() => {
     let isMounted = true;
@@ -153,6 +153,9 @@ export const EntryPriceMonitor: React.FC<EntryPriceMonitorProps> = ({ onLiveStat
   }
 
   if (!activeIntent || !['executed', 'monitoring'].includes(activeIntent.status)) {
+    if (finalizedIntent && ['canceled', 'abandoned', 'timeout'].includes(finalizedIntent.status)) {
+      return <IntentEndedState intent={finalizedIntent} onLiveStateChange={onLiveStateChange} />;
+    }
     return <EmptyState onLiveStateChange={onLiveStateChange} />;
   }
 
@@ -177,6 +180,40 @@ export const EntryPriceMonitor: React.FC<EntryPriceMonitorProps> = ({ onLiveStat
       previousPrice={previousPrice}
       onLiveStateChange={onLiveStateChange}
     />
+  );
+};
+
+interface IntentEndedStateProps {
+  intent: { symbol?: string; direction?: string; status: string };
+  onLiveStateChange?: (state: EntryMonitorLiveState) => void;
+}
+
+const IntentEndedState: React.FC<IntentEndedStateProps> = ({ intent, onLiveStateChange }) => {
+  useEffect(() => { onLiveStateChange?.('idle'); }, [onLiveStateChange]);
+  const symbol = intent.symbol || '';
+  const direction = intent.direction === 'long' ? 'BUY' : intent.direction === 'short' ? 'SELL' : '';
+  const label = intent.status === 'timeout'
+    ? 'Entry window timed out'
+    : intent.status === 'canceled'
+      ? 'Entry canceled'
+      : 'Entry zone abandoned';
+  return (
+    <div className="bg-gradient-to-br from-amber-900/15 to-gray-900/60 rounded-xl p-5 border border-amber-700/30">
+      <div className="flex items-center gap-3">
+        <div className="p-2.5 bg-amber-500/15 rounded-lg">
+          <AlertCircle className="w-5 h-5 text-amber-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-sm font-bold text-white">
+            {label}
+            {direction && symbol ? ` — ${direction} ${symbol}` : ''}
+          </h3>
+          <p className="text-xs text-amber-300/80 mt-0.5">
+            Scanning resumed. Alpha will look for the next setup.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 };
 
