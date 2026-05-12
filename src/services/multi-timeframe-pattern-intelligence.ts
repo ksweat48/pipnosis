@@ -10,9 +10,10 @@
 import { patternDetectionService, type TimeframePatternScan } from './pattern-detection-service';
 import { patternIntentClassifier, type MultiTimeframeIntentAnalysis } from './pattern-intent-classifier';
 import { patternConfidenceAdjuster, type ConfidenceAdjustment, type PatternConfidenceInput } from './pattern-confidence-adjuster';
-import { fetchPreAggregatedCandles, type CandleData } from './candle-data-service';
+import { type CandleData } from './candle-data-service';
+import { marketDataService, type CandleData as MarketCandleData } from './market-data-service';
 import { logger } from '../lib/logger';
-import { getStyleMTFConfig, resolveCanonicalStyle, getMTFMinCandles } from '../config/timeframe-hierarchy';
+import { getStyleMTFConfig, resolveCanonicalStyle, getMTFMinCandles, getMTFLookbackWindows } from '../config/timeframe-hierarchy';
 
 export interface PatternIntelligenceInput {
   symbol: string;
@@ -344,13 +345,30 @@ class MultiTimeframePatternIntelligence {
     timeframe: string,
     layer: string
   ): Promise<CandleData[]> {
-    const limit = layer === 'HTF' ? 100 : layer === 'MTF' ? 80 : 60;
+    // CCIP-2026-0512B-MTF-LAYER-CONTRACT: SSOT lookback windows + unified fetch authority.
+    // Both this sensor and coordinator-alpha.ts now draw from the same MarketDataService
+    // (get_best_candles RPC) with identical window counts — eliminates the divergent-H1-bias
+    // class of defect caused by mismatched fetch paths and limits.
+    const windows = getMTFLookbackWindows('MICRO_INTRADAY');
+    const limit = layer === 'HTF' ? windows.HTF : layer === 'MTF' ? windows.MTF : windows.LTF;
     const minRequired = layer === 'HTF' ? 10 : layer === 'MTF' ? 8 : 6;
     const retryDelaysMs = [250, 500];
 
     for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
       try {
-        const candles = await fetchPreAggregatedCandles(symbol, timeframe, limit);
+        const rawCandles = await marketDataService.getCandles(symbol, timeframe, limit);
+        // get_best_candles returns DESC (newest first). Pattern detection expects ASC
+        // (oldest first, newest last — recentCandles = candles.slice(-N)).
+        const candles: CandleData[] = rawCandles
+          .map((c: MarketCandleData) => ({
+            time: Math.floor(new Date(c.open_time).getTime() / 1000),
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+            volume: c.volume,
+          }))
+          .sort((a, b) => a.time - b.time);
 
         if (candles.length >= minRequired) {
           logger.info(`[MTF Pattern Intelligence] Fetched ${layer} candles`, {

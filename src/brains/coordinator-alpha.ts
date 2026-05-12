@@ -2328,43 +2328,30 @@ ${primaryTfConfig.label} STRUCTURAL EVIDENCE (pre-computed from same window):
           return body > 0 && wick / body >= 1.5;
         });
 
-        const htfStructuralEvidenceBlock = `
-${htfConfig.label} STRUCTURAL EVIDENCE (pre-computed for Alpha):
-- BOS BULL (last close > prior high): ${htfBOSBull ? 'YES — bullish break of structure confirmed' : 'NO'}
-- BOS BEAR (last close < prior low): ${htfBOSBear ? 'YES — bearish break of structure confirmed' : 'NO'}
-- SWEEP WICK BULL (lower wick ≥1.5x body in last 2 candles): ${htfSweepWickBull ? 'YES — institutional bullish reversal signal' : 'NO'}
-- SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 candles): ${htfSweepWickBear ? 'YES — institutional bearish reversal signal' : 'NO'}
-
-COUNTER-TREND ENTRY AUDIT: If your intended direction opposes the ${htfConfig.label} structural bias above,
-document in your reasoning what counter-trend structural evidence you observed (BOS, sweep wick, or other).
-If no counter-trend structural evidence exists in the pre-computed signals above, state that clearly and reflect it in your conviction score.
-Alpha decides the action — the audit trail records the evidence.`;
-
-        console.log(`[Alpha Coordinator] ${htfConfig.label} structural evidence: BOS_BULL=${htfBOSBull} BOS_BEAR=${htfBOSBear} WICK_BULL=${htfSweepWickBull} WICK_BEAR=${htfSweepWickBear}`);
+        // CCIP-2026-0512B-MTF-LAYER-CONTRACT: Raw-data only. No verdicts, no teachings,
+        // no "DIRECTION RULE" translation, no MANDATORY instructions, no tailwind/counter-trend
+        // framing. Alpha reads the numbers and booleans and reasons from them.
+        console.log(`[Alpha Coordinator] ${htfConfig.label} raw flags: BOS_BULL=${htfBOSBull} BOS_BEAR=${htfBOSBear} WICK_BULL=${htfSweepWickBull} WICK_BEAR=${htfSweepWickBear}`);
 
         htfCandlePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${htfConfig.label} DIRECTION TIMEFRAME CANDLES (${marketContext.symbol}) — DIRECTIONAL AUTHORITY
+${htfConfig.label} CANDLES (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-THIS IS YOUR DIRECTION CONTEXT for ${styleName} trades. The ${htfConfig.label} sets the directional bias.
-MICRO_INTRADAY: H1 is the direction TF. My entry lens is M5. My TP is M5 leg exhaustion. H1 tells me which direction to hunt — not where to exit.
-MANDATORY: Reference this ${htfConfig.label} data in your QUESTION 1 TREND ALIGNMENT answer.
 FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p
 
 i|dir|O|H|L|C|body_p|upW_p|loW_p
 ${htfLines.join('\n')}
 
-${htfConfig.label} DIRECTION SUMMARY:
-- ${htfConfig.label} Range (last ${htfConfig.candleCount} candles): ${htfRangePips.toFixed(1)} pips (High: ${htfHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${htfLow.toFixed(pipInfo.decimalPlaces)})
-- ${htfConfig.label} Directional bias: ${htfTrendDir}
-- Consecutive same-direction ${htfConfig.label} candles: ${htfConsecutive}
-- ${htfConfig.label} Key resistance: ${htfHigh.toFixed(pipInfo.decimalPlaces)} | Key support: ${htfLow.toFixed(pipInfo.decimalPlaces)}
-
-${htfConfig.label} DIRECTION RULE:
-${htfTrendDir === 'BULLISH' ? `${htfConfig.label} trend is BULLISH. ${primaryTfConfig.label} BUY entries have directional tailwind. ${primaryTfConfig.label} SELL entries are counter-trend — require explicit ${htfConfig.label}-level reversal evidence.` : htfTrendDir === 'BEARISH' ? `${htfConfig.label} trend is BEARISH. ${primaryTfConfig.label} SELL entries have directional tailwind. ${primaryTfConfig.label} BUY entries are counter-trend — require explicit ${htfConfig.label}-level reversal evidence.` : `${htfConfig.label} is NEUTRAL/RANGING. Both directions require structural confirmation at the range boundaries.`}
-
-${htfStructuralEvidenceBlock}
+${htfConfig.label} RAW READINGS (last ${htfConfig.candleCount} candles):
+- range_pips=${htfRangePips.toFixed(1)}
+- window_high=${htfHigh.toFixed(pipInfo.decimalPlaces)}
+- window_low=${htfLow.toFixed(pipInfo.decimalPlaces)}
+- consecutive_same_direction_candles=${htfConsecutive}
+- bos_bull=${htfBOSBull}
+- bos_bear=${htfBOSBear}
+- sweep_wick_bull=${htfSweepWickBull}
+- sweep_wick_bear=${htfSweepWickBear}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] ${htfConfig.label} Direction TF: ${recentHtf.length} candles, bias ${htfTrendDir}, range ${htfRangePips.toFixed(1)} pips`);
@@ -2465,28 +2452,29 @@ ${htfStructuralEvidenceBlock}
             return body > 0 && wick / body >= 1.5;
           });
 
+          // CCIP-2026-0512B-MTF-LAYER-CONTRACT: raw data only — no narrative framing,
+          // no verdict labels, no directional teachings.
           m15DirectionPromptMicro = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M15 DIRECTION CONTEXT — MICRO_INTRADAY (${marketContext.symbol})
+M15 CANDLES (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M15 is the direction timeframe for MICRO_INTRADAY. The M15 candle sequence shows where the trend stands at the 15-minute level. The M15 High/Low are the structural boundaries the M5 entry must align with.
 FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb  — ratio=body% of range, wb=upper/lower/balanced wick bias.
 
 i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb
 ${m15DirLines.join('\n')}
 
-M15 DIRECTION SUMMARY:
-- M15 Structural Range (last ${recentM15Dir.length} candles): ${m15DirRangePips.toFixed(1)} pips | High: ${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} | Low: ${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}
-- M15 Current trend direction: ${m15DirTrend}
-- Consecutive same-direction M15 candles: ${m15DirConsecutive}
-- Last M15 rejection wick flag: ${m15DirRejectionWick ? 'YES' : 'NO'}
-- M15 BOS BULL (last M15 close > prior M15 high): ${m15DirBOSBull ? 'YES' : 'NO'}
-- M15 BOS BEAR (last M15 close < prior M15 low): ${m15DirBOSBear ? 'YES' : 'NO'}
-- M15 SWEEP WICK BULL (lower wick >=1.5x body, last 2 candles): ${m15DirSweepWickBull ? 'YES' : 'NO'}
-- M15 SWEEP WICK BEAR (upper wick >=1.5x body, last 2 candles): ${m15DirSweepWickBear ? 'YES' : 'NO'}
-
-The M15 structural high and low above are the reference points for the move stage advisory. I read the M15 candle sequence directly to assess whether the M5 entry direction is aligned with the M15 trend.
+M15 RAW READINGS (last ${recentM15Dir.length} candles):
+- range_pips=${m15DirRangePips.toFixed(1)}
+- window_high=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)}
+- window_low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}
+- close_vs_prev_close=${m15DirTrend}
+- consecutive_same_direction_candles=${m15DirConsecutive}
+- last_candle_rejection_wick=${m15DirRejectionWick}
+- bos_bull=${m15DirBOSBull}
+- bos_bear=${m15DirBOSBear}
+- sweep_wick_bull=${m15DirSweepWickBull}
+- sweep_wick_bear=${m15DirSweepWickBear}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.log(`[Alpha Coordinator] M15 Direction (MICRO_INTRADAY): ${recentM15Dir.length} candles, trend=${m15DirTrend}, BOS_BULL=${m15DirBOSBull} BOS_BEAR=${m15DirBOSBear}, High=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} Low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}`);
@@ -2569,8 +2557,10 @@ WARNING: M15 direction fetch failed. M15 structural high/low unavailable. ATR-tr
     let d1ContextPrompt = '';
     try {
       const mds = MarketDataService.getInstance();
-      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — MICRO_INTRADAY only needs PDH/PDL reference (3 candles sufficient).
-      const d1FetchCount = 3;
+      // CCIP-2026-0512B-MTF-LAYER-CONTRACT: D1 now served as raw columnar candles
+      // (symmetric with H1/M15) plus raw PDH/PDL numerics. 10 candles gives Alpha
+      // a two-week daily structural window to reason from without verdicts.
+      const d1FetchCount = 10;
       const d1Candles = await mds.getCandles(marketContext.symbol, 'D1', d1FetchCount);
 
       if (d1Candles && d1Candles.length >= 2) {
@@ -2581,7 +2571,6 @@ WARNING: M15 direction fetch failed. M15 structural high/low unavailable. ATR-tr
         const prevDayClose = prevDayCandle.close;
         const prevDayOpen = prevDayCandle.open;
         const prevDayRange = (prevDayHigh - prevDayLow) / pipInfo.pipValue;
-        const prevDayDir = prevDayClose > prevDayOpen ? 'BULLISH' : 'BEARISH';
         const prevDayDate = prevDayCandle.time
           ? new Date(prevDayCandle.time * 1000).toISOString().split('T')[0]
           : 'N/A';
@@ -2627,11 +2616,11 @@ WARNING: M15 direction fetch failed. M15 structural high/low unavailable. ATR-tr
         const distToMajorBelow = Math.abs(currentPrice - nearestMajorBelow) / pipInfo.pipValue;
         const distToMinorAbove = Math.abs(currentPrice - nearestMinorAbove) / pipInfo.pipValue;
         const distToMinorBelow = Math.abs(currentPrice - nearestMinorBelow) / pipInfo.pipValue;
-        const roundNumbersBlock = `ROUND NUMBERS (institutional reference — include in TP path audit):
-  Major above: ${nearestMajorAbove.toFixed(pipInfo.decimalPlaces)} — ${distToMajorAbove.toFixed(1)} pips away
-  Minor above: ${nearestMinorAbove.toFixed(pipInfo.decimalPlaces)} — ${distToMinorAbove.toFixed(1)} pips away
-  Minor below: ${nearestMinorBelow.toFixed(pipInfo.decimalPlaces)} — ${distToMinorBelow.toFixed(1)} pips away
-  Major below: ${nearestMajorBelow.toFixed(pipInfo.decimalPlaces)} — ${distToMajorBelow.toFixed(1)} pips away`;
+        const roundNumbersBlock = `ROUND NUMBERS (raw price levels):
+  major_above=${nearestMajorAbove.toFixed(pipInfo.decimalPlaces)} (${distToMajorAbove.toFixed(1)} pips)
+  minor_above=${nearestMinorAbove.toFixed(pipInfo.decimalPlaces)} (${distToMinorAbove.toFixed(1)} pips)
+  minor_below=${nearestMinorBelow.toFixed(pipInfo.decimalPlaces)} (${distToMinorBelow.toFixed(1)} pips)
+  major_below=${nearestMajorBelow.toFixed(pipInfo.decimalPlaces)} (${distToMajorBelow.toFixed(1)} pips)`;
 
         const pdRangePips = prevDayHigh - prevDayLow;
         const pricePositionInPDRange = pdRangePips > 0
@@ -2643,38 +2632,48 @@ WARNING: M15 direction fetch failed. M15 structural high/low unavailable. ATR-tr
         const nearPDH = distToPDH < prevDayRange * 0.05;
         const nearPDL = distToPDL < prevDayRange * 0.05;
 
-        let positionContext = '';
-        if (abovePDH) positionContext = `Price is ABOVE Previous Day High by ${distToPDH.toFixed(1)} pips — potential continuation OR false breakout zone.`;
-        else if (belowPDL) positionContext = `Price is BELOW Previous Day Low by ${distToPDL.toFixed(1)} pips — potential continuation OR false breakdown zone.`;
-        else if (nearPDH) positionContext = `Price is approaching Previous Day High (${distToPDH.toFixed(1)} pips away) — strong institutional resistance. Expect rejection or breakout.`;
-        else if (nearPDL) positionContext = `Price is approaching Previous Day Low (${distToPDL.toFixed(1)} pips away) — strong institutional support. Expect bounce or breakdown.`;
-        else positionContext = `Price is in mid-range of previous day (${pricePositionInPDRange}% up from PDL). PDH and PDL are ${distToPDH.toFixed(1)}p / ${distToPDL.toFixed(1)}p away respectively.`;
+        // CCIP-2026-0512B-MTF-LAYER-CONTRACT: Build raw D1 columnar table
+        // (oldest→newest), symmetric with H1 and M15 layers. Alpha reads raw
+        // OHLC + wick structure himself without verdict narratives.
+        const d1AscCandles = [...d1Candles].reverse();
+        const d1Lines: string[] = [];
+        d1AscCandles.forEach((c, idx) => {
+          const dir = c.close > c.open ? 'U' : c.close < c.open ? 'D' : '=';
+          const body = Math.abs(c.close - c.open) / pipInfo.pipValue;
+          const upWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+          const loWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+          d1Lines.push(
+            `${idx}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${body.toFixed(1)}|${upWick.toFixed(1)}|${loWick.toFixed(1)}`
+          );
+        });
 
-        // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — INTRADAY D1 structural
-        // campaign block and SCALP advisory branch removed. MICRO_INTRADAY uses PDH/PDL as
-        // institutional reference levels.
         d1ContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTITUTIONAL REFERENCE LEVELS (${marketContext.symbol})
+D1 CANDLES (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Previous Day Date: ${prevDayDate}
-Previous Day High (PDH): ${prevDayHigh.toFixed(pipInfo.decimalPlaces)} — ${distToPDH.toFixed(1)} pips away
-Previous Day Low (PDL): ${prevDayLow.toFixed(pipInfo.decimalPlaces)} — ${distToPDL.toFixed(1)} pips away
-Previous Day Close: ${prevDayClose.toFixed(pipInfo.decimalPlaces)} (${prevDayDir} day, range: ${prevDayRange.toFixed(1)} pips)
-${roundNumbersBlock}
-Current Position: ${positionContext}
-Price vs PD Range: ${pricePositionInPDRange}% from PDL (0%=at PDL, 100%=at PDH)
+FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p
 
-INSTITUTIONAL LEVEL RULES:
-- PDH and PDL are MAJOR institutional reference levels. Market makers target these for liquidity sweeps.
-- A TP placed at or beyond PDH/PDL without accounting for its magnetic pull is structurally weak.
-- If your TP target is BEYOND PDH (for BUY) or below PDL (for SELL), acknowledge this in your reasoning.
-- If your entry is NEAR PDH/PDL (within 5% of range), explain whether this is a breakout or rejection setup.
-- PDH/PDL are NOT hard TP targets. They are context layers — use them to calibrate where liquidity pools.
+i|dir|O|H|L|C|body_p|upW_p|loW_p
+${d1Lines.join('\n')}
+
+D1 RAW READINGS:
+- prev_day_date=${prevDayDate}
+- PDH=${prevDayHigh.toFixed(pipInfo.decimalPlaces)}
+- PDL=${prevDayLow.toFixed(pipInfo.decimalPlaces)}
+- PDC=${prevDayClose.toFixed(pipInfo.decimalPlaces)}
+- prev_day_range_pips=${prevDayRange.toFixed(1)}
+- dist_to_PDH_pips=${distToPDH.toFixed(1)}
+- dist_to_PDL_pips=${distToPDL.toFixed(1)}
+- price_position_in_PD_range_pct=${pricePositionInPDRange}
+- above_PDH=${abovePDH}
+- below_PDL=${belowPDL}
+- near_PDH=${nearPDH}
+- near_PDL=${nearPDL}
+${roundNumbersBlock}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-        console.log(`[Alpha Coordinator] D1 Previous Day (${styleName ?? tradeStyle}): H=${prevDayHigh.toFixed(pipInfo.decimalPlaces)} L=${prevDayLow.toFixed(pipInfo.decimalPlaces)} range=${prevDayRange.toFixed(1)}p, price at ${pricePositionInPDRange}% of PD range`);
+        console.log(`[Alpha Coordinator] D1 raw readings: PDH=${prevDayHigh.toFixed(pipInfo.decimalPlaces)} PDL=${prevDayLow.toFixed(pipInfo.decimalPlaces)} range=${prevDayRange.toFixed(1)}p pos=${pricePositionInPDRange}%`);
       }
     } catch (error) {
       console.warn('[Alpha Coordinator] D1 context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');

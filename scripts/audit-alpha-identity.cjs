@@ -76,6 +76,15 @@ const RAW_DATA_FORBIDDEN = [
   { pattern: /Short\s+targets\b/i, label: 'Directional framing (Short targets) in prompt' },
   { pattern: /\bRegime\s*:\s*[A-Z_]{3,}/, label: 'Regime label in prompt' },
   { pattern: /momentum\s+peaking/i, label: 'Momentum-peaking interpretation in prompt' },
+  { pattern: /DIRECTION\s+RULE/i, label: 'DIRECTION RULE teaching block in prompt' },
+  { pattern: /MANDATORY\s*:\s*Reference/i, label: 'Mandatory reference procedural instruction in prompt' },
+  { pattern: /directional\s+tailwind/i, label: 'Directional tailwind framing in prompt' },
+  { pattern: /counter-trend\s*—\s*require/i, label: 'Counter-trend requirement framing in prompt' },
+  { pattern: /INSTITUTIONAL\s+LEVEL\s+RULES/i, label: 'INSTITUTIONAL LEVEL RULES teaching block in prompt' },
+  { pattern: /magnetic\s+pull/i, label: 'Magnetic-pull interpretation in prompt' },
+  { pattern: /structurally\s+weak/i, label: 'Structurally-weak verdict in prompt' },
+  { pattern: /false\s+breakout\s+zone/i, label: 'False-breakout zone verdict in prompt' },
+  { pattern: /Expect\s+(?:rejection|bounce|breakout|breakdown)/i, label: 'Expectation verdict in prompt' },
 ];
 
 function stripComments(src) {

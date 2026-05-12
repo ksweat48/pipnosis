@@ -186,3 +186,15 @@ The fix is **always** to improve the quality of his reasoning via the prompt, or
 - Every prompt or context-builder change must cite this doctrine
 - Build-time audit script `scripts/audit-alpha-identity.cjs` scans for forbidden tokens across `alpha-identity.ts`, `coordinator-alpha.ts`, and all prompt formatter files
 - Supabase row with `ccip_reference = 'CCIP-2026-0512A'` and `active = true` is the SSOT — any deviation must first supersede that record with an explicit CCIP amendment
+
+---
+
+## MTF LAYER CONTRACT — CCIP-2026-0512B (amendment to 0512A)
+
+Ratified 2026-05-12. Implementation-level amendment to the Raw-Data Doctrine. Persisted in Supabase as `ccip_reference = 'CCIP-2026-0512B-MTF-LAYER-CONTRACT'`.
+
+1. **Single fetch authority.** `MarketDataService.getCandles` is the only authorized candle-fetch path for code that feeds Alpha's prompt or the multi-timeframe pattern intelligence sensor.
+2. **SSOT lookback windows.** MTF lookback windows live in `src/config/timeframe-hierarchy.ts` as `MTF_LOOKBACK_WINDOWS`, accessed via `getMTFLookbackWindows()`. No inline magic numbers. MICRO_INTRADAY: HTF=50, MTF=60, LTF=60.
+3. **Layer symmetry.** H1 (HTF), M15 (MTF), M5 (LTF), and D1 are all delivered as raw columnar OHLC tables (oldest→newest) plus raw numeric readings. No layer served exclusively as pre-computed verdicts.
+4. **Prompt content.** All MTF blocks emit raw readings only: prices, pip distances, booleans, counts, BOS/sweep flags. No DIRECTION RULE, no tailwind/counter-trend framing, no MANDATORY procedural wrappers, no INSTITUTIONAL LEVEL RULES, no magnetic-pull/structurally-weak verdicts, no Expect-rejection narratives.
+5. **Enforcement.** `scripts/audit-alpha-identity.cjs` blocks the build on any of the above tokens appearing in `coordinator-alpha.ts` or `multi-timeframe-pattern-intelligence.ts`.

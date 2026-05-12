@@ -254,6 +254,33 @@ export function getStyleMTFConfig(tradeStyle: CanonicalTradeStyle): MultiTimefra
 }
 
 /**
+ * MTF LOOKBACK WINDOWS — SSOT (CCIP-2026-0512B-MTF-LAYER-CONTRACT)
+ *
+ * Canonical candle-count windows per MTF layer. ALL consumers that fetch
+ * multi-timeframe candles for Alpha's raw-data context MUST draw from here
+ * so the coordinator prompt builder and the pattern-intelligence sensor
+ * operate on identical windows. Misaligned windows historically produced
+ * divergent H1 bias between the two fetch paths with no explanation to Alpha.
+ *
+ * HTF = context (H1), MTF = direction (M15), LTF = entry (M5).
+ */
+export interface MTFLookbackWindow {
+  HTF: number;
+  MTF: number;
+  LTF: number;
+}
+
+export const MTF_LOOKBACK_WINDOWS: Record<CanonicalTradeStyle, MTFLookbackWindow> = {
+  MICRO_INTRADAY: { HTF: 50, MTF: 60, LTF: 60 },
+} as const;
+
+export function getMTFLookbackWindows(
+  style: CanonicalTradeStyle = 'MICRO_INTRADAY'
+): MTFLookbackWindow {
+  return MTF_LOOKBACK_WINDOWS[style];
+}
+
+/**
  * MTF MINIMUM CANDLE COUNTS — SSOT
  *
  * CCIP-2026-ASIAN-SESSION: These are the AUTHORITATIVE minimum candle thresholds
