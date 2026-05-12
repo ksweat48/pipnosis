@@ -224,6 +224,27 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   tp2_m5_anchor_reference: { type: ['string', 'null'] },
   tp2_sequential_leg_justification: { type: ['string', 'null'] },
   tp_is_scalp_only: { type: ['boolean', 'null'] },
+
+  // ------------------------------------------------------------------
+  // CCIP-2026-0513A: PROFITABILITY & INVALIDATION DOCTRINE
+  // ------------------------------------------------------------------
+  // Alpha reconciles invalidation-thesis, reward-thesis, and honest
+  // confidence against break-even expectancy BEFORE finalizing. These
+  // fields record that reconciliation so the audit can catch RR/tier
+  // self-contradictions (e.g. "confident" at RR 1:0.5 requires 67%
+  // win rate, which contradicts the tier). The schema enforces
+  // presence; Alpha's reasoning enforces quality.
+  sl_invalidation_thesis: { type: ['string', 'null'] },
+  tp_reward_thesis: { type: ['string', 'null'] },
+  rr_planned_ratio: { type: ['number', 'null'] },
+  breakeven_win_rate_implied: { type: ['number', 'null'] },
+  rr_profitability_check: {
+    anyOf: [
+      { type: 'string', enum: ['PROFITABLE', 'MARGINAL', 'UNPROFITABLE'] },
+      { type: 'null' },
+    ],
+  },
+  rr_profitability_resolution: { type: ['string', 'null'] },
 };
 
 const ANSWER_SHEET_REQUIRED = Object.keys(ANSWER_SHEET_PROPERTIES);

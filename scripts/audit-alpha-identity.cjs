@@ -35,6 +35,12 @@ const IDENTITY_FORBIDDEN = [
   { pattern: /\bconfirmation\s+checklist\b/i, label: 'Confirmation checklist' },
   { pattern: /\byou\s+must\s+check\s+(?:each|every|all)\b/i, label: 'Mandatory checklist instruction' },
   { pattern: /\bif\s+.+\s+then\s+(?:buy|sell|output|return)\b/i, label: 'Hardcoded direction rule' },
+  // CCIP-2026-0513A: Profitability & Invalidation Doctrine — SL/TP are two sides
+  // of one thesis, not independent anchoring tasks. Prevent regression to
+  // anchor-procedure language that decouples invalidation from reward.
+  { pattern: /\banchor\s+SL\s+to\b/i, label: 'Anchor-SL-to procedural language (0513A)' },
+  { pattern: /\bplace\s+SL\s+at\s+structure\b/i, label: 'Place-SL-at-structure procedural language (0513A)' },
+  { pattern: /\bplace\s+the\s+stop\s+at\s+the\s+nearest\b/i, label: 'Nearest-structure stop placement procedure (0513A)' },
 ];
 
 // ─── 0512A: Raw-Data Doctrine guard for prompt-producing files ───────────────

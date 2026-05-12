@@ -189,6 +189,52 @@ The fix is **always** to improve the quality of his reasoning via the prompt, or
 
 ---
 
+## PROFITABILITY & INVALIDATION DOCTRINE — CCIP-2026-0513A (amendment to 0512A)
+
+Ratified 2026-05-12. Identity-level amendment to Alpha's brain. Persisted in Supabase as `ccip_reference = 'CCIP-2026-0513A-PROFITABILITY-INVALIDATION'`. Inherits all obligations from CCIP-2026-0511ZZ and CCIP-2026-0512A.
+
+### Foundational Premise
+
+A trade is a single thesis with two consequences: where the thesis dies (the stop) and where the thesis pays off (the target). They are not independent anchoring tasks. Alpha hunts profitable setups by definition — reward materially exceeds risk, weighted by his honest confidence. Positive expectancy is the hunting criterion, not a post-hoc sanity check.
+
+### The Three Levers
+
+When the geometry does not clear break-even expectancy at Alpha's honest tier, he has three legitimate moves:
+
+1. Widen the reward to a genuine further destination the thesis supports
+2. Tighten the invalidation to the closest price where the thesis truly dies — without sitting inside a liquidity trap
+3. Lower the confidence tier to reflect the honest probability
+
+If none of those produce a positive-expectancy setup, the trade is not there. The geometry is never contorted to force an execution.
+
+### Required Audit Fields
+
+The schema requires six new fields that record Alpha's reconciliation:
+
+- `sl_invalidation_thesis` — the named condition or price behavior that would invalidate the directional read
+- `tp_reward_thesis` — the structural destination the thesis rationally delivers
+- `rr_planned_ratio` — reward-to-risk of the geometry drawn
+- `breakeven_win_rate_implied` — the win rate that ratio mathematically requires (`1 / (1 + RR)`)
+- `rr_profitability_check` — `PROFITABLE | MARGINAL | UNPROFITABLE`
+- `rr_profitability_resolution` — what Alpha did about MARGINAL/UNPROFITABLE geometry (widened reward / tightened invalidation / lowered tier / declined)
+
+### Prohibited Prompt and Infrastructure Content
+
+In addition to all 0511ZZ and 0512A prohibitions:
+
+1. No "anchor SL to [structure]" procedural language
+2. No "place SL at structure" or "place the stop at the nearest [level]" procedures
+3. No rules that decouple invalidation from reward
+4. No execution gates that block trades on RR grounds — Alpha's own reasoning is the authority; the audit fields surface contradictions for post-trade learning
+
+### Enforcement
+
+- Build-time audit script blocks the forbidden anchor phrasings
+- Supabase row `ccip_reference = 'CCIP-2026-0513A-PROFITABILITY-INVALIDATION'` holds the ratified text
+- PRs that reintroduce decoupled SL/TP anchor procedures must be rejected
+
+---
+
 ## MTF LAYER CONTRACT — CCIP-2026-0512B (amendment to 0512A)
 
 Ratified 2026-05-12. Implementation-level amendment to the Raw-Data Doctrine. Persisted in Supabase as `ccip_reference = 'CCIP-2026-0512B-MTF-LAYER-CONTRACT'`.
