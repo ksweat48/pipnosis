@@ -48,6 +48,16 @@ const IDENTITY_FORBIDDEN = [
   { pattern: /\bstructural\s+breathing\s+room\b/i, label: 'Structural-breathing-room anchor framing (0513B)' },
   { pattern: /\babove\s+the\s+swing\s+high\b/i, label: 'Anchor-to-swing-high SL language (0513B)' },
   { pattern: /\bbelow\s+the\s+swing\s+low\b/i, label: 'Anchor-to-swing-low SL language (0513B)' },
+  // CCIP-2026-0513F: M5-Primary Hierarchy. H1 is background context only.
+  // Block any phrasing that reintroduces H1 (or M15) as directional authority
+  // over the active M5 leg. The retired "CONTROL TF" framing must not return.
+  { pattern: /\bCONTROL\s+TF\b/i, label: 'CONTROL TF framing — H1 elevation (0513F)' },
+  { pattern: /\bH1\s+control\b/i, label: 'H1 control framing (0513F)' },
+  { pattern: /\bH1\s+authority\b/i, label: 'H1 authority framing (0513F)' },
+  { pattern: /\bwait\s+for\s+H1\s+confirmation\b/i, label: 'Wait-for-H1-confirmation procedural (0513F)' },
+  { pattern: /\bH1\s+(?:must|should)\s+(?:confirm|align|agree)\b/i, label: 'H1-must-confirm authority elevation (0513F)' },
+  { pattern: /\bH1\s+is\s+the\s+(?:primary|control|authoritative)\b/i, label: 'H1-as-primary framing (0513F)' },
+  { pattern: /\bM15\s+(?:overrides|trumps|beats)\s+M5\b/i, label: 'M15-overrides-M5 framing (0513F)' },
 ];
 
 // ─── 0512A: Raw-Data Doctrine guard for prompt-producing files ───────────────

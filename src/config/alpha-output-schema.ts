@@ -289,6 +289,34 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
     ],
   },
   trap_reconciliation_complete: { type: ['boolean', 'null'] },
+
+  // ------------------------------------------------------------------
+  // CCIP-2026-0513F: M5-PRIMARY HIERARCHY DOCTRINE
+  // ------------------------------------------------------------------
+  // M5 is the battlefield where SL/TP live. M15 is a one-line filter.
+  // M1 is optional sniper timing. H1 is background context only — never
+  // authority over an active M5 leg. These fields record that the
+  // hierarchy was respected on every scan. The schema enforces presence;
+  // Alpha's reasoning enforces that the call genuinely came from M5.
+  directional_authority: {
+    anyOf: [
+      { type: 'string', enum: ['m5'] },
+      { type: 'null' },
+    ],
+  },
+  m5_direction_call: { type: ['string', 'null'] },
+  m5_micro_leg_state: {
+    anyOf: [
+      {
+        type: 'string',
+        enum: ['building', 'extending', 'exhausting', 'reversing', 'consolidating'],
+      },
+      { type: 'null' },
+    ],
+  },
+  m15_filter_check: { type: ['string', 'null'] },
+  m1_sniper_used: { type: ['boolean', 'null'] },
+  h1_background_only: { type: ['boolean', 'null'] },
 };
 
 const ANSWER_SHEET_REQUIRED = Object.keys(ANSWER_SHEET_PROPERTIES);

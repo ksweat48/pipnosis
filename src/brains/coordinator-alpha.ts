@@ -1864,12 +1864,15 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
     // M5-exit-narrative teaching block were removed. They were telling Alpha *how* to
     // think about TP placement. Alpha already knows how to trade. The prompt surfaces
     // the timeframe facts and the required JSON audit fields only.
+    // CCIP-2026-0513F: M5-Primary Hierarchy. M5 is the battlefield, M15 is a
+    // one-line filter, M1 is optional sniper, H1 is background only. The
+    // timeframe stack is presented in authority order (highest authority first).
     const styleIdentityPrompt = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: MICRO_INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Timeframe stack: M5 | M15 | H1 | D1.
-Record m5_structural_confirmation, m5_move_phase, and m5_atr_traveled in the JSON response — these are audit fields.
+Timeframe authority: M5 (primary — SL/TP placed here) > M15 (filter) > M1 (optional sniper) > H1 (background context only).
+Record m5_structural_confirmation, m5_move_phase, m5_atr_traveled, directional_authority, m5_direction_call, m5_micro_leg_state, m15_filter_check, m1_sniper_used, h1_background_only in the JSON response — these are audit fields.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
@@ -1992,7 +1995,35 @@ ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: 
       const mds = MarketDataService.getInstance();
       const primaryCandles = await mds.getCandles(marketContext.symbol, primaryTfConfig.timeframe, primaryTfConfig.candleCount);
 
-      if (primaryCandles && primaryCandles.length >= 5) {
+      if (!primaryCandles || primaryCandles.length < 5) {
+        // CCIP-2026-0513F-M5-PRIMARY-HIERARCHY: M5 is the battlefield where SL/TP
+        // live. Missing M5 data is a hard fail — Alpha cannot reason about an
+        // entry he cannot see. This is the ONLY hard timeframe gate under 0513F.
+        console.error(`[Alpha Coordinator] M5_DATA_MISSING: primary M5 candles unavailable for ${styleName}. Returning NO_TRADE.`);
+        if (userId && sessionId) {
+          writeStructuralAlert({
+            userId,
+            sessionId,
+            symbol: marketContext.symbol,
+            style: tradeStyle,
+            ruleType: 'M5_DATA_MISSING',
+            direction: '',
+            detailsText: `M5 primary timeframe candle data unavailable for ${styleName}. Found ${primaryCandles?.length ?? 0} candles (need ≥5). M5 is the battlefield; cannot proceed.`,
+          });
+        }
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: marketContext.price,
+          stopLoss: marketContext.price,
+          takeProfit: marketContext.price,
+          confidence: 0,
+          reasoning: `M5_DATA_MISSING: M5 primary timeframe candle data is required for ${styleName} (M5 is where SL/TP are placed) but is unavailable. Cannot proceed without M5 battlefield data.`,
+          decision_origin: 'SYSTEM_DATA_MISSING' as const,
+        };
+      }
+
+      {
         const recentPrimary = primaryCandles.slice(0, primaryTfConfig.candleCount).reverse();
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
@@ -2247,30 +2278,19 @@ ${primaryTfConfig.label} STRUCTURAL EVIDENCE (pre-computed from same window):
         const htfCandles = await mds.getCandles(marketContext.symbol, htfConfig.timeframe, htfConfig.candleCount);
 
         if (!htfCandles || htfCandles.length < 5) {
-          console.error(`[Alpha Coordinator] HTF_DATA_MISSING: ${htfConfig.label} candles unavailable for ${styleName}. Returning NO_TRADE.`);
-          if (userId && sessionId) {
-            writeStructuralAlert({
-              userId,
-              sessionId,
-              symbol: marketContext.symbol,
-              style: tradeStyle,
-              ruleType: 'HTF_DATA_MISSING',
-              direction: '',
-              detailsText: `${htfConfig.label} controlling timeframe candle data unavailable for ${styleName}. Found ${htfCandles?.length ?? 0} candles (need ≥5). Cannot assess structural bias.`,
-            });
-          }
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: marketContext.price,
-            stopLoss: marketContext.price,
-            takeProfit: marketContext.price,
-            confidence: 0,
-            reasoning: `MTF_DATA_MISSING: ${htfConfig.label} controlling timeframe candle data is required for ${styleName} analysis but is unavailable. Cannot assess structural bias without ${htfConfig.label} context.`,
-            decision_origin: 'SYSTEM_DATA_MISSING' as const,
-          };
-        }
+          // CCIP-2026-0513F-M5-PRIMARY-HIERARCHY: H1 is background context only —
+          // never authority over an active M5 leg. Missing H1 data is a soft
+          // advisory, NOT an execution gate. Alpha proceeds on M5 + M15.
+          console.warn(`[Alpha Coordinator] H1 background context unavailable for ${styleName} (non-blocking under 0513F). Found ${htfCandles?.length ?? 0} candles.`);
+          htfCandlePrompt = `
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${htfConfig.label} BACKGROUND CONTEXT (${marketContext.symbol})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${htfConfig.label} candles unavailable. Background context only — non-blocking. Proceed on M5 + M15.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        } else {
         const recentHtf = htfCandles.slice(0, htfConfig.candleCount).reverse();
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
@@ -2355,29 +2375,17 @@ ${htfConfig.label} RAW READINGS (last ${htfConfig.candleCount} candles):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] ${htfConfig.label} Direction TF: ${recentHtf.length} candles, bias ${htfTrendDir}, range ${htfRangePips.toFixed(1)} pips`);
-      } catch (error) {
-        console.error(`[Alpha Coordinator] HTF_DATA_MISSING: ${htfConfig.label} candles fetch failed for ${styleName}:`, error instanceof Error ? error.message : 'Unknown');
-        if (userId && sessionId) {
-          writeStructuralAlert({
-            userId,
-            sessionId,
-            symbol: marketContext.symbol,
-            style: tradeStyle,
-            ruleType: 'HTF_DATA_MISSING',
-            direction: '',
-            detailsText: `${htfConfig.label} candle fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}. Cannot assess structural context for ${styleName}.`,
-          });
         }
-        return {
-          action: 'NO_TRADE',
-          decision: 'NO_TRADE',
-          entry: marketContext.price,
-          stopLoss: marketContext.price,
-          takeProfit: marketContext.price,
-          confidence: 0,
-          reasoning: `MTF_DATA_MISSING: ${htfConfig.label} controlling timeframe data fetch failed for ${styleName}. Cannot proceed without structural context.`,
-          decision_origin: 'SYSTEM_DATA_MISSING' as const,
-        };
+      } catch (error) {
+        console.warn(`[Alpha Coordinator] H1 background context fetch failed for ${styleName} (non-blocking under 0513F):`, error instanceof Error ? error.message : 'Unknown');
+        htfCandlePrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${htfConfig.label} BACKGROUND CONTEXT (${marketContext.symbol})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${htfConfig.label} candle fetch failed. Background context only — non-blocking. Proceed on M5 + M15.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
       }
     }
 
