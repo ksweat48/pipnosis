@@ -215,37 +215,34 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
     lines.push(`SESSION:${intel.sessionName ?? ''}${sessionRem}${nextSess}${phaseStr}`);
   }
 
+  // CCIP-2026-0513J SEALED-PROMPT DOCTRINE:
+  // Emit raw numerics and symmetric +1/0/-1 codes only. No BULL/BEAR/STRONG_BEAR/MIXED
+  // verdict labels. Alpha reasons over raw readings.
   const e20 = formatPrice(intel.rawIndicators.ema20);
   const e50 = formatPrice(intel.rawIndicators.ema50);
   const e200 = formatPrice(intel.rawIndicators.ema200);
-  const emaStack = `${intel.rawIndicators.ema20 > intel.rawIndicators.ema50 ? '' : '!'}20>${intel.rawIndicators.ema50 > intel.rawIndicators.ema200 ? '' : '!'}50>200`;
-  lines.push(`TREND: EMA=${intel.trend.emaAlignment.toUpperCase()}(${emaStack}) e20:${e20} e50:${e50} e200:${e200} | MOM:${intel.trend.momentum.toUpperCase()}(${intel.rawIndicators.momentum.toFixed(2)}) | BOS:${intel.trend.bos.toUpperCase()} CHOCH:${intel.trend.choch.toUpperCase()} ATRt:${intel.trend.atrTrend.toUpperCase()}`);
+  const emaSpread20_50 = intel.rawIndicators.ema20 - intel.rawIndicators.ema50;
+  const emaSpread50_200 = intel.rawIndicators.ema50 - intel.rawIndicators.ema200;
+  const bosCode = intel.trend.bos === 'bull' ? 1 : intel.trend.bos === 'bear' ? -1 : 0;
+  const chochCode = intel.trend.choch === 'bull' ? 1 : intel.trend.choch === 'bear' ? -1 : 0;
+  const atrTrendCode = intel.trend.atrTrend === 'up' ? 1 : intel.trend.atrTrend === 'down' ? -1 : 0;
+  lines.push(`TREND_RAW: e20:${e20} e50:${e50} e200:${e200} spread20_50:${emaSpread20_50.toFixed(5)} spread50_200:${emaSpread50_200.toFixed(5)} | mom_raw:${intel.rawIndicators.momentum.toFixed(2)} | bos:${bosCode} choch:${chochCode} atr_trend:${atrTrendCode}`);
 
   const vwapDistAtr = intel.atr > 0 ? (Math.abs(intel.price - intel.rawIndicators.vwap) / intel.atr).toFixed(2) : '0';
-  lines.push(`INDICATORS: RSI:${intel.scalp.rsiLevel.toFixed(1)} Stoch:${intel.scalp.stochLevel.toFixed(1)} | VWAP:${formatPrice(intel.rawIndicators.vwap)}(${intel.scalp.vwapDistance.toFixed(2)}%,${vwapDistAtr}ATR) microSR:${intel.scalp.microSR.toUpperCase()} pb:${intel.scalp.pullbackDepth}c | MACD:${intel.rawIndicators.macd.toFixed(5)} sig:${intel.rawIndicators.macdSignal.toFixed(5)}`);
+  const microSRCode = intel.scalp.microSR === 'above' ? 1 : intel.scalp.microSR === 'below' ? -1 : 0;
+  lines.push(`INDICATORS_RAW: rsi:${intel.scalp.rsiLevel.toFixed(1)} stoch:${intel.scalp.stochLevel.toFixed(1)} | vwap:${formatPrice(intel.rawIndicators.vwap)} vwap_dist_pct:${intel.scalp.vwapDistance.toFixed(2)} vwap_dist_atr:${vwapDistAtr} micro_sr:${microSRCode} pb_depth:${intel.scalp.pullbackDepth} | macd:${intel.rawIndicators.macd.toFixed(5)} macd_sig:${intel.rawIndicators.macdSignal.toFixed(5)}`);
 
-  const reversalSignals: string[] = [];
-  if (intel.reversal.rsiDivergence !== 'none') reversalSignals.push(`RSIdiv:${intel.reversal.rsiDivergence}`);
-  if (intel.reversal.macdDivergence !== 'none') reversalSignals.push(`MACDdiv:${intel.reversal.macdDivergence}`);
-  if (intel.reversal.engulfingBull) reversalSignals.push('EngBull');
-  if (intel.reversal.engulfingSell) reversalSignals.push('EngBear');
-  if (intel.reversal.pinBarBull) reversalSignals.push('PinBull');
-  if (intel.reversal.pinBarSell) reversalSignals.push('PinBear');
-  if (intel.reversal.doji) reversalSignals.push('Doji');
-  const patterns: string[] = [];
-  if (intel.sensors.pat.eng_b) patterns.push('BullEng');
-  if (intel.sensors.pat.eng_s) patterns.push('BearEng');
-  if (intel.sensors.pat.pin_b) patterns.push('PinBull');
-  if (intel.sensors.pat.pin_s) patterns.push('PinBear');
-  if (intel.sensors.pat.doji) patterns.push('Doji');
-  if (intel.sensors.pat.mom) patterns.push('MomBar');
-  lines.push(`SIGNALS: BOS:${intel.confirmation.bosDirection.toUpperCase()} EqH:${intel.confirmation.equalHighs ? 'Y' : 'N'} EqL:${intel.confirmation.equalLows ? 'Y' : 'N'} VolSpk:${intel.confirmation.volumeSpike ? 'Y' : 'N'} | Vol:${intel.volatility.regime.toUpperCase()}(${atrAvgRatio.toFixed(2)}x) wick/body:${wickRatio.toFixed(2)} | Reversal:${reversalSignals.length ? reversalSignals.join(',') : 'none'} | Candle:${patterns.length ? patterns.join(',') : 'none'}`);
+  const rsiDivCode = intel.reversal.rsiDivergence === 'bull' ? 1 : intel.reversal.rsiDivergence === 'bear' ? -1 : 0;
+  const macdDivCode = intel.reversal.macdDivergence === 'bull' ? 1 : intel.reversal.macdDivergence === 'bear' ? -1 : 0;
+  const volRegimeCode = intel.volatility.regime === 'high' ? 2 : intel.volatility.regime === 'mid' ? 1 : 0;
+  lines.push(`SIGNALS_RAW: bos:${bosCode} eqh:${intel.confirmation.equalHighs ? 1 : 0} eql:${intel.confirmation.equalLows ? 1 : 0} vol_spk:${intel.confirmation.volumeSpike ? 1 : 0} | vol_regime:${volRegimeCode} atr_avg_ratio:${atrAvgRatio.toFixed(2)} wick_body:${wickRatio.toFixed(2)} | rsi_div:${rsiDivCode} macd_div:${macdDivCode} eng_b:${intel.reversal.engulfingBull ? 1 : 0} eng_s:${intel.reversal.engulfingSell ? 1 : 0} pin_b:${intel.reversal.pinBarBull ? 1 : 0} pin_s:${intel.reversal.pinBarSell ? 1 : 0} doji:${intel.reversal.doji ? 1 : 0} mom_bar:${intel.sensors.pat.mom ? 1 : 0}`);
 
   const sweepStr = intel.orderFlow.sweepType && intel.orderFlow.sweepType !== 'none'
-    ? ` | SWEEP:${intel.orderFlow.sweepType.toUpperCase()}${intel.orderFlow.sweepCandlesAgo ?? '?'}cAgo BOS:${intel.orderFlow.sweepHasBOS ? 'Y' : 'N'}${intel.orderFlow.sweepExtremePrice ? ` ext:${intel.orderFlow.sweepExtremePrice.toFixed(5)}` : ''}${intel.orderFlow.nearestClusterPrice ? ` clust:${intel.orderFlow.nearestClusterPrice.toFixed(5)}` : ''}`
+    ? ` | sweep_type:${intel.orderFlow.sweepType} sweep_candles_ago:${intel.orderFlow.sweepCandlesAgo ?? -1} sweep_has_bos:${intel.orderFlow.sweepHasBOS ? 1 : 0}${intel.orderFlow.sweepExtremePrice ? ` sweep_ext:${intel.orderFlow.sweepExtremePrice.toFixed(5)}` : ''}${intel.orderFlow.nearestClusterPrice ? ` cluster:${intel.orderFlow.nearestClusterPrice.toFixed(5)}` : ''}`
     : '';
   const ofSignals = intel.orderFlow.signals.length > 0 ? ` sigs:[${intel.orderFlow.signals.join(',')}]` : '';
-  lines.push(`ORDERFLOW: SwH:${intel.orderFlow.sweptHighs} SwL:${intel.orderFlow.sweptLows} FVG:${intel.orderFlow.fvgBullish}bull/${intel.orderFlow.fvgBearish}bear EqH:${intel.orderFlow.equalHighs} EqL:${intel.orderFlow.equalLows} | VolSpk:${intel.orderFlow.volSpikeBullish ? 'BULL' : intel.orderFlow.volSpikeBearish ? 'BEAR' : 'NONE'} Abs:${intel.orderFlow.absorptionBullish ? 'BULL' : intel.orderFlow.absorptionBearish ? 'BEAR' : 'NONE'} Acc:${intel.orderFlow.accumulationZone ? 'Y' : 'N'} Dist:${intel.orderFlow.distributionZone ? 'Y' : 'N'} | ${intel.orderFlow.confluenceScore}pat liq:${intel.orderFlow.liquidityBias.toUpperCase()}${sweepStr}${ofSignals}`);
+  const liqBiasCode = intel.orderFlow.liquidityBias === 'bull' ? 1 : intel.orderFlow.liquidityBias === 'bear' ? -1 : 0;
+  lines.push(`ORDERFLOW_RAW: sw_h:${intel.orderFlow.sweptHighs} sw_l:${intel.orderFlow.sweptLows} fvg_up:${intel.orderFlow.fvgBullish} fvg_dn:${intel.orderFlow.fvgBearish} eqh:${intel.orderFlow.equalHighs} eql:${intel.orderFlow.equalLows} | vol_spk_up:${intel.orderFlow.volSpikeBullish ? 1 : 0} vol_spk_dn:${intel.orderFlow.volSpikeBearish ? 1 : 0} abs_up:${intel.orderFlow.absorptionBullish ? 1 : 0} abs_dn:${intel.orderFlow.absorptionBearish ? 1 : 0} acc:${intel.orderFlow.accumulationZone ? 1 : 0} dist:${intel.orderFlow.distributionZone ? 1 : 0} | confluence:${intel.orderFlow.confluenceScore} liq_bias:${liqBiasCode}${sweepStr}${ofSignals}`);
 
   const supLevels = intel.support.slice(0, 3).map(s => {
     const d = intel.atr > 0 ? (Math.abs(intel.price - s) / intel.atr).toFixed(2) : '?';

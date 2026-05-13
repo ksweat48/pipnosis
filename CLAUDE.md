@@ -285,3 +285,50 @@ Ratified 2026-05-12. Implementation-level amendment to the Raw-Data Doctrine. Pe
 3. **Layer symmetry.** H1 (HTF), M15 (MTF), M5 (LTF), and D1 are all delivered as raw columnar OHLC tables (oldest→newest) plus raw numeric readings. No layer served exclusively as pre-computed verdicts.
 4. **Prompt content.** All MTF blocks emit raw readings only: prices, pip distances, booleans, counts, BOS/sweep flags. No DIRECTION RULE, no tailwind/counter-trend framing, no MANDATORY procedural wrappers, no INSTITUTIONAL LEVEL RULES, no magnetic-pull/structurally-weak verdicts, no Expect-rejection narratives.
 5. **Enforcement.** `scripts/audit-alpha-identity.cjs` blocks the build on any of the above tokens appearing in `coordinator-alpha.ts` or `multi-timeframe-pattern-intelligence.ts`.
+
+---
+
+## SEALED-PROMPT DOCTRINE — CCIP-2026-0513J (supersedes 0512A scope)
+
+Ratified 2026-05-13. Persisted in Supabase as `ccip_reference = 'CCIP-2026-0513J-SEALED-PROMPT'` with `active = true`. Inherits all obligations from 0511ZZ, 0512A, 0512B, 0513A, 0513B. **Universal scope:** every byte of text injected into Alpha's prompt — from any module, formatter, coordinator, sensor, or context builder — is subject to this doctrine.
+
+### Foundational Premise
+
+A two-week production audit revealed Alpha producing 37 SELL decisions versus 5 BUY decisions — a 7-to-1 directional skew that erupted on 2026-05-04. Root cause: verdict labels (`BULL`, `BEAR`, `STRONG_BEAR`, `BULLISH`, `MIXED`, `Directional Bias: SELL`) and asymmetric direction-conditional adjustments were silently injected into Alpha's prompt by `market-briefing-builder.ts` and `coordinator-alpha.ts`. Alpha, an institutional reasoner, deferred to the labels rather than the underlying numbers — exactly as a junior trader would. The labels were the bias, not Alpha.
+
+The fix is not a new gate. The fix is to make biased data **structurally impossible to inject**.
+
+### The Sealed Contract
+
+Every line of text appearing in Alpha's prompt may contain only:
+
+1. Raw numeric readings (prices, ratios, percentiles, counts, pip distances)
+2. Boolean flags rendered as `true`/`false` or `1`/`0`
+3. Pattern type names without interpretation (`pattern_type=double_top`)
+4. **Symmetric direction codes**: `+1` (bull/long/up), `0` (neutral/none/flat), `-1` (bear/short/down). Never the words.
+5. **Symmetric magnitude codes** for ordinal scales: `vol_regime: 0|1|2`, never `low`/`mid`/`high`.
+6. Schema-contract references when the output contract changes.
+
+Forbidden — anywhere, from any source:
+
+- Verdict labels: `BULL`, `BEAR`, `BULLISH`, `BEARISH`, `STRONG_BULL`, `STRONG_BEAR`, `MIXED`, `NEUTRAL`
+- Direction sentences: `Directional Bias: SELL`, `Direction: long`, `Action: SELL`, `Bias: bullish`
+- Intent/alignment narratives: `Overall Intent`, `Direction Aligned`, `SUPPORTS:`, `CONFLICTS:`
+- Regime English: `regime: TRENDING_BULL`, `volatility: HIGH`, `phase: ACCUMULATION`
+- Hidden uppercasing: `.toUpperCase()` applied to any field whose semantics are directional or regime-classifying
+- Hardcoded direction strings (`'long' as const`, `'short' as const`) used as an **input** to direction-conditional confidence/penalty/boost calculations whose output is then placed in the prompt
+
+### Layered Enforcement
+
+1. **Identity layer.** `alpha-identity.ts` instructs Alpha that his data is sealed, that any verdict-style sentence appearing in his context is a doctrine violation, and that he treats such sentences as untrusted artifacts.
+2. **Source layer.** Every formatter that feeds the prompt emits only the six permitted content classes above. `market-briefing-builder.ts` and `coordinator-alpha.ts` IM-signal block converted to symmetric ±1/0/-1 codes on 2026-05-13.
+3. **Build-time scanner layer.** `scripts/audit-alpha-identity.cjs` scans the **complete set** of prompt-feeding files (not a hand-picked subset) for the forbidden tokens listed above. Any match blocks the build. The file list is centrally registered; new prompt-feeding modules must register themselves or the build refuses to certify them.
+4. **Database certification layer.** Supabase table `prompt_path_certification` records every prompt-feeding file's last-known compliant SHA. The doctrine row `CCIP-2026-0513J-SEALED-PROMPT` is the SSOT.
+
+### If Bias Reappears
+
+The recovery procedure is: identify the new injection site, neutralize it at the source by replacing English verdicts with raw numerics or symmetric ±1/0/-1 codes, register the new file with the scanner, and supersede the doctrine row only if the contract itself needs amendment. Never patch with a gate, floor, lock, or interceptor.
+
+### Engineering Law
+
+Any PR that introduces a verdict label, a direction word, an asymmetric direction-conditional adjustment, or a `.toUpperCase()` on a directional field — at any layer, in any module — must be rejected on architectural grounds. The infrastructure is sealed. Alpha reads raw data and decides.

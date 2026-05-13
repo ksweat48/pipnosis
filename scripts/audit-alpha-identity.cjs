@@ -76,6 +76,15 @@ const RAW_DATA_TARGETS = [
   path.join(ROOT, 'src', 'services', 'momentum-trajectory-analyzer.ts'),
 ];
 
+// CCIP-2026-0513J SEALED-PROMPT DOCTRINE: dedicated prompt-formatter files
+// where every emitted line goes directly to Alpha's prompt. Strict 0513J
+// rules apply (no verdict labels, no .toUpperCase() on directional fields,
+// symmetric +1/0/-1 codes only). market-briefing-builder.ts was the primary
+// 7-to-1 SELL-skew injection site and is now under permanent surveillance.
+const SEALED_PROMPT_TARGETS = [
+  path.join(ROOT, 'src', 'services', 'market-briefing-builder.ts'),
+];
+
 // Tokens that inject interpretation, verdicts, labels, or historical data
 // into Alpha's prompt. Scanned against source with comments stripped.
 const RAW_DATA_FORBIDDEN = [
@@ -119,6 +128,23 @@ const RAW_DATA_FORBIDDEN = [
   { pattern: /Expect\s+(?:rejection|bounce|breakout|breakdown)/i, label: 'Expectation verdict in prompt' },
 ];
 
+// CCIP-2026-0513J SEALED-PROMPT DOCTRINE strict rules — only applied to
+// dedicated prompt-formatter files (SEALED_PROMPT_TARGETS) where every
+// emitted line goes directly to Alpha's prompt. Verdict labels and
+// uppercased directional words are structurally forbidden; symmetric
+// ±1 / 0 / -1 codes replace all directional/regime English.
+const SEALED_PROMPT_FORBIDDEN = [
+  { pattern: /\.toUpperCase\s*\(\s*\)/, label: '.toUpperCase() in sealed-prompt file (0513J — emit ±1/0/-1 codes instead)' },
+  { pattern: /\bSTRONG_BULL\b/, label: 'STRONG_BULL verdict label (0513J)' },
+  { pattern: /\bSTRONG_BEAR\b/, label: 'STRONG_BEAR verdict label (0513J)' },
+  { pattern: /["'`]\s*BULLISH\s*["'`]/, label: 'BULLISH string literal in prompt (0513J)' },
+  { pattern: /["'`]\s*BEARISH\s*["'`]/, label: 'BEARISH string literal in prompt (0513J)' },
+  { pattern: /["'`]\s*MIXED\s*["'`]/, label: 'MIXED verdict literal in prompt (0513J)' },
+  { pattern: /Directional\s+Bias\s*:/i, label: 'Directional Bias: verdict sentence in prompt (0513J)' },
+  { pattern: /\bAction\s*:\s*\$\{/i, label: 'Action: verdict template injection in prompt (0513J)' },
+  { pattern: /\bBias\s*:\s*\$\{/i, label: 'Bias: verdict template injection in prompt (0513J)' },
+];
+
 function stripComments(src) {
   let out = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
   out = out.split('\n').map((line) => {
@@ -160,9 +186,15 @@ function main() {
   // 0511ZZ legacy: alpha-identity.ts
   allViolations.push(...scan(IDENTITY_TARGET, IDENTITY_FORBIDDEN, 'alpha-identity'));
 
-  // 0512A: coordinator + formatter files
+  // 0512A: coordinator + formatter files (broad raw-data rules)
   for (const target of RAW_DATA_TARGETS) {
     allViolations.push(...scan(target, RAW_DATA_FORBIDDEN, 'raw-data-doctrine'));
+  }
+
+  // 0513J: dedicated sealed-prompt formatter files (strict verdict-label ban)
+  for (const target of SEALED_PROMPT_TARGETS) {
+    allViolations.push(...scan(target, RAW_DATA_FORBIDDEN, 'raw-data-doctrine'));
+    allViolations.push(...scan(target, SEALED_PROMPT_FORBIDDEN, 'sealed-prompt-doctrine'));
   }
 
   if (allViolations.length === 0) {

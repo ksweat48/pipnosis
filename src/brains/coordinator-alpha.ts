@@ -1397,9 +1397,14 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
         });
       }
       try {
+        // CCIP-2026-0513J SEALED-PROMPT DOCTRINE: pattern analysis is direction-agnostic.
+        // tradeDirection is a cache-key/audit-only sentinel — formatForAlphaPrompt emits
+        // pure raw geometry (pattern types + price levels) and does not consume the
+        // direction-conditional supports/opposes flags. This keeps the prompt symmetric
+        // for buy/sell hypotheses; the prior hardcoded 'long' was a directional injection.
         const tradeDirection = 'long' as const;
 
-        console.log('[Alpha Coordinator] Analyzing multi-timeframe patterns (structural)...');
+        console.log('[Alpha Coordinator] Analyzing multi-timeframe patterns (structural, direction-agnostic)...');
 
         patternIntelligence = await multiTimeframePatternIntelligence.analyzePatterns({
           symbol: marketContext.symbol,
@@ -2709,28 +2714,24 @@ ${roundNumbersBlock}
     // session_intelligence_data table. Applies to ALL trade styles.
     // Advisory only — Alpha retains full decision authority.
     // ═══════════════════════════════════════════════════════════════════
+    // CCIP-2026-0513J SEALED-PROMPT DOCTRINE: IM signal emitted as RAW numerics only.
+    // No "Directional Bias: SELL" verdict text. Alpha receives the raw pair score and
+    // a symmetric +1/0/-1 direction code; he reasons about its meaning himself.
     let imSignalContext = '';
     if (imSignal && typeof imSignal === 'object') {
       const direction = imSignal.direction as string | undefined;
       const imConfidence = imSignal.confidence as number | undefined;
-      const alignment = imSignal.alignment as string | undefined;
-      const momentumPhase = imSignal.momentumPhase as string | undefined;
-      const subMode = imSignal.scalpSubMode as string | undefined;
-      const pattern = imSignal.scalpPattern as string | undefined;
       const imScore = imSignal.score as number | undefined;
 
-      const hasUsefulData = direction || momentumPhase || subMode || pattern;
+      const hasUsefulData = direction !== undefined || imScore !== undefined || imConfidence !== undefined;
       if (hasUsefulData) {
+        const dirCode = direction === 'long' || direction === 'buy' || direction === 'bull'
+          ? 1
+          : direction === 'short' || direction === 'sell' || direction === 'bear'
+            ? -1
+            : 0;
         imSignalContext = `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INTELLIGENCE MONITOR SIGNAL (${marketContext.symbol}) — ADVISORY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed signal from the server-side intelligence monitor. This is advisory context — your analysis takes precedence. Document any contradictions between this signal and your own reading in your reasoning.
-${direction ? `Directional Bias: ${direction.toUpperCase()}` : ''}${imConfidence !== undefined ? ` | Signal Confidence: ${(imConfidence * 100).toFixed(0)}%` : ''}${imScore !== undefined ? ` | Pair Score: ${imScore.toFixed(1)}` : ''}
-${alignment ? `Alignment: ${alignment}` : ''}
-${momentumPhase ? `Momentum Phase: ${momentumPhase.toUpperCase()}` : ''}${subMode ? ` | Sub-Mode: ${subMode}` : ''}
-${pattern ? `Detected Pattern: ${pattern}` : ''}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INTELLIGENCE_MONITOR_RAW (${marketContext.symbol}): dir_code:${dirCode} pair_score:${imScore !== undefined ? imScore.toFixed(2) : 'null'} signal_conf:${imConfidence !== undefined ? imConfidence.toFixed(3) : 'null'}
 `;
       }
     }
