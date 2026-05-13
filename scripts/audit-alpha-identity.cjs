@@ -126,6 +126,17 @@ const RAW_DATA_FORBIDDEN = [
   { pattern: /structurally\s+weak/i, label: 'Structurally-weak verdict in prompt' },
   { pattern: /false\s+breakout\s+zone/i, label: 'False-breakout zone verdict in prompt' },
   { pattern: /Expect\s+(?:rejection|bounce|breakout|breakdown)/i, label: 'Expectation verdict in prompt' },
+  // CCIP-2026-0513K-COORDINATOR-PROMPT-SEALING: block re-introduction of the
+  // specific verdict-label injections removed from coordinator-alpha.ts on
+  // 2026-05-13 (emaStack BULL/BEAR/MIXED, ema20SlopeDir RISING/FALLING/FLAT,
+  // htfTrendDir / m15DirTrend BULLISH/BEARISH/NEUTRAL, ABOVE/BELOW EMA English,
+  // and the EMA INTERPRETATION teaching sentence).
+  { pattern: /\bEMA\s+INTERPRETATION\b/i, label: 'EMA INTERPRETATION teaching block (0513K)' },
+  { pattern: /EMA\s+Stack\s*:\s*\$\{/i, label: 'EMA Stack verdict template injection (0513K)' },
+  { pattern: /EMA20\s+Slope\s*:\s*\$\{/i, label: 'EMA20 Slope verdict template injection (0513K)' },
+  { pattern: /Price\s+is\s+\$\{[^}]*\?\s*['"`]ABOVE['"`]/i, label: 'Price is ABOVE/BELOW EMA verdict template (0513K)' },
+  { pattern: /['"`]\s*RISING\s*['"`]\s*:\s*['"`]\s*FALLING\s*['"`]/i, label: 'RISING/FALLING slope verdict literals (0513K)' },
+  { pattern: /['"`]\s*BULL\s*['"`]\s*:\s*[^?]*['"`]\s*BEAR\s*['"`]/i, label: 'BULL/BEAR ema-stack verdict literals (0513K)' },
 ];
 
 // CCIP-2026-0513J SEALED-PROMPT DOCTRINE strict rules — only applied to

@@ -332,3 +332,32 @@ The recovery procedure is: identify the new injection site, neutralize it at the
 ### Engineering Law
 
 Any PR that introduces a verdict label, a direction word, an asymmetric direction-conditional adjustment, or a `.toUpperCase()` on a directional field — at any layer, in any module — must be rejected on architectural grounds. The infrastructure is sealed. Alpha reads raw data and decides.
+
+---
+
+## COORDINATOR PROMPT SEALING — CCIP-2026-0513K (amendment to 0513J)
+
+Ratified 2026-05-13. Identity-level amendment to the Sealed-Prompt Doctrine. Persisted in Supabase as `ccip_reference = 'CCIP-2026-0513K-COORDINATOR-PROMPT-SEALING'` with `active = true`. Inherits all obligations from 0511ZZ, 0512A, 0512B, 0513A, 0513B, 0513J.
+
+### Foundational Premise
+
+A 2026-05-13 audit of a live XAUUSD SELL decision revealed that `coordinator-alpha.ts` still injected verdict-label English directly into Alpha's prompt via four sites that 0513J's strict scope (limited to dedicated formatter files) did not cover: `emaStack` (`BULL/BEAR/MIXED`), `ema20SlopeDir` (`RISING/FALLING/FLAT`), `htfTrendDir` and `m15DirTrend` (`BULLISH/BEARISH/NEUTRAL`), and an EMA CONTEXT block whose `ABOVE/BELOW` English plus an `EMA INTERPRETATION:` teaching sentence re-introduced exactly the bias channel 0513J was designed to eliminate.
+
+### The Sealed Contract Extension
+
+All four coordinator sites now emit symmetric ±1/0/-1 numeric codes:
+
+- `ema_stack: +1 | 0 | -1` paired with `ema_stack_known: boolean` (replaces the fourth `UNKNOWN` English label)
+- `ema20_slope: +1 | 0 | -1` (replaces `RISING/FALLING/FLAT`)
+- `close_vs_prev_close: +1 | 0 | -1` for both H1 and M15 (replaces `BULLISH/BEARISH/NEUTRAL`)
+- `price_vs_ema20`, `price_vs_ema50`, `price_vs_ema200`, `ema20_vs_ema50`: `+1` (above), `-1` (below), `0` (EMA unavailable)
+
+The `EMA INTERPRETATION:` teaching sentence is removed. Alpha already understands body ratios, EMA dynamics, and price-relative positioning; he does not need infrastructure to teach him.
+
+### Scanner Enforcement
+
+`scripts/audit-alpha-identity.cjs` gains six 0513K patterns in `RAW_DATA_FORBIDDEN` that block re-introduction of the removed constructs. `coordinator-alpha.ts` remains under the broad `RAW_DATA_TARGETS` list (not `SEALED_PROMPT_TARGETS`) because it is an orchestrator file with internal-only `.toUpperCase()` and direction strings that do not feed Alpha's prompt. The new 0513K patterns target the specific prompt-feeding constructs that were actually removed.
+
+### Engineering Law
+
+Any PR that re-introduces `emaStack` `BULL/BEAR/MIXED`, `RISING/FALLING/FLAT` slope labels, `BULLISH/BEARISH/NEUTRAL` trend labels, `ABOVE/BELOW` EMA English in the prompt, or the `EMA INTERPRETATION:` teaching sentence must be rejected on architectural grounds. The infrastructure is sealed. Alpha reads raw data and decides.

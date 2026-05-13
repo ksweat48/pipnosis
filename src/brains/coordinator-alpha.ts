@@ -2058,13 +2058,16 @@ ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: 
         const priceAboveEma50 = ema50Val > 0 && currentPx > ema50Val;
         const priceAboveEma200 = ema200Val > 0 && currentPx > ema200Val;
         const ema20AboveEma50 = ema20Val > 0 && ema50Val > 0 && ema20Val > ema50Val;
-        const emaStack = (ema20Val > 0 && ema50Val > 0)
-          ? (ema20AboveEma50 && priceAboveEma20 ? 'BULL' : !ema20AboveEma50 && !priceAboveEma20 ? 'BEAR' : 'MIXED')
-          : 'UNKNOWN';
-        // EMA convergence/divergence (last 3 closes vs EMA20 distance trend)
+        // CCIP-2026-0513K-COORDINATOR-PROMPT-SEALING: emit symmetric ±1/0/-1 codes.
+        // ema_stack_known=false signals UNKNOWN (insufficient EMA data); when known,
+        // +1 = aligned up, -1 = aligned down, 0 = mixed.
+        const emaStackKnown = ema20Val > 0 && ema50Val > 0;
+        const emaStackCode = !emaStackKnown
+          ? 0
+          : (ema20AboveEma50 && priceAboveEma20 ? 1 : !ema20AboveEma50 && !priceAboveEma20 ? -1 : 0);
         const prevEma20 = primaryCloses.length >= 21 ? calculateEMA(primaryCloses.slice(0, -1), 20) : ema20Val;
         const ema20Slope = ema20Val > 0 && prevEma20 > 0 ? (ema20Val - prevEma20) / pipInfo.pipValue : 0;
-        const ema20SlopeDir = Math.abs(ema20Slope) < 0.1 ? 'FLAT' : ema20Slope > 0 ? 'RISING' : 'FALLING';
+        const ema20SlopeCode = Math.abs(ema20Slope) < 0.1 ? 0 : ema20Slope > 0 ? 1 : -1;
 
         let consecutiveSameDir = 1;
         for (let i = recentPrimary.length - 2; i >= 0; i--) {
@@ -2227,13 +2230,20 @@ ${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardle
           console.log(`[Alpha Coordinator] MICRO_INTRADAY Move Phase: ${m5MovePhase} (~${atrTraveledFinal.toFixed(2)}x ATR, M15anchor=${hasMicroM15Anchor ? m15AnchorDistPips.toFixed(1)+'p/'+m15AnchorATRMultiple.toFixed(2)+'x' : 'N/A'}, M5window=${distFromSwingPipsM5.toFixed(1)}p/${atrTraveledM5window.toFixed(2)}x)${fakeoutTypeM5micro ? ` | Fakeout: ${fakeoutTypeM5micro}` : ''}`);
         }
 
+        // CCIP-2026-0513K-COORDINATOR-PROMPT-SEALING: raw codes only. price_vs_ema*
+        // is +1 (price above EMA), -1 (price below), 0 (EMA unavailable). ema20_vs_ema50
+        // same convention. ema_stack: +1 aligned up, -1 aligned down, 0 mixed/unknown.
+        // ema20_slope: +1 rising, -1 falling, 0 flat. Teaching sentence removed.
+        const priceVsEma20Code = ema20Val > 0 ? (priceAboveEma20 ? 1 : -1) : 0;
+        const priceVsEma50Code = ema50Val > 0 ? (priceAboveEma50 ? 1 : -1) : 0;
+        const priceVsEma200Code = ema200Val > 0 ? (priceAboveEma200 ? 1 : -1) : 0;
+        const ema20VsEma50Code = (ema20Val > 0 && ema50Val > 0) ? (ema20AboveEma50 ? 1 : -1) : 0;
         const emaContextBlock = (ema20Val > 0 || ema50Val > 0) ? `
-${primaryTfConfig.label} EMA CONTEXT (computed from candle closes):
-- EMA20: ${ema20Val > 0 ? ema20Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | Price is ${ema20Val > 0 ? (priceAboveEma20 ? 'ABOVE' : 'BELOW') : '?'} EMA20${ema20Pips !== null ? ` by ${ema20Pips.toFixed(1)} pips` : ''}
-- EMA50: ${ema50Val > 0 ? ema50Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | Price is ${ema50Val > 0 ? (priceAboveEma50 ? 'ABOVE' : 'BELOW') : '?'} EMA50${ema50Pips !== null ? ` by ${ema50Pips.toFixed(1)} pips` : ''}${ema200Val > 0 ? `
-- EMA200: ${ema200Val.toFixed(pipInfo.decimalPlaces)} | Price is ${priceAboveEma200 ? 'ABOVE' : 'BELOW'} EMA200${ema200Pips !== null ? ` by ${ema200Pips.toFixed(1)} pips` : ''}` : ''}
-- EMA Stack: ${emaStack}${ema20Val > 0 ? ` | EMA20 is ${ema20AboveEma50 ? 'ABOVE' : 'BELOW'} EMA50` : ''} | EMA20 Slope: ${ema20SlopeDir} (${ema20Slope.toFixed(2)} pips/candle)
-EMA INTERPRETATION: body ratio >60% = directional conviction candle | small body relative to range = indecision (inside bar / doji). Use EMA20 as the closest dynamic support/resistance. If price is within 3 pips of EMA20, this is an EMA rejection zone.` : '';
+${primaryTfConfig.label} EMA CONTEXT (raw readings):
+- ema20=${ema20Val > 0 ? ema20Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | price_vs_ema20=${priceVsEma20Code}${ema20Pips !== null ? ` | distance_pips=${ema20Pips.toFixed(1)}` : ''}
+- ema50=${ema50Val > 0 ? ema50Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | price_vs_ema50=${priceVsEma50Code}${ema50Pips !== null ? ` | distance_pips=${ema50Pips.toFixed(1)}` : ''}${ema200Val > 0 ? `
+- ema200=${ema200Val.toFixed(pipInfo.decimalPlaces)} | price_vs_ema200=${priceVsEma200Code}${ema200Pips !== null ? ` | distance_pips=${ema200Pips.toFixed(1)}` : ''}` : ''}
+- ema_stack=${emaStackCode} | ema_stack_known=${emaStackKnown} | ema20_vs_ema50=${ema20VsEma50Code} | ema20_slope=${ema20SlopeCode} | ema20_slope_pips_per_candle=${ema20Slope.toFixed(2)}` : '';
 
         primaryTfCandlePrompt = `
 
@@ -2314,7 +2324,8 @@ ${htfConfig.label} candles unavailable. Background context only — non-blocking
 
         const lastHtfCandle = recentHtf[recentHtf.length - 1];
         const prevHtfCandle = recentHtf.length >= 2 ? recentHtf[recentHtf.length - 2] : lastHtfCandle;
-        const htfTrendDir = lastHtfCandle.close > prevHtfCandle.close ? 'BULLISH' : lastHtfCandle.close < prevHtfCandle.close ? 'BEARISH' : 'NEUTRAL';
+        // CCIP-2026-0513K-COORDINATOR-PROMPT-SEALING: symmetric ±1/0/-1 code.
+        const htfCloseVsPrevCode = lastHtfCandle.close > prevHtfCandle.close ? 1 : lastHtfCandle.close < prevHtfCandle.close ? -1 : 0;
 
         let htfConsecutive = 1;
         for (let i = recentHtf.length - 2; i >= 0; i--) {
@@ -2379,7 +2390,7 @@ ${htfConfig.label} RAW READINGS (last ${htfConfig.candleCount} candles):
 - sweep_wick_bear=${htfSweepWickBear}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-        console.log(`[Alpha Coordinator] ${htfConfig.label} Direction TF: ${recentHtf.length} candles, bias ${htfTrendDir}, range ${htfRangePips.toFixed(1)} pips`);
+        console.log(`[Alpha Coordinator] ${htfConfig.label} Direction TF: ${recentHtf.length} candles, close_vs_prev=${htfCloseVsPrevCode}, range ${htfRangePips.toFixed(1)} pips`);
         }
       } catch (error) {
         console.warn(`[Alpha Coordinator] H1 background context fetch failed for ${styleName} (non-blocking under 0513F):`, error instanceof Error ? error.message : 'Unknown');
@@ -2434,7 +2445,8 @@ ${htfConfig.label} candle fetch failed. Background context only — non-blocking
 
           const lastM15Dir = recentM15Dir[recentM15Dir.length - 1];
           const prevM15Dir = recentM15Dir.length >= 2 ? recentM15Dir[recentM15Dir.length - 2] : lastM15Dir;
-          const m15DirTrend = lastM15Dir.close > prevM15Dir.close ? 'BULLISH' : lastM15Dir.close < prevM15Dir.close ? 'BEARISH' : 'NEUTRAL';
+          // CCIP-2026-0513K-COORDINATOR-PROMPT-SEALING: symmetric ±1/0/-1 code.
+          const m15CloseVsPrevCode = lastM15Dir.close > prevM15Dir.close ? 1 : lastM15Dir.close < prevM15Dir.close ? -1 : 0;
           const lastM15DirBody = Math.abs(lastM15Dir.close - lastM15Dir.open) / pipInfo.pipValue;
           const lastM15DirUpperWick = (lastM15Dir.high - Math.max(lastM15Dir.open, lastM15Dir.close)) / pipInfo.pipValue;
           const lastM15DirLowerWick = (Math.min(lastM15Dir.open, lastM15Dir.close) - lastM15Dir.low) / pipInfo.pipValue;
@@ -2481,7 +2493,7 @@ M15 RAW READINGS (last ${recentM15Dir.length} candles):
 - range_pips=${m15DirRangePips.toFixed(1)}
 - window_high=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)}
 - window_low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}
-- close_vs_prev_close=${m15DirTrend}
+- close_vs_prev_close=${m15CloseVsPrevCode}
 - consecutive_same_direction_candles=${m15DirConsecutive}
 - last_candle_rejection_wick=${m15DirRejectionWick}
 - bos_bull=${m15DirBOSBull}
@@ -2490,7 +2502,7 @@ M15 RAW READINGS (last ${recentM15Dir.length} candles):
 - sweep_wick_bear=${m15DirSweepWickBear}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] M15 Direction (MICRO_INTRADAY): ${recentM15Dir.length} candles, trend=${m15DirTrend}, BOS_BULL=${m15DirBOSBull} BOS_BEAR=${m15DirBOSBear}, High=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} Low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}`);
+          console.log(`[Alpha Coordinator] M15 Direction (MICRO_INTRADAY): ${recentM15Dir.length} candles, close_vs_prev=${m15CloseVsPrevCode}, BOS_BULL=${m15DirBOSBull} BOS_BEAR=${m15DirBOSBear}, High=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} Low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}`);
         } else {
           m15DirectionPromptMicro = `
 
