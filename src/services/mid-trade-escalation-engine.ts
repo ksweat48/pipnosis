@@ -350,6 +350,9 @@ class MidTradeEscalationEngine {
   }
 
   private async loadPersistedTriggers(tradeId: string): Promise<Set<string>> {
+    if (typeof tradeId !== 'string' || tradeId.length === 0) {
+      return new Set<string>();
+    }
     try {
       const { data, error } = await supabase
         .from('mid_trade_trigger_fired')
@@ -367,6 +370,10 @@ class MidTradeEscalationEngine {
   }
 
   private async persistTriggerFired(tradeId: string, userId: string, triggerType: string): Promise<void> {
+    if (typeof tradeId !== 'string' || tradeId.length === 0 ||
+        typeof userId !== 'string' || userId.length === 0) {
+      return;
+    }
     try {
       await supabase.rpc('record_trigger_fired', {
         p_trade_id: tradeId,
