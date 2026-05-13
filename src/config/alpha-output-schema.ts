@@ -193,6 +193,19 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   tp2_omitted: { type: ['boolean', 'null'] },
   tp2_omission_reason: { type: ['string', 'null'] },
 
+  // ------------------------------------------------------------------
+  // CCIP-2026-0513C: TP1 GEOMETRY INTEGRITY DOCTRINE
+  // ------------------------------------------------------------------
+  // TP1 must clear the entry zone with margin and must be tied to a
+  // reward-side pool that is structurally distinct from TP2's pool.
+  // When no distinct intermediate pool exists, Alpha emits a single TP
+  // (TP2 only) and sets tp1_omitted=true with a reasoned justification.
+  // Mirrors the TP2 omission path so single-target trades are first-class.
+  tp1_omitted: { type: ['boolean', 'null'] },
+  tp1_omission_reason: { type: ['string', 'null'] },
+  tp1_clears_entry_zone_by_pips: { type: ['number', 'null'] },
+  tp1_distinct_from_tp2_pool: { type: ['boolean', 'null'] },
+
   // SL placement (CCIP-2026-0507A)
   sl_placement_rationale: { type: ['string', 'null'] },
 
