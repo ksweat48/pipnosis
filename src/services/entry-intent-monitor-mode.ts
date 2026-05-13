@@ -279,9 +279,12 @@ export async function getActiveEntryIntent(sessionId: string): Promise<EntryInte
 }
 
 /**
- * Returns the most recent finalized intent (canceled | abandoned | timeout) created
- * within the given recency window. Separate channel so active-gate consumers
- * (EntryPriceMonitor) are not flipped between live and dead rows.
+ * Returns the most recent finalized intent (canceled | timeout | conditions_changed |
+ * expired_no_entry) created within the given recency window. Separate channel so
+ * active-gate consumers (EntryPriceMonitor) are not flipped between live and dead rows.
+ *
+ * SSOT: status values mirror the Supabase `entry_intent_status` enum exactly.
+ * Abandonment is tracked via the separate `abandonment_reason` column, not status.
  */
 export async function getRecentlyFinalizedIntent(
   sessionId: string,
@@ -295,7 +298,7 @@ export async function getRecentlyFinalizedIntent(
     .from('entry_intents')
     .select('*')
     .eq('session_id', sessionId)
-    .in('status', ['canceled', 'abandoned', 'timeout'])
+    .in('status', ['canceled', 'timeout', 'conditions_changed', 'expired_no_entry'])
     .gte('created_at', cutoffIso)
     .order('created_at', { ascending: false })
     .limit(1)
