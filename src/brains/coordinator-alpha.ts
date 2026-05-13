@@ -3974,6 +3974,39 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }
         }
 
+        // ─── CCIP-2026-0513G: TP1 PARTIAL-VALUE CONTRADICTION ──────────
+        // Phantom partial: TP1 worth less than 35% of risk while
+        // tp1_omitted=false is geometry that closes the trade on spread
+        // alone. Either widen TP1 to a real intermediate destination or
+        // run the trade single-target.
+        const tp1Ratio = pickField('tp1_partial_value_ratio');
+        const tp1Omitted = pickField('tp1_omitted');
+        if (
+          typeof tp1Ratio === 'number' &&
+          tp1Ratio < 0.35 &&
+          tp1Omitted === false
+        ) {
+          invalid.push(
+            `TP1_PHANTOM_PARTIAL: tp1_partial_value_ratio=${tp1Ratio.toFixed(3)}<0.35 with tp1_omitted=false`
+          );
+        }
+
+        // ─── CCIP-2026-0513H: M5 ENTRY-SHARPNESS CONTRADICTIONS ────────
+        // DULL entries route through wait_pullback / push_confirmation;
+        // MAE forecasts above 45% of risk cannot coexist with execute_now.
+        const sharpnessCheck = pickField('entry_sharpness_check');
+        const maeRatio = pickField('m5_mae_vs_risk_ratio');
+        if (isExecuteNow && typeof sharpnessCheck === 'string' && sharpnessCheck.toUpperCase() === 'DULL') {
+          invalid.push(
+            'ENTRY_SHARPNESS_CONTRADICTION: entry_sharpness_check=DULL with entry_mode=execute_now'
+          );
+        }
+        if (isExecuteNow && typeof maeRatio === 'number' && maeRatio > 0.45) {
+          invalid.push(
+            `M5_MAE_CONTRADICTION: m5_mae_vs_risk_ratio=${maeRatio.toFixed(3)}>0.45 with entry_mode=execute_now`
+          );
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // CCIP-2026-0511Z: LEDGER INTEGRITY OVERRIDE (narrow semantic scope)
         // ───────────────────────────────────────────────────────────────────

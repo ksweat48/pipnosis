@@ -58,6 +58,15 @@ const IDENTITY_FORBIDDEN = [
   { pattern: /\bH1\s+(?:must|should)\s+(?:confirm|align|agree)\b/i, label: 'H1-must-confirm authority elevation (0513F)' },
   { pattern: /\bH1\s+is\s+the\s+(?:primary|control|authoritative)\b/i, label: 'H1-as-primary framing (0513F)' },
   { pattern: /\bM15\s+(?:overrides|trumps|beats)\s+M5\b/i, label: 'M15-overrides-M5 framing (0513F)' },
+  // CCIP-2026-0513G: TP1 Partial-Value Doctrine — block procedural TP1
+  // anchoring language that would short-circuit Alpha's reasoning about
+  // partial-value sufficiency.
+  { pattern: /\bplace\s+TP1\s+at\s+(?:the\s+)?(?:first|nearest)\b/i, label: 'Procedural TP1 placement language (0513G)' },
+  { pattern: /\banchor\s+TP1\s+to\b/i, label: 'Anchor-TP1-to procedural language (0513G)' },
+  // CCIP-2026-0513H: M5 Entry-Sharpness Doctrine — block procedural MAE
+  // prescriptions. MAE is a reasoning obligation, not an if/then rule.
+  { pattern: /\bif\s+MAE\s*[><=]/i, label: 'Procedural MAE rule (0513H)' },
+  { pattern: /\bMAE\s+must\s+(?:be|stay)\b/i, label: 'Hardcoded MAE prescription (0513H)' },
 ];
 
 // ─── 0512A: Raw-Data Doctrine guard for prompt-producing files ───────────────

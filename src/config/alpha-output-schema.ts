@@ -317,6 +317,34 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   m15_filter_check: { type: ['string', 'null'] },
   m1_sniper_used: { type: ['boolean', 'null'] },
   h1_background_only: { type: ['boolean', 'null'] },
+
+  // ------------------------------------------------------------------
+  // CCIP-2026-0513G: TP1 PARTIAL-VALUE DOCTRINE
+  // ------------------------------------------------------------------
+  // TP1 worth less than 35% of risk is a stop in disguise. The pips
+  // value and ratio (vs. risk distance) record Alpha's reconciliation;
+  // the coordinator catches phantom-partial contradictions where
+  // tp1_partial_value_ratio < 0.35 yet tp1_omitted=false.
+  tp1_partial_value_pips: { type: ['number', 'null'] },
+  tp1_partial_value_ratio: { type: ['number', 'null'] },
+
+  // ------------------------------------------------------------------
+  // CCIP-2026-0513H: M5 ENTRY-SHARPNESS DOCTRINE
+  // ------------------------------------------------------------------
+  // Drawdown minimization is Alpha's signature edge on M5. Alpha
+  // forecasts maximum adverse excursion BEFORE finalizing entry and
+  // routes DULL entries through wait_pullback / push_confirmation
+  // rather than executing immediately. Schema enforces presence;
+  // coordinator enforces MAE-mode coherence.
+  m5_expected_mae_pips: { type: ['number', 'null'] },
+  m5_mae_vs_risk_ratio: { type: ['number', 'null'] },
+  entry_sharpness_thesis: { type: ['string', 'null'] },
+  entry_sharpness_check: {
+    anyOf: [
+      { type: 'string', enum: ['SHARP', 'ACCEPTABLE', 'DULL'] },
+      { type: 'null' },
+    ],
+  },
 };
 
 const ANSWER_SHEET_REQUIRED = Object.keys(ANSWER_SHEET_PROPERTIES);

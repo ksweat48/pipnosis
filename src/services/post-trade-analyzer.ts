@@ -203,6 +203,15 @@ class PostTradeAnalyzer {
         logger.warn('[Post-Trade Analyzer] Regime outcome recording failed (non-blocking)', { err });
       });
 
+      // CCIP-2026-0513H: Record MAE outcome for entry-sharpness learning.
+      // Predicted MAE comes from Alpha's answer_sheet (m5_expected_mae_pips,
+      // m5_mae_vs_risk_ratio, entry_sharpness_check). Observed MAE is read from
+      // goal_session_trades.max_drawdown. This table is post-trade analytics
+      // ONLY — it must never be imported by prompt-builder files.
+      this.recordMaeOutcome(fullTradeData, outcome).catch((err) => {
+        logger.warn('[Post-Trade Analyzer] MAE outcome recording failed (non-blocking)', { err });
+      });
+
       console.log(`[Post-Trade Analyzer] Analysis complete for ${tradeData.symbol}`);
     } catch (error) {
       console.error('[Post-Trade Analyzer] Error analyzing trade:', error);
@@ -1317,6 +1326,79 @@ class PostTradeAnalyzer {
       }
     } catch (error) {
       logger.error('[Post-Trade Analyzer] Exception in recordRegimeOutcome', { error });
+    }
+  }
+
+  /**
+   * CCIP-2026-0513H: Persist MAE outcome for entry-sharpness learning.
+   *
+   * Reads Alpha's predicted MAE from the answer_sheet snapshot, observed MAE
+   * from goal_session_trades.max_drawdown, and writes to alpha_mae_outcomes.
+   *
+   * This table is post-trade analytics ONLY. It MUST NOT be imported by any
+   * prompt-builder, context-builder, or coordinator file (Raw-Data Doctrine).
+   */
+  private async recordMaeOutcome(
+    tradeData: TradeData & { alphaReasoningSnapshot?: string | null },
+    outcome: 'win' | 'loss' | 'breakeven'
+  ): Promise<void> {
+    try {
+      const snapshot = tradeData.alphaReasoningSnapshot;
+      if (!snapshot) return;
+
+      let parsed: any;
+      try {
+        parsed = typeof snapshot === 'string' ? JSON.parse(snapshot) : snapshot;
+      } catch {
+        return;
+      }
+
+      const as = parsed?.answer_sheet ?? parsed ?? {};
+      const predictedMaePips = typeof as.m5_expected_mae_pips === 'number' ? as.m5_expected_mae_pips : null;
+      const predictedMaeRatio = typeof as.m5_mae_vs_risk_ratio === 'number' ? as.m5_mae_vs_risk_ratio : null;
+      const sharpnessCheck = typeof as.entry_sharpness_check === 'string' ? as.entry_sharpness_check : null;
+
+      const { data: tradeRow } = await supabase
+        .from('goal_session_trades')
+        .select('max_drawdown, entry_mode, alpha_style')
+        .eq('id', tradeData.id)
+        .maybeSingle();
+
+      const sym = tradeData.symbol || '';
+      const pipInfo = getCurrencyPipInfo(sym);
+      const pipValue = pipInfo.pipValue || 0.0001;
+
+      const observedMaeUsd = tradeRow?.max_drawdown != null ? Math.abs(Number(tradeRow.max_drawdown)) : null;
+      const riskDist = tradeData.entryPrice && tradeData.stopLoss
+        ? Math.abs(tradeData.entryPrice - tradeData.stopLoss)
+        : null;
+      const riskPips = riskDist != null ? riskDist / pipValue : null;
+
+      const observedMaePips = observedMaeUsd != null && tradeData.pnl !== 0 && riskDist != null && riskPips != null
+        ? (observedMaeUsd / Math.abs(tradeData.pnl || 1)) * riskPips
+        : null;
+      const observedMaeRatio = observedMaePips != null && riskPips != null && riskPips > 0
+        ? observedMaePips / riskPips
+        : null;
+
+      await supabase.from('alpha_mae_outcomes').insert({
+        trade_id: tradeData.id,
+        user_id: tradeData.userId,
+        symbol: sym,
+        trade_style: tradeRow?.alpha_style ?? tradeData.tradeStyle ?? null,
+        entry_mode: tradeRow?.entry_mode ?? null,
+        entry_price: tradeData.entryPrice ?? null,
+        stop_loss: tradeData.stopLoss ?? null,
+        planned_risk_pips: riskPips,
+        predicted_mae_pips: predictedMaePips,
+        predicted_mae_ratio: predictedMaeRatio,
+        observed_mae_pips: observedMaePips,
+        observed_mae_ratio: observedMaeRatio,
+        entry_sharpness_check: sharpnessCheck,
+        outcome,
+      });
+    } catch (error) {
+      logger.warn('[Post-Trade Analyzer] recordMaeOutcome failed (non-blocking)', { error });
     }
   }
 
