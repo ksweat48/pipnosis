@@ -2109,36 +2109,36 @@ ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: 
         // "INSIDE/BELOW the wick range" framing.
 
         // ═══════════════════════════════════════════════════════════════════
-        // MICRO_INTRADAY M5 MOVE PHASE & FAKEOUT ADVISORY
-        // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform.
-        // recentPrimary contains M5 candles. ATR reference is atrForStopLoss (marketContext.atr).
-        // Advisory only — Alpha retains full decision authority.
+        // MICRO_INTRADAY M5 MOVE PHASE & SWEEP ADVISORY
+        // CCIP-2026-0513L-MOVE-PHASE-SEALING: English verdicts removed. Raw
+        // numeric codes only per Sealed-Prompt Doctrine. Alpha classifies
+        // phase and sweep polarity from raw measurements.
+        //   move_phase_code: 0=fresh (<0.75x ATR), 1=developing (0.75-1.5x), 2=exhausted (>1.5x)
+        //   leg_direction: +1 (current leg up — most recent break swept the low),
+        //                  -1 (current leg down — most recent break swept the high), 0 (flat)
+        //   sweep_of_high_detected / sweep_of_low_detected: raw booleans
+        //   sweep_reversal_confirmed: bool (subsequent candles printed in reclaim direction)
         // ═══════════════════════════════════════════════════════════════════
         if (atrForStopLoss > 0) {
           const m5AtrPips = (atrForStopLoss / pipInfo.pipValue);
-          const freshCeilingM5 = (atrForStopLoss * 0.75 / pipInfo.pipValue).toFixed(1);
-          const developingCeilingM5 = (atrForStopLoss * 1.5 / pipInfo.pipValue).toFixed(1);
 
-          // Find M5 swing origin within the 30-candle primary window
+          // Find M5 swing origin within the 30-candle primary window. legDirCode
+          // is +1 if current candle closed up, -1 if down, 0 if flat — raw, no labels.
           let swingOriginPriceM5 = recentPrimary[0].close;
-          const currentDirM5 = lastCandle.close > lastCandle.open ? 'UP' : 'DN';
+          const legDirCode = lastCandle.close > lastCandle.open ? 1 : lastCandle.close < lastCandle.open ? -1 : 0;
           for (let i = recentPrimary.length - 2; i >= 0; i--) {
-            const cDir = recentPrimary[i].close > recentPrimary[i].open ? 'UP' : 'DN';
-            if (cDir !== currentDirM5) {
-              swingOriginPriceM5 = currentDirM5 === 'UP' ? recentPrimary[i].low : recentPrimary[i].high;
+            const cDirCode = recentPrimary[i].close > recentPrimary[i].open ? 1 : recentPrimary[i].close < recentPrimary[i].open ? -1 : 0;
+            if (cDirCode !== legDirCode && cDirCode !== 0) {
+              swingOriginPriceM5 = legDirCode === 1 ? recentPrimary[i].low : recentPrimary[i].high;
               break;
             }
           }
           const distFromSwingPipsM5 = Math.abs(marketContext.price - swingOriginPriceM5) / pipInfo.pipValue;
           const atrTraveledM5window = m5AtrPips > 0 ? distFromSwingPipsM5 / m5AtrPips : 0;
 
-          // Anchor ATR-traveled to M15 swing origin when available.
-          // m15SwingHighMicro / m15SwingLowMicro are populated by the M15 direction
-          // fetch block below. If M15 gives a LARGER travel distance (more conservative),
-          // use that as the primary move phase input.
           const hasMicroM15Anchor = m15SwingHighMicro > 0 && m15SwingLowMicro > 0;
           const m15AnchorOrigin = hasMicroM15Anchor
-            ? (currentDirM5 === 'DN' ? m15SwingHighMicro : m15SwingLowMicro)
+            ? (legDirCode === -1 ? m15SwingHighMicro : m15SwingLowMicro)
             : 0;
           const m15AnchorDistPips = hasMicroM15Anchor
             ? Math.abs(marketContext.price - m15AnchorOrigin) / pipInfo.pipValue
@@ -2150,11 +2150,13 @@ ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: 
             ? m15AnchorATRMultiple
             : atrTraveledM5window;
 
-          const m5MovePhase = atrTraveledFinal < 0.75 ? 'FRESH' : atrTraveledFinal < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
+          const movePhaseCode = atrTraveledFinal < 0.75 ? 0 : atrTraveledFinal < 1.5 ? 1 : 2;
 
-          let fakeoutTypeM5micro: string | null = null;
-          let fakeoutCandlesAgoM5micro = 0;
-          let fakeoutReversalConfirmedM5micro = false;
+          // Sweep detection — symmetric raw flags. No directional verdict labels.
+          let sweepOfHighDetected = false;
+          let sweepOfLowDetected = false;
+          let sweepCandlesAgo = 0;
+          let sweepReversalConfirmed = false;
           if (recentPrimary.length >= 4) {
             const lookbackM5micro = recentPrimary.slice(0, -1);
             const windowHighM5micro = Math.max(...lookbackM5micro.slice(0, -1).map(c => c.high));
@@ -2167,67 +2169,53 @@ ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: 
               const sweptHighM5micro = c.high > windowHighM5micro && bodyTop < windowHighM5micro;
               const sweptLowM5micro = c.low < windowLowM5micro && bodyBot > windowLowM5micro;
               if (sweptHighM5micro) {
-                fakeoutTypeM5micro = 'BEARISH_FAKEOUT';
-                fakeoutCandlesAgoM5micro = recentFewM5micro.length - i;
+                sweepOfHighDetected = true;
+                sweepCandlesAgo = recentFewM5micro.length - i;
                 const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
-                fakeoutReversalConfirmedM5micro = nextCandles.some(nc => nc.close < nc.open);
+                sweepReversalConfirmed = nextCandles.some(nc => nc.close < nc.open);
                 break;
               } else if (sweptLowM5micro) {
-                fakeoutTypeM5micro = 'BULLISH_FAKEOUT';
-                fakeoutCandlesAgoM5micro = recentFewM5micro.length - i;
+                sweepOfLowDetected = true;
+                sweepCandlesAgo = recentFewM5micro.length - i;
                 const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
-                fakeoutReversalConfirmedM5micro = nextCandles.some(nc => nc.close > nc.open);
+                sweepReversalConfirmed = nextCandles.some(nc => nc.close > nc.open);
                 break;
               }
             }
           }
 
-          const phaseLabelM5micro = m5MovePhase === 'FRESH'
-            ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from swing origin). Full structural space available.`
-            : m5MovePhase === 'DEVELOPING'
-              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from swing origin). Structural space to TP1 may be narrowing — the remaining runway to the named TP levels is the key measurement.`
-              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from swing origin). The move is extended. Document the structural picture honestly and reflect it in the conviction score.`;
-
-          const fakeoutBlockM5micro = fakeoutTypeM5micro
-            ? `
-M5 FAKEOUT DETECTION:
-A ${fakeoutTypeM5micro} was detected ${fakeoutCandlesAgoM5micro} M5 candle(s) ago. A candle swept a recent M5 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5micro ? 'YES — subsequent M5 candles have printed in the reversal direction' : 'NOT YET — subsequent M5 candles have not yet confirmed direction'}.
-${fakeoutTypeM5micro === 'BEARISH_FAKEOUT'
-  ? 'BEARISH FAKEOUT: Price swept above a prior M5 high and rejected, closing back inside the prior range. This is raw structural data — a sweep of the high, a rejection, and a body close inside. What that means for the current thesis is my read.'
-  : 'BULLISH FAKEOUT: Price swept below a prior M5 low and rejected, closing back inside the prior range. This is raw structural data — a sweep of the low, a rejection, and a body close inside. What that means for the current thesis is my read.'}
-`
-            : '';
-
-          const m15AnchorBlock = hasMicroM15Anchor
-            ? `M15 SWING ORIGIN ANCHOR: M15 High=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} | M15 Low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)} | Current direction: ${currentDirM5} — origin is M15 ${currentDirM5 === 'DN' ? 'High' : 'Low'} at ${m15AnchorOrigin.toFixed(pipInfo.decimalPlaces)} | Distance: ${m15AnchorDistPips.toFixed(1)} pips (~${m15AnchorATRMultiple.toFixed(2)}x M5 ATR) | ${m15AnchorATRMultiple > atrTraveledM5window ? 'M15 anchor used (larger than M5 window)' : 'M5 window used (larger than M15 anchor)'}`
-            : `M15 SWING ORIGIN ANCHOR: Not yet available — M15 direction fetch runs after this block. ATR-traveled uses M5 window measurement only.`;
+          // most_recent_extreme_break_code: +1 if a low was the most recent
+          // extreme broken (sweep_of_low → BUY-favored reclaim setup), -1 if a
+          // high was the most recent extreme broken (sweep_of_high → SELL-favored
+          // reclaim setup), 0 if no sweep detected. This is the raw polarity
+          // anchor Alpha needs to reconcile his exhaustion read against.
+          const mostRecentExtremeBreakCode = sweepOfLowDetected ? 1 : sweepOfHighDetected ? -1 : 0;
 
           microIntradayMovePhaseContext = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MICRO_INTRADAY MOVE STAGE ADVISORY (${marketContext.symbol})
+M5 MOVE PHASE & SWEEP READINGS (${marketContext.symbol}) — RAW
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed from M5 entry candles (30-candle window) + M15 direction anchor. Advisory — my analysis takes precedence.
-ACTIVE M5 ATR: ${m5AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM5}p | Developing ${freshCeilingM5}–${developingCeilingM5}p | Exhausted > ${developingCeilingM5}p
-
-${m15AnchorBlock}
-
-ATR Traveled (primary): ~${(atrTraveledFinal * m5AtrPips).toFixed(1)} pips from origin (~${atrTraveledFinal.toFixed(2)}x M5 ATR)
-Move Phase: ${m5MovePhase}
-Assessment: ${phaseLabelM5micro}
-
-${m5MovePhase === 'DEVELOPING'
-  ? `DEVELOPING STAGE — RUNWAY AUDIT: Record the remaining structural space from current price to the named TP1 (M15 structural level) and TP2 (H1 structural level). "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." The R:R assessment belongs in the conviction score.`
-  : m5MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The move has traveled > 1.5x ATR from its structural origin. Document the nearest structural levels from current price, the R:R those levels produce, and what the market is showing. The conviction score reflects the honest read.`
-    : `FRESH STAGE — Full structural space to TP1 and TP2 is available.`
-}
-${fakeoutBlockM5micro}MANDATORY JSON FIELD — Include in your response regardless of action:
-  "m5_move_phase": "fresh|developing|exhausted"
+m5_atr_pips=${m5AtrPips.toFixed(1)}
+atr_traveled_multiple=${atrTraveledFinal.toFixed(2)}
+atr_traveled_pips=${(atrTraveledFinal * m5AtrPips).toFixed(1)}
+move_phase_code=${movePhaseCode}
+leg_direction=${legDirCode}
+m15_anchor_known=${hasMicroM15Anchor}
+m15_anchor_origin=${hasMicroM15Anchor ? m15AnchorOrigin.toFixed(pipInfo.decimalPlaces) : 'N/A'}
+m15_anchor_dist_pips=${hasMicroM15Anchor ? m15AnchorDistPips.toFixed(1) : 'N/A'}
+m5_window_dist_pips=${distFromSwingPipsM5.toFixed(1)}
+sweep_of_high_detected=${sweepOfHighDetected}
+sweep_of_low_detected=${sweepOfLowDetected}
+sweep_candles_ago=${sweepCandlesAgo}
+sweep_reversal_confirmed=${sweepReversalConfirmed}
+most_recent_extreme_break_code=${mostRecentExtremeBreakCode}
+MANDATORY JSON FIELD — Include in your response:
+  "m5_move_phase_code": ${movePhaseCode}
   "m5_atr_traveled": ${atrTraveledFinal.toFixed(2)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] MICRO_INTRADAY Move Phase: ${m5MovePhase} (~${atrTraveledFinal.toFixed(2)}x ATR, M15anchor=${hasMicroM15Anchor ? m15AnchorDistPips.toFixed(1)+'p/'+m15AnchorATRMultiple.toFixed(2)+'x' : 'N/A'}, M5window=${distFromSwingPipsM5.toFixed(1)}p/${atrTraveledM5window.toFixed(2)}x)${fakeoutTypeM5micro ? ` | Fakeout: ${fakeoutTypeM5micro}` : ''}`);
+          console.log(`[Alpha Coordinator] M5 phase_code=${movePhaseCode} leg_dir=${legDirCode} atr_x=${atrTraveledFinal.toFixed(2)} sweep_high=${sweepOfHighDetected} sweep_low=${sweepOfLowDetected} reversal=${sweepReversalConfirmed} extreme_break=${mostRecentExtremeBreakCode}`);
         }
 
         // CCIP-2026-0513K-COORDINATOR-PROMPT-SEALING: raw codes only. price_vs_ema*

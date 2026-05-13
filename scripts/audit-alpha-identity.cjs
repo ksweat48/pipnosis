@@ -137,6 +137,20 @@ const RAW_DATA_FORBIDDEN = [
   { pattern: /Price\s+is\s+\$\{[^}]*\?\s*['"`]ABOVE['"`]/i, label: 'Price is ABOVE/BELOW EMA verdict template (0513K)' },
   { pattern: /['"`]\s*RISING\s*['"`]\s*:\s*['"`]\s*FALLING\s*['"`]/i, label: 'RISING/FALLING slope verdict literals (0513K)' },
   { pattern: /['"`]\s*BULL\s*['"`]\s*:\s*[^?]*['"`]\s*BEAR\s*['"`]/i, label: 'BULL/BEAR ema-stack verdict literals (0513K)' },
+  // CCIP-2026-0513L-MOVE-PHASE-SEALING: block re-introduction of the M5 move-phase
+  // English verdicts (FRESH/DEVELOPING/EXHAUSTED), the BEARISH_FAKEOUT/BULLISH_FAKEOUT
+  // labels, and the teaching sentences ("The move is extended", "Document the
+  // structural picture honestly", "Full structural space available") removed from
+  // coordinator-alpha.ts on 2026-05-13. The block now emits move_phase_code 0|1|2
+  // plus leg_direction and most_recent_extreme_break_code as raw symmetric codes.
+  { pattern: /['"`]\s*FRESH\s*['"`]\s*:\s*['"`]\s*DEVELOPING\s*['"`]/i, label: 'FRESH/DEVELOPING move-phase verdict literals (0513L)' },
+  { pattern: /['"`]\s*EXHAUSTED\s*['"`]/, label: 'EXHAUSTED move-phase verdict literal (0513L)' },
+  { pattern: /\bBEARISH_FAKEOUT\b/, label: 'BEARISH_FAKEOUT directional fakeout label (0513L)' },
+  { pattern: /\bBULLISH_FAKEOUT\b/, label: 'BULLISH_FAKEOUT directional fakeout label (0513L)' },
+  { pattern: /The\s+move\s+is\s+extended/i, label: 'The-move-is-extended teaching sentence (0513L)' },
+  { pattern: /Document\s+the\s+structural\s+picture/i, label: 'Document-the-structural-picture teaching sentence (0513L)' },
+  { pattern: /Full\s+structural\s+space\s+available/i, label: 'Full-structural-space-available teaching sentence (0513L)' },
+  { pattern: /Move\s+Phase\s*:\s*\$\{/i, label: 'Move Phase: verdict template injection (0513L)' },
 ];
 
 // CCIP-2026-0513J SEALED-PROMPT DOCTRINE strict rules — only applied to
