@@ -411,11 +411,6 @@ export interface AlphaDecision {
      * DISCOUNT (<38%) / EQUILIBRIUM (38-62%) / PREMIUM (>62%)
      */
     Q8C_price_location_zone?: string;
-    /**
-     * Q8D: Weekly narrative context.
-     * DELIVERY_BULLISH / DELIVERY_BEARISH / REBALANCING / UNCERTAIN
-     */
-    Q8D_weekly_narrative?: string;
     /** Kill zone alignment at entry time */
     kill_zone?: string;
     /** News event status at entry time */
@@ -1080,10 +1075,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       // on sessions where users risked low dollar amounts. Alpha is a hunter always.
       riskProfileText = formatRiskProfileForLLM('high');
 
-      const styleDirective = goalContext.tradeStyle
-        ? `\nTRADE STYLE: ${goalContext.tradeStyle.toUpperCase()} (full style identity and duration constraints provided below)\n`
-        : '';
-      goalContextText = `\nGOAL: $${goalContext.currentBalance.toFixed(0)} -> +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\n${riskProfileText}${styleDirective}\n`;
+      goalContextText = `\nGOAL: $${goalContext.currentBalance.toFixed(0)} -> +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\n${riskProfileText}\n`;
     }
 
     // Build intelligence context
@@ -1844,7 +1836,7 @@ Record m5_structural_confirmation, m5_move_phase, m5_atr_traveled, directional_a
       // CCIP-2026-0512A RAW-DATA DOCTRINE: SL/TP AUTHORITY teaching sentence removed.
       // Alpha's sovereignty is codified in governance, not re-asserted in every prompt.
       stopLossDirective = `
-ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Risk: ${riskMode.toUpperCase()}
+ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips)
 `;
     }
 
@@ -2785,8 +2777,6 @@ MARKET INTELLIGENCE BRIEFING:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${briefing.briefingText}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Risk Mode: ${riskMode.toUpperCase()}
 
 ${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${momentumTrajectoryContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
@@ -4791,7 +4781,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       // CCIP-FIX: Extract Alpha's answer_sheet (full checklist Q1-Q9 + extended fields)
       // from LLM response. Previously only Q1-Q9 were extracted — the extended fields
-      // (Q8C, Q8D, kill_zone, news_status, equal_highs_lows, trap_signature,
+      // (Q8C, kill_zone, news_status, equal_highs_lows, trap_signature,
       // failed_auction, intermarket_correlation) were being silently discarded after
       // Alpha computed them. These fields carry Alpha's assessment of price location,
       // weekly narrative, intermarket correlation, trap signatures, and liquidity
@@ -4818,7 +4808,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
         Q8_move_position_pct: typeof rawAnswerSheet.Q8_move_position_pct === 'number' ? rawAnswerSheet.Q8_move_position_pct : 0,
         Q8B_session_range_pct: typeof rawAnswerSheet.Q8B_session_range_pct === 'number' ? rawAnswerSheet.Q8B_session_range_pct : 0,
         Q8C_price_location_zone: typeof rawAnswerSheet.Q8C_price_location_zone === 'string' ? rawAnswerSheet.Q8C_price_location_zone : undefined,
-        Q8D_weekly_narrative: typeof rawAnswerSheet.Q8D_weekly_narrative === 'string' ? rawAnswerSheet.Q8D_weekly_narrative : undefined,
         kill_zone: typeof rawAnswerSheet.kill_zone === 'string' ? rawAnswerSheet.kill_zone : undefined,
         news_status: typeof rawAnswerSheet.news_status === 'string' ? rawAnswerSheet.news_status : undefined,
         equal_highs_lows: typeof rawAnswerSheet.equal_highs_lows === 'string' ? rawAnswerSheet.equal_highs_lows : undefined,
@@ -4905,10 +4894,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const Q8C_VALID = ['DISCOUNT', 'EQUILIBRIUM', 'PREMIUM'];
         if (rawAnswerSheet.Q8C_price_location_zone && !Q8C_VALID.includes(rawAnswerSheet.Q8C_price_location_zone)) {
           console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q8C_price_location_zone "${rawAnswerSheet.Q8C_price_location_zone}" is not a valid enum value.`);
-        }
-        const Q8D_VALID = ['DELIVERY_BULLISH', 'DELIVERY_BEARISH', 'REBALANCING', 'UNCERTAIN'];
-        if (rawAnswerSheet.Q8D_weekly_narrative && !Q8D_VALID.includes(rawAnswerSheet.Q8D_weekly_narrative)) {
-          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q8D_weekly_narrative "${rawAnswerSheet.Q8D_weekly_narrative}" is not a valid enum value.`);
         }
         const KILL_ZONE_VALID = ['LONDON_OPEN', 'NY_OPEN', 'NY_PM', 'PRE_KILL_ZONE', 'OUTSIDE_KILL_ZONE'];
         if (rawAnswerSheet.kill_zone && !KILL_ZONE_VALID.includes(rawAnswerSheet.kill_zone)) {
@@ -5000,41 +4985,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }).catch(() => {});
       }
 
-      // CCIP-2026-0324D: Q8D weekly narrative vs action conflict advisory check.
-      // alpha-identity.ts instructs Alpha to resolve DELIVERY_BEARISH+BUY and
-      // DELIVERY_BULLISH+SELL in thesis_coherence_statement. This guard detects the
-      // conflict post-LLM for governance observability. Action: advisory log only.
-      // Trade is NOT blocked — Alpha has authority to trade against weekly narrative
-      // with named structural justification. We surface the conflict for audit.
-      // SSOT: This is the only place Q8D conflict logging occurs.
-      if (action === 'BUY' || action === 'SELL') {
-        const q8d = answerSheet?.Q8D_weekly_narrative?.toUpperCase();
-        const q8dConflict =
-          (action === 'BUY' && q8d === 'DELIVERY_BEARISH') ||
-          (action === 'SELL' && q8d === 'DELIVERY_BULLISH');
-        if (q8dConflict) {
-          const hasCoherence = typeof parsed.thesis_coherence_statement === 'string' &&
-            parsed.thesis_coherence_statement.length > 20;
-          if (!hasCoherence) {
-            logViolation({
-              violationType: 'Q8D_WEEKLY_NARRATIVE_CONFLICT_UNRESOLVED',
-              symbol: marketContext.symbol,
-              attemptedOperation: 'answer_sheet_validation',
-              callLocation: 'coordinator-alpha/parseDecision',
-              blocked: false,
-              errorDetails: { q8d, action, userId: userId || 'unknown' },
-            }).catch(() => {});
-            console.warn(
-              `[Alpha Coordinator] CCIP-2026-0324D: Q8D=${q8d} conflicts with action=${action} but no coherence resolution found. ` +
-              `Alpha should have named a session-level override or reduced confidence. Symbol=${symbol}.`
-            );
-          } else {
-            console.log(
-              `[Alpha Coordinator] CCIP-2026-0324D: Q8D=${q8d} vs action=${action} conflict — thesis_coherence_statement present, assuming override named. Symbol=${symbol}.`
-            );
-          }
-        }
-      }
+      // CCIP-2026-0513N: Q8D weekly narrative deleted entirely. Alpha receives raw D1
+      // candles + daily narrative; he does not pre-classify the week in English. The
+      // prior conflict gate (CCIP-2026-0324D) was an infrastructure-level direction
+      // check on a verdict label Alpha was forced to populate — both the field and
+      // the gate are removed under the Sealed-Prompt Doctrine.
 
       // CCIP-2026-0324C: Moved to coordinate() after parseDecision() returns,
       // where sweepFacts is in scope. See the check immediately after the

@@ -153,7 +153,6 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   Q8_move_position_pct: { type: 'number' },
   Q8B_session_range_pct: { type: ['number', 'null'] },
   Q8C_price_location_zone: { type: ['string', 'null'] },
-  Q8D_weekly_narrative: { type: ['string', 'null'] },
   Q9_sl_wick_proximity: { type: 'string' },
   Q10_entry_conviction: { type: 'string' },
   Q11_zone_entry_quality: { type: 'string' },

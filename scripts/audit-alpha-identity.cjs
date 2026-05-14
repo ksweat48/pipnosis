@@ -181,6 +181,23 @@ const RAW_DATA_FORBIDDEN = [
   { pattern: /PHASE\s*:\s*\$\{[^}]*marketPhase/i, label: 'PHASE: ${marketPhase} English template injection (0513M)' },
   { pattern: /Sweep\s+type\s*:\s*\$\{[^}]*\.toUpperCase/i, label: 'Sweep type: ${...toUpperCase} verdict template (0513M)' },
   { pattern: /Note:\s+The\s+above\s+are\s+sensor\s+readings/i, label: 'Sensor-readings teaching footer (0513M)' },
+  // CCIP-2026-0513N-RISK-STYLE-Q8D-SEALING: User dollar risk has zero authority
+  // over Alpha's reasoning ($100 and $10,000 setups must trade identically).
+  // Trade style is permanently fixed to micro_intraday — no dynamic style
+  // directive in the prompt. Q8D weekly narrative is deleted entirely; Alpha
+  // reasons from raw D1 candles + daily narrative without an English verdict
+  // pre-classification of the week. The prior CCIP-2026-0324D conflict gate
+  // (Q8D vs action contradiction detector) is permanently retired.
+  { pattern: /Risk\s*:\s*\$\{[^}]*riskMode[^}]*\.toUpperCase/i, label: 'Risk: ${riskMode.toUpperCase()} prompt injection (0513N)' },
+  { pattern: /Risk\s+Mode\s*:\s*\$\{[^}]*riskMode[^}]*\.toUpperCase/i, label: 'Risk Mode: ${riskMode.toUpperCase()} prompt injection (0513N)' },
+  { pattern: /TRADE\s+STYLE\s*:\s*\$\{[^}]*tradeStyle[^}]*\.toUpperCase/i, label: 'TRADE STYLE: ${tradeStyle.toUpperCase()} prompt injection (0513N)' },
+  { pattern: /\bstyleDirective\b/, label: 'styleDirective dynamic prompt template variable (0513N)' },
+  { pattern: /\bQ8D_weekly_narrative\b/, label: 'Q8D_weekly_narrative field reference (0513N — field deleted)' },
+  { pattern: /\bQ8D_VALID\b/, label: 'Q8D_VALID enum check (0513N — gate retired)' },
+  { pattern: /\bDELIVERY_BULLISH\b/, label: 'DELIVERY_BULLISH weekly-narrative verdict literal (0513N)' },
+  { pattern: /\bDELIVERY_BEARISH\b/, label: 'DELIVERY_BEARISH weekly-narrative verdict literal (0513N)' },
+  { pattern: /Weekly\s+context\s*:\s*\$\{/i, label: 'Weekly context: ${...} narrative injection (0513N)' },
+  { pattern: /Q8D_WEEKLY_NARRATIVE_CONFLICT/, label: 'Q8D weekly-narrative conflict violation type (0513N)' },
 ];
 
 // CCIP-2026-0513J SEALED-PROMPT DOCTRINE strict rules — only applied to

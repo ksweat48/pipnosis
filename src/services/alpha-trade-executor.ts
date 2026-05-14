@@ -101,7 +101,6 @@ function buildMarketReadFromDecision(decision: AlphaDecision): string {
   if (confluenceText) parts.push(`Confluence: ${confluenceText}`);
 
   if (as.Q8C_price_location_zone) parts.push(`Price zone: ${as.Q8C_price_location_zone}`);
-  if (as.Q8D_weekly_narrative) parts.push(`Weekly context: ${as.Q8D_weekly_narrative}`);
   if (as.kill_zone && as.kill_zone !== 'NONE') parts.push(`Kill zone: ${as.kill_zone}`);
   if (as.intermarket_correlation && as.intermarket_correlation !== 'UNKNOWN') {
     parts.push(`Intermarket: ${as.intermarket_correlation}`);
