@@ -962,42 +962,6 @@ GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry
 in the JSON. Omitting entry_mode will BLOCK the trade — it is not optional, not nested, not skippable.
 Place it at the root of the JSON object, not inside entry_spec or any other sub-object.
 
-ENTRY TIMING PHILOSOPHY (CCIP-2026-0505D):
-execute_now is NOT the default. execute_now is reserved for setups where the confirming candle has
-ALREADY CLOSED on the control timeframe AND price is still inside the actionable zone. A correct
-read with an early entry is still a losing trade. When in doubt, wait_pullback is the professional
-choice — the system will execute the moment price reaches your named zone. You are NOT losing
-opportunity by waiting; you are gaining better fills and surviving noise.
-
-MANDATORY DECISION SEQUENCE — evaluate in this exact order for every pair:
-
-STEP 1 — HAS THE CONFIRMING CANDLE ALREADY CLOSED on the control timeframe?
-The "confirming candle" is the already-closed candle that proves your trigger fired:
-  - SELL: closed bearish rejection / closed reclaim / closed BOS candle
-  - BUY:  closed bullish rejection / closed reclaim / closed BOS candle
-  - Sweep-reclaim: closed candle that took liquidity AND closed back inside the range
-  - Break-of-structure: closed candle that broke and held the prior structural level
-Ask: Can I point to a SPECIFIC already-closed candle on the control TF that proves the trigger fired?
-  AND is price still within my actionable entry zone (not already extended >0.5×ATR past the trigger)?
-If BOTH YES → "entry_mode": "execute_now". Cite the closed candle in q_micro_context or q_trigger_state. DONE.
-If the confirming candle is still FORMING / NOT YET CLOSED → you do NOT have execute_now. Go to STEP 2.
-If the candle closed but price has already extended past the optimal zone → go to STEP 2 (pullback).
-
-STEP 2 — CAN I NAME THE ZONE WHERE THE TRIGGER WILL FIRE OR RETRACE TO?
-Use when: trigger is forming but not closed; price extended past optimal entry; pending sweep;
-pending BOS retest; anticipating reversal without a closed reversal candle yet.
-Required: a named structural level (wick high/low, prior PDH/PDL, FVG edge, VWAP, session high/low,
-equal highs/lows cluster) — NOT a round number guess.
-→ "entry_mode": "wait_pullback" — zone is defined, system will execute on zone hit.
-→ "entry_mode": "push_confirmation" — you need a CANDLE CLOSE inside a specific 1–3 pip zone.
-The system will execute the moment price enters your zone (and for push_confirmation, closes inside).
-This is NOT a weaker decision. For counter-momentum / reversal setups this is the CORRECT decision.
-
-STEP 3 — NO_TRADE (only if BOTH Step 1 and Step 2 fail)
-Only valid when you cannot find a direction AND cannot name a trigger zone.
-If you have directional conviction and can name a level → STEP 2, not NO_TRADE.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ENTRY MODE OPTIONS:
 
   "entry_mode": "execute_now"
@@ -1027,42 +991,14 @@ For wait_pullback or push_confirmation, include:
   }
 }
 
-COUNTER-MOMENTUM FADE CHECK (CCIP-2026-0505D — HARD RULE):
-If your action FADES the most recent closed control-TF candle (SELL into a bullish close,
-BUY into a bearish close) — this is a counter-momentum setup. execute_now is ONLY permitted if
-you can cite a named already-closed reversal candle (rejection wick / reclaim / BOS against the
-prior momentum). If no closed reversal candle exists yet, you MUST output wait_pullback with the
-reversal zone named. "Anticipating a reversal" is never sufficient for execute_now.
-
-REMINDER: "entry_mode" must be a top-level key in your JSON response. Example:
-{ "action": "SELL", "entry_mode": "wait_pullback", "wait_condition": { ... }, ... }
+REMINDER: "entry_mode" must be a top-level key in your JSON response.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-      : `ENTRY MODE — MONITOR OFF, TRIGGER-CLOSED-FIRST DISCIPLINE (CCIP-2026-0505D):
+      : `ENTRY MODE — MONITOR OFF (CCIP-2026-0513M):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field
-in the JSON. Omitting entry_mode will BLOCK the trade — it is not optional, not nested, not skippable.
+GOVERNANCE RULE (CCIP-2026-0333): Every BUY or SELL response MUST include "entry_mode" as a TOP-LEVEL field in the JSON.
 
-This user does not have the Entry Monitor active. Your primary job is to find the best execute_now
-trade — but execute_now still requires an ALREADY-CLOSED confirming candle. Do NOT force execute_now
-on a setup that has not yet confirmed; output wait_pullback instead and the system will surface it as
-a monitor-upgrade opportunity to the user.
-
-MANDATORY DECISION SEQUENCE:
-
-STEP 1 — HAS THE CONFIRMING CANDLE ALREADY CLOSED on the control timeframe,
-         AND is price still inside the actionable zone?
-If YES → "entry_mode": "execute_now". Cite the closed trigger candle. DONE.
-
-STEP 2 — TRIGGER NOT YET CLOSED, OR PRICE EXTENDED: can I name the zone where it WILL fire / retrace to?
-If YES → "entry_mode": "wait_pullback" with wait_condition. The system captures this as a
-monitor-required opportunity and surfaces it to the user with the option to activate the Entry Monitor.
-Do NOT force execute_now just because the monitor is off — a correct read entered early still loses.
-
-STEP 3 — No direction and no nameable zone → NO_TRADE.
-
-COUNTER-MOMENTUM FADE CHECK (CCIP-2026-0505D — HARD RULE):
-If your action FADES the most recent closed control-TF candle, execute_now requires a NAMED
-already-closed reversal candle. Otherwise you MUST output wait_pullback.
+monitor_active=false for this scan. wait_pullback / push_confirmation outputs are recorded as
+monitor-required opportunities and surfaced to the user. The schema set is identical to monitor-on.
 
 REMINDER: "entry_mode" must be a top-level key in your JSON response.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
@@ -1106,34 +1042,15 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       const currentPx = marketContext.livePrice ?? marketContext.price;
       const swingHigh = briefing?.intelligence?.swingHigh;
       const swingLow = briefing?.intelligence?.swingLow;
+      // CCIP-2026-0513M-SEALED-COORDINATOR: raw numerics only. No PREMIUM/DISCOUNT/EQUILIBRIUM
+      // English. No regime English with .toUpperCase(). No "Derive Q8C" procedural teaching.
+      // Alpha receives swing extremes and a position percentage; he reasons over the numbers.
+      void regimeCategory;
       if (swingHigh && swingLow && swingHigh > swingLow) {
         const rangeSize = swingHigh - swingLow;
         const positionInRange = (currentPx - swingLow) / rangeSize;
-        const locationZone = positionInRange > 0.62 ? 'PREMIUM' : positionInRange < 0.38 ? 'DISCOUNT' : 'EQUILIBRIUM';
         const positionPct = Math.round(positionInRange * 100);
-        const conflictAdvisories: string[] = [];
-        if (locationZone === 'PREMIUM') {
-          conflictAdvisories.push(`LOCATION CONTEXT: Price is at ${positionPct}% of the swing range (swing H: ${swingHigh}, swing L: ${swingLow}) — PREMIUM zone. Record in Q8C. Factor into your conviction.`);
-        } else if (locationZone === 'DISCOUNT') {
-          conflictAdvisories.push(`LOCATION CONTEXT: Price is at ${positionPct}% of the swing range (swing H: ${swingHigh}, swing L: ${swingLow}) — DISCOUNT zone. Record in Q8C. Factor into your conviction.`);
-        }
-        if (regimeCategory && (regimeCategory.toLowerCase().includes('range') || regimeCategory.toLowerCase().includes('chop') || regimeCategory.toLowerCase().includes('side'))) {
-          conflictAdvisories.push(`REGIME CONTEXT: Market regime is ${regimeCategory.toUpperCase()}. Record this in your analysis. Factor into your conviction.`);
-        }
-        if (conflictAdvisories.length > 0) {
-          regimeLocationConflictAdvisory = `\nMARKET CONTEXT:\n${conflictAdvisories.join('\n')}\n`;
-        }
-      } else {
-        // CCIP-2026-0324F: Swing data unavailable — inject fallback location advisory.
-        // When swingHigh/swingLow are absent (data gap or intelligence miss), the regime-location
-        // conflict advisory is silently skipped. Alpha receives no location context and Q8C
-        // is computed entirely from its own candle read with no external anchor.
-        // This fallback note ensures Alpha is aware of the data gap and uses EMA structure
-        // or recent pivot extremes as a substitute location reference. It does not block execution.
-        regimeLocationConflictAdvisory = `\nLOCATION CONTEXT NOTE: Swing high/low data is unavailable for this scan cycle — no external range anchor can be computed. ` +
-          `Derive Q8C (DISCOUNT/EQUILIBRIUM/PREMIUM) from the recent pivot structure visible in the candle data: ` +
-          `identify the most recent confirmed swing high and swing low manually, compute price position, and state your boundaries explicitly. ` +
-          `Do not leave Q8C as UNCERTAIN when candle data is present — a structural read from candles is sufficient.\n`;
+        regimeLocationConflictAdvisory = `\nSWING_RANGE_RAW: swing_high=${swingHigh} swing_low=${swingLow} position_pct=${positionPct}\n`;
       }
     }
 
@@ -1316,25 +1233,26 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
 
         if (sweepFacts.sweep_detected) {
           const priceDecimals = marketContext.price > 100 ? 2 : 5;
-          console.log(`[Alpha Coordinator] Sweep facts extracted: ${sweepFacts.sweep_type.toUpperCase()} sweep | extreme @ ${sweepFacts.sweep_extreme_price.toFixed(priceDecimals)} | BOS:${sweepFacts.has_bos} | ${sweepFacts.candles_since_sweep} candles ago | wick:body ${sweepFacts.wick_to_body_ratio.toFixed(2)} | vol ratio ${sweepFacts.volume_ratio.toFixed(2)}x`);
+          // CCIP-2026-0513M-SEALED-COORDINATOR: symmetric sweep_type code in prompt.
+          // sweep_type_code: +1=high-side sweep, -1=low-side sweep, 0=none.
+          const sweepTypeCode = sweepFacts.sweep_type === 'high' ? 1 : sweepFacts.sweep_type === 'low' ? -1 : 0;
+          console.log(`[Alpha Coordinator] Sweep facts extracted: sweep_type_code=${sweepTypeCode} | extreme @ ${sweepFacts.sweep_extreme_price.toFixed(priceDecimals)} | BOS:${sweepFacts.has_bos} | ${sweepFacts.candles_since_sweep} candles ago | wick:body ${sweepFacts.wick_to_body_ratio.toFixed(2)} | vol ratio ${sweepFacts.volume_ratio.toFixed(2)}x`);
 
           liquidityIntentContext = `\nLIQUIDITY SWEEP SENSOR DATA (Omega-8 observation — raw measurements only):\n`;
           liquidityIntentContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          liquidityIntentContext += `Sweep type: ${sweepFacts.sweep_type.toUpperCase()} sweep\n`;
+          liquidityIntentContext += `sweep_type_code: ${sweepTypeCode}\n`;
           liquidityIntentContext += `Candles since sweep: ${sweepFacts.candles_since_sweep}\n`;
           liquidityIntentContext += `Sweep wick extreme: ${sweepFacts.sweep_extreme_price.toFixed(priceDecimals)}\n`;
           if (sweepFacts.nearest_cluster_price) {
-            liquidityIntentContext += `Nearest equal-${sweepFacts.sweep_type}s cluster: ${sweepFacts.nearest_cluster_price.toFixed(priceDecimals)}\n`;
+            liquidityIntentContext += `nearest_cluster_price: ${sweepFacts.nearest_cluster_price.toFixed(priceDecimals)}\n`;
           }
-          liquidityIntentContext += `BOS confirmed post-sweep: ${sweepFacts.has_bos ? 'YES' : 'NO'}\n`;
-          liquidityIntentContext += `Sweep candle wick-to-body ratio: ${sweepFacts.wick_to_body_ratio.toFixed(2)}x\n`;
-          liquidityIntentContext += `Sweep candle volume vs average: ${sweepFacts.volume_ratio > 0 ? sweepFacts.volume_ratio.toFixed(2) + 'x average' : 'no volume data'}\n`;
-          liquidityIntentContext += `Equal-highs clusters swept: ${sweepFacts.equal_highs_count}\n`;
-          liquidityIntentContext += `Equal-lows clusters swept: ${sweepFacts.equal_lows_count}\n`;
-          liquidityIntentContext += `FVG present in sweep direction: ${sweepFacts.fvg_present_in_sweep_direction ? 'YES' : 'NO'}\n`;
-          liquidityIntentContext += `Stop anchor: repositioned beyond sweep extreme (stop calculator — see SL anchor block below)\n`;
+          liquidityIntentContext += `bos_confirmed_post_sweep: ${sweepFacts.has_bos ? 1 : 0}\n`;
+          liquidityIntentContext += `wick_to_body_ratio: ${sweepFacts.wick_to_body_ratio.toFixed(2)}\n`;
+          liquidityIntentContext += `volume_ratio_vs_avg: ${sweepFacts.volume_ratio > 0 ? sweepFacts.volume_ratio.toFixed(2) : -1}\n`;
+          liquidityIntentContext += `equal_highs_count: ${sweepFacts.equal_highs_count}\n`;
+          liquidityIntentContext += `equal_lows_count: ${sweepFacts.equal_lows_count}\n`;
+          liquidityIntentContext += `fvg_in_sweep_direction: ${sweepFacts.fvg_present_in_sweep_direction ? 1 : 0}\n`;
           liquidityIntentContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          liquidityIntentContext += `Note: The above are sensor readings. You interpret what this sweep means — direction, timing, and stop placement are your judgment.\n`;
         }
       } catch (error) {
         console.error('[Alpha Coordinator] Failed to extract sweep facts:', error);
@@ -2242,7 +2160,7 @@ THIS IS YOUR PRIMARY DATA for the entry_advisory verdict. Your trade lives on th
 Analyze these ${primaryTfConfig.label} candles FIRST before considering M1 micro-data.
 CANDLE FORMAT (columnar, pipe-delimited, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p
 - i: index (1=oldest). dir: UP/DN/FLAT. O/H/L/C: OHLC prices. body_p: body size in pips. upW_p/loW_p: upper/lower wick in pips.
-- body ratio >60% of (H-L) = conviction candle; small body relative to range = indecision; wick_bias = which wick dominates (institutional rejection signal)
+- body_p, upW_p, loW_p are raw pip measurements.
 
 i|dir|O|H|L|C|body_p|upW_p|loW_p
 ${primaryLines.join('\n')}
@@ -2427,8 +2345,9 @@ ${htfConfig.label} candle fetch failed. Background context only — non-blocking
             const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
             const totalRange = (c.high - c.low) / pipInfo.pipValue;
             const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
-            const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
-            return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}|${bodyRatio}|${wickBias}`;
+            // CCIP-2026-0513M-SEALED-COORDINATOR: symmetric ±1/0/-1 wick-bias code.
+            const wbCode = upperWick > lowerWick * 1.5 ? 1 : lowerWick > upperWick * 1.5 ? -1 : 0;
+            return `${i + 1}|${dir}|${c.open.toFixed(pipInfo.decimalPlaces)}|${c.high.toFixed(pipInfo.decimalPlaces)}|${c.low.toFixed(pipInfo.decimalPlaces)}|${c.close.toFixed(pipInfo.decimalPlaces)}|${bodyPips.toFixed(1)}|${upperWick.toFixed(1)}|${lowerWick.toFixed(1)}|${bodyRatio}|${wbCode}`;
           });
 
           const lastM15Dir = recentM15Dir[recentM15Dir.length - 1];
@@ -2472,7 +2391,7 @@ ${htfConfig.label} candle fetch failed. Background context only — non-blocking
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 M15 CANDLES (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb  — ratio=body% of range, wb=upper/lower/balanced wick bias.
+FORMAT (columnar, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb  — ratio=body% of range, wb=+1 upper / -1 lower / 0 balanced.
 
 i|dir|O|H|L|C|body_p|upW_p|loW_p|ratio|wb
 ${m15DirLines.join('\n')}
@@ -2770,10 +2689,10 @@ When you reference "ATR" in move stage diagnosis, structural space requirements,
 
 ACTIVE ATR for this session (MICRO_INTRADAY): ${activeAtrPips} pips — this is your baseline ATR (using ${preferredAtrField} field)
 
-Use the ACTIVE ATR value above for all move stage calculations in this scan cycle:
-  - FRESH / STARTING:  price has traveled < 0.75 × ${activeAtrPips} pips = < ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
-  - DEVELOPING:        0.75–1.5 × ${activeAtrPips} pips = ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'}–${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
-  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin → ADVISORY: Move is extended. Name whether a structural reversal, retest, or sweep setup exists. Exhausted moves can produce strong reversals — reason honestly about the structural case. Your confidence reflects your actual conviction.
+MOVE_PHASE_THRESHOLDS_PIPS (for move stage calculations from swing origin):
+  phase_0_max=${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'}
+  phase_1_max=${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'}
+  active_atr_pips=${activeAtrPips}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
@@ -2852,54 +2771,7 @@ SCAN CONTEXT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${streakContextLine}
 
-SCAN MANDATE (CCIP-2026-0330A): My first question every scan: what is this market doing right now, and is there a profitable direction? I read structure, phase, momentum, and range. I ask: can price move enough in one direction to produce a valid R:R trade with a structurally anchored stop? If yes — I execute with honest confidence. I do not require a textbook trigger before acting. A fired trigger raises confidence and favors execute_now. Its absence favors wait_pullback or push_confirmation. Neither absence produces NO_TRADE on its own.
-
-NO_TRADE means the answer sheet is genuinely blank — not absence of a perfect setup.
-
-CONVICTION STANDARD — TIER-TO-ACTION MAP (CCIP-2026-0425B):
-My confidence_tier determines which actions are available to me. There are exactly four tiers.
-
-  no_read              → NO_TRADE only.
-                         My answer sheet is genuinely blank. ALL of the following must be true:
-                         - htf_pattern, mtf_pattern, ltf_pattern = null or "none"
-                         - No named price level anywhere in my reasoning
-                         - No directional lean (lean_confidence = 0)
-                         - No sweep, no BOS, no equal highs/lows, no FVG identified
-                         - No kill zone, no range boundary, no session boundary worth monitoring
-                         If even ONE of these conditions is not met, no_read is FORBIDDEN.
-                         I must reassess to at minimum "confident" and output BUY or SELL.
-
-  confident            → Execute Now or Wait Intent (NO_TRADE is NOT available).
-                         Solid structure. Direction is named. Stop can be anchored. Path is credible.
-                         Some unknowns remain but the structural case is clear.
-                         If trigger has fired or price is at the structural level: execute_now.
-                         If trigger is pending or geometry requires a better zone: wait_pullback or push_confirmation.
-                         If geometry is impossible at current price but valid at a named zone: ALWAYS wait intent,
-                         never NO_TRADE.
-
-  very_confident       → Execute Now or Wait Intent (NO_TRADE is NOT available).
-                         Strong named structure. Clear directional evidence stack. Named liquidity fuel.
-                         Clean path to target. High-quality setup — I trade this at current price or at the zone.
-                         If trigger fired: execute_now.
-                         If trigger is pending: wait_pullback or push_confirmation.
-
-  extremely_confident  → Execute Now only (wait and NO_TRADE are NOT available).
-                         Near-perfect alignment across all dimensions. Structure, momentum, session, and
-                         liquidity all converge on the same conclusion. The edge is live. Waiting surrenders it.
-                         execute_now is the only valid response.
-
-My confidence_tier is my honest read of what the structural evidence shows. My action and entry_mode must be consistent with the permitted set for that tier. A response that selects an action outside the permitted set for the stated tier is a governance violation — the system will correct it.
-
-LEGACY TIERS — SCHEMA VIOLATIONS: low, cautious, moderate, high, very_high, extreme are no longer valid output tiers. Any response containing these tiers will be treated as a schema violation and corrected by the coordinator.
-
-I read macro intelligence first, then interpret candle evidence through that lens. My system prompt defines how I think. What follows is the market data for this scan.
-
-ADVISORY SOURCES (context inputs — not decision gates):
-- Regime Oracle: session and volatility regime context
-- Adversarial Detector: raw stop-run / fake-breakout readings
-- Session Constraints: time-based liquidity context
-- Advisory signals inform my reasoning. They are context — I read them and reason about what they mean for this specific setup. They do not produce arithmetic deductions from my confidence. My confidence is my honest conviction that this trade wins.
-- Omega Sensors (Omega-8 through Omega-10): pure price-structure sensor readings — liquidity sweeps, FVGs, orderflow patterns, volume anomalies. These are raw structural observations about what the market has done. They carry no directional vote and no abstention. There is no "Omega disagreement" — there are only structural facts I interpret. I read them as evidence and build my judgment from that evidence.
+SCHEMA NOTE — confidence_tier permitted values: no_read, confident, very_confident, extremely_confident. Legacy tiers (low, cautious, moderate, high, very_high, extreme) are schema violations.
 
 HARD BLOCK CONDITIONS (the only conditions that produce NO_TRADE automatically):
 ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}
@@ -2913,14 +2785,6 @@ MARKET INTELLIGENCE BRIEFING:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${briefing.briefingText}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-OPPORTUNITY ASSESSMENT (CCIP-2026-0330A — answer before directional analysis):
-Q_DIR: Which direction does momentum and structure favour right now — BUY, SELL, or NEITHER? State the evidence in one sentence.
-Q_RANGE: How many pips can price realistically travel in that direction before hitting a structural wall? Name the wall.
-Q_EDGE: Does the structural distance to my named target (TP pips) equal or exceed the structural distance to my invalidation level (SL pips)? YES or NO. This is the 1:1 floor — TP pips must be >= SL pips or this is a direction, not a trade.
-If Q_EDGE = YES → proceed to full analysis and execute with honest confidence.
-If Q_EDGE = NO → I have found a direction but not a trade. I do not proceed to full analysis. I immediately search for a valid geometry: a tighter SL anchored closer to structure, a further TP at the next structural level beyond the first wall, a different entry point that reduces SL distance, or the opposite direction. I resolve Q_EDGE to YES before proceeding — it is a prerequisite for full analysis, not a final check. If after a genuine structural search across all options no valid geometry exists, state the specific structural reason in thesis_coherence_statement and output NO_TRADE.
-These three questions replace the need for a "perfect setup". Structure + range + R:R = edge. If the edge exists, I trade it.
 
 Risk Mode: ${riskMode.toUpperCase()}
 

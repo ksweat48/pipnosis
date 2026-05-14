@@ -210,9 +210,11 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
     const nextSess = intel.nextSessionName && intel.minutesUntilNextSession && intel.minutesUntilNextSession > 0
       ? ` next:${intel.nextSessionName} in ${intel.minutesUntilNextSession}min`
       : '';
-    const phaseConf = intel.marketPhaseConfidence !== undefined ? `(${intel.marketPhaseConfidence}%)` : '';
-    const phaseStr = intel.marketPhase && intel.marketPhase !== 'UNKNOWN' ? ` | PHASE:${intel.marketPhase}${phaseConf}` : '';
-    lines.push(`SESSION:${intel.sessionName ?? ''}${sessionRem}${nextSess}${phaseStr}`);
+    // CCIP-2026-0513M-SEALED-COORDINATOR: marketPhase English label removed.
+    // Phase classification is verdict-shaped; raw indicators above already convey state.
+    void intel.marketPhase;
+    void intel.marketPhaseConfidence;
+    lines.push(`SESSION:${intel.sessionName ?? ''}${sessionRem}${nextSess}`);
   }
 
   // CCIP-2026-0513J SEALED-PROMPT DOCTRINE:
@@ -237,10 +239,15 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
   const volRegimeCode = intel.volatility.regime === 'high' ? 2 : intel.volatility.regime === 'mid' ? 1 : 0;
   lines.push(`SIGNALS_RAW: bos:${bosCode} eqh:${intel.confirmation.equalHighs ? 1 : 0} eql:${intel.confirmation.equalLows ? 1 : 0} vol_spk:${intel.confirmation.volumeSpike ? 1 : 0} | vol_regime:${volRegimeCode} atr_avg_ratio:${atrAvgRatio.toFixed(2)} wick_body:${wickRatio.toFixed(2)} | rsi_div:${rsiDivCode} macd_div:${macdDivCode} eng_b:${intel.reversal.engulfingBull ? 1 : 0} eng_s:${intel.reversal.engulfingSell ? 1 : 0} pin_b:${intel.reversal.pinBarBull ? 1 : 0} pin_s:${intel.reversal.pinBarSell ? 1 : 0} doji:${intel.reversal.doji ? 1 : 0} mom_bar:${intel.sensors.pat.mom ? 1 : 0}`);
 
-  const sweepStr = intel.orderFlow.sweepType && intel.orderFlow.sweepType !== 'none'
-    ? ` | sweep_type:${intel.orderFlow.sweepType} sweep_candles_ago:${intel.orderFlow.sweepCandlesAgo ?? -1} sweep_has_bos:${intel.orderFlow.sweepHasBOS ? 1 : 0}${intel.orderFlow.sweepExtremePrice ? ` sweep_ext:${intel.orderFlow.sweepExtremePrice.toFixed(5)}` : ''}${intel.orderFlow.nearestClusterPrice ? ` cluster:${intel.orderFlow.nearestClusterPrice.toFixed(5)}` : ''}`
+  // CCIP-2026-0513M-SEALED-COORDINATOR: symmetric ±1/0/-1 sweep_type code in briefing.
+  const sweepTypeCode = intel.orderFlow.sweepType === 'high' ? 1 : intel.orderFlow.sweepType === 'low' ? -1 : 0;
+  const sweepStr = sweepTypeCode !== 0
+    ? ` | sweep_type_code:${sweepTypeCode} sweep_candles_ago:${intel.orderFlow.sweepCandlesAgo ?? -1} sweep_has_bos:${intel.orderFlow.sweepHasBOS ? 1 : 0}${intel.orderFlow.sweepExtremePrice ? ` sweep_ext:${intel.orderFlow.sweepExtremePrice.toFixed(5)}` : ''}${intel.orderFlow.nearestClusterPrice ? ` cluster:${intel.orderFlow.nearestClusterPrice.toFixed(5)}` : ''}`
     : '';
-  const ofSignals = intel.orderFlow.signals.length > 0 ? ` sigs:[${intel.orderFlow.signals.join(',')}]` : '';
+  // CCIP-2026-0513M-SEALED-COORDINATOR: bound signals[] alphabet to snake_case pattern names only.
+  const SIGNAL_ALPHABET = /^[a-z0-9_]+$/;
+  const filteredSignals = intel.orderFlow.signals.filter(s => SIGNAL_ALPHABET.test(s));
+  const ofSignals = filteredSignals.length > 0 ? ` sigs:[${filteredSignals.join(',')}]` : '';
   const liqBiasCode = intel.orderFlow.liquidityBias === 'bull' ? 1 : intel.orderFlow.liquidityBias === 'bear' ? -1 : 0;
   lines.push(`ORDERFLOW_RAW: sw_h:${intel.orderFlow.sweptHighs} sw_l:${intel.orderFlow.sweptLows} fvg_up:${intel.orderFlow.fvgBullish} fvg_dn:${intel.orderFlow.fvgBearish} eqh:${intel.orderFlow.equalHighs} eql:${intel.orderFlow.equalLows} | vol_spk_up:${intel.orderFlow.volSpikeBullish ? 1 : 0} vol_spk_dn:${intel.orderFlow.volSpikeBearish ? 1 : 0} abs_up:${intel.orderFlow.absorptionBullish ? 1 : 0} abs_dn:${intel.orderFlow.absorptionBearish ? 1 : 0} acc:${intel.orderFlow.accumulationZone ? 1 : 0} dist:${intel.orderFlow.distributionZone ? 1 : 0} | confluence:${intel.orderFlow.confluenceScore} liq_bias:${liqBiasCode}${sweepStr}${ofSignals}`);
 

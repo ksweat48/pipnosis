@@ -151,6 +151,36 @@ const RAW_DATA_FORBIDDEN = [
   { pattern: /Document\s+the\s+structural\s+picture/i, label: 'Document-the-structural-picture teaching sentence (0513L)' },
   { pattern: /Full\s+structural\s+space\s+available/i, label: 'Full-structural-space-available teaching sentence (0513L)' },
   { pattern: /Move\s+Phase\s*:\s*\$\{/i, label: 'Move Phase: verdict template injection (0513L)' },
+  // CCIP-2026-0513M-SEALED-COORDINATOR: block re-introduction of the HIGH/MEDIUM
+  // bias-channel injections removed from coordinator-alpha.ts and
+  // market-briefing-builder.ts on 2026-05-14. Premium/discount/equilibrium zone
+  // English, regime English with .toUpperCase(), Q8C derivation teaching, ATR-legend
+  // FRESH/DEVELOPING/EXHAUSTED labels, conviction-candle teaching, SCAN MANDATE,
+  // CONVICTION STANDARD tier-to-action prescriptions, Q_DIR/Q_RANGE/Q_EDGE block,
+  // STEP 1/2/3 entry-mode procedural sequences, briefing PHASE: English, sweep_type
+  // English, and "sensor readings" teaching footers all permanently sealed.
+  { pattern: /\bPREMIUM\s+zone\b/i, label: 'PREMIUM zone English label (0513M)' },
+  { pattern: /\bDISCOUNT\s+zone\b/i, label: 'DISCOUNT zone English label (0513M)' },
+  { pattern: /\bEQUILIBRIUM\s+zone\b/i, label: 'EQUILIBRIUM zone English label (0513M)' },
+  { pattern: /Market\s+regime\s+is\s+\$\{[^}]*\.toUpperCase/i, label: 'Market regime is ${...toUpperCase} verdict template (0513M)' },
+  { pattern: /\bDerive\s+Q8C\b/i, label: 'Derive Q8C teaching block (0513M)' },
+  { pattern: /\bFRESH\s*\/\s*STARTING\b/i, label: 'FRESH/STARTING ATR-legend label (0513M)' },
+  { pattern: /\bDEVELOPING\s*:\s*0\.75/i, label: 'DEVELOPING ATR-legend label (0513M)' },
+  { pattern: /\bEXHAUSTED\s*:\s*>\s*1\.5/i, label: 'EXHAUSTED ATR-legend label (0513M)' },
+  { pattern: /ADVISORY:\s*Move\s+is\s+extended/i, label: 'ADVISORY: Move-is-extended teaching (0513M)' },
+  { pattern: /\bconviction\s+candle\b/i, label: 'Conviction-candle interpretation teaching (0513M)' },
+  { pattern: /\bSCAN\s+MANDATE\b/i, label: 'SCAN MANDATE procedural block (0513M)' },
+  { pattern: /CONVICTION\s+STANDARD\s+[—-]\s+TIER-TO-ACTION/i, label: 'CONVICTION STANDARD tier-to-action map (0513M)' },
+  { pattern: /OPPORTUNITY\s+ASSESSMENT/i, label: 'OPPORTUNITY ASSESSMENT verdict block (0513M)' },
+  { pattern: /\bQ_DIR\s*:/i, label: 'Q_DIR prescriptive block (0513M)' },
+  { pattern: /\bQ_RANGE\s*:/i, label: 'Q_RANGE prescriptive block (0513M)' },
+  { pattern: /\bQ_EDGE\s*:/i, label: 'Q_EDGE prescriptive block (0513M)' },
+  { pattern: /STEP\s+1\s+[—-]\s+HAS\s+THE\s+CONFIRMING\s+CANDLE/i, label: 'STEP 1 procedural sequence (0513M)' },
+  { pattern: /MANDATORY\s+DECISION\s+SEQUENCE/i, label: 'MANDATORY DECISION SEQUENCE procedural block (0513M)' },
+  { pattern: /COUNTER-MOMENTUM\s+FADE\s+CHECK/i, label: 'COUNTER-MOMENTUM FADE CHECK procedural block (0513M)' },
+  { pattern: /PHASE\s*:\s*\$\{[^}]*marketPhase/i, label: 'PHASE: ${marketPhase} English template injection (0513M)' },
+  { pattern: /Sweep\s+type\s*:\s*\$\{[^}]*\.toUpperCase/i, label: 'Sweep type: ${...toUpperCase} verdict template (0513M)' },
+  { pattern: /Note:\s+The\s+above\s+are\s+sensor\s+readings/i, label: 'Sensor-readings teaching footer (0513M)' },
 ];
 
 // CCIP-2026-0513J SEALED-PROMPT DOCTRINE strict rules — only applied to
