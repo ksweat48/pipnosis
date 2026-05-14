@@ -109,8 +109,7 @@ import { calculateSessionContext } from '../utils/marketHours';
 import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/entry';
 import {
   ALPHA_IDENTITY,
-  getAlphaSystemPromptForStyle,
-  getEntryMode
+  getAlphaSystemPromptForStyle
 } from '../config/alpha-identity';
 import {
   ALPHA_RESPONSE_FORMAT,
