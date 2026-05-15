@@ -67,6 +67,15 @@ const IDENTITY_FORBIDDEN = [
   // prescriptions. MAE is a reasoning obligation, not an if/then rule.
   { pattern: /\bif\s+MAE\s*[><=]/i, label: 'Procedural MAE rule (0513H)' },
   { pattern: /\bMAE\s+must\s+(?:be|stay)\b/i, label: 'Hardcoded MAE prescription (0513H)' },
+  // CCIP-2026-0514F: SL Reconciliation Doctrine — SL widening is a reasoning
+  // obligation reconciled against the trap map and MAE forecast Alpha already
+  // produced. Block hardcoded symbol-specific or pip-floor prescriptions that
+  // would short-circuit the reasoning into a procedural rule.
+  { pattern: /\bminimum\s+\d+\s+pips\s+on\s+\w+/i, label: 'Hardcoded minimum-pips-on-symbol SL floor (0514F)' },
+  { pattern: /\bSL\s+(?:must|should)\s+be\s+at\s+least\s+\d+/i, label: 'Hardcoded SL minimum prescription (0514F)' },
+  { pattern: /\bXAUUSD\s+(?:requires|needs|minimum)\s+\d+\s+pips/i, label: 'XAUUSD-specific SL floor (0514F)' },
+  { pattern: /\bif\s+sl_distance_pips\s*[><=]/i, label: 'Procedural sl_distance_pips rule (0514F)' },
+  { pattern: /\bif\s+sl_distance_vs_m5_atr_ratio\s*[><=]/i, label: 'Procedural ATR-ratio rule (0514F)' },
 ];
 
 // ─── 0512A: Raw-Data Doctrine guard for prompt-producing files ───────────────

@@ -344,6 +344,29 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
       { type: 'null' },
     ],
   },
+
+  // ------------------------------------------------------------------
+  // CCIP-2026-0514F: SL RECONCILIATION DOCTRINE
+  // ------------------------------------------------------------------
+  // SL placement must be NUMERICALLY reconciled — not just rhetorically
+  // named — against (a) the trap map's invalidation-side pool and (b)
+  // the M5 MAE forecast Alpha just produced. A SL inside the move's own
+  // forecast wiggle is a SL-in-disguise, the same failure mode TP1
+  // partial-value catches on the reward side. Schema enforces presence;
+  // the new directional-integrity cross-checks catch the contradictions.
+  sl_distance_pips: { type: ['number', 'null'] },
+  sl_distance_vs_m5_atr_ratio: { type: ['number', 'null'] },
+  sl_distance_vs_mae_forecast_ratio: { type: ['number', 'null'] },
+  sl_pool_clearance_pips: { type: ['number', 'null'] },
+  sl_placement_verdict: {
+    anyOf: [
+      {
+        type: 'string',
+        enum: ['BEYOND_TRAP', 'AT_TRAP_EDGE', 'INSIDE_TRAP', 'NO_TRAP_PRESENT'],
+      },
+      { type: 'null' },
+    ],
+  },
 };
 
 const ANSWER_SHEET_REQUIRED = Object.keys(ANSWER_SHEET_PROPERTIES);
