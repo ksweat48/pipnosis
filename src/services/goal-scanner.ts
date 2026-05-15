@@ -87,7 +87,7 @@ export interface ScanResult {
 // Trade execution delegated to alphaTradeExecutor (SSOT)
 
 class GoalScanner {
-  async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
+  async scanMarket(sessionId: string, userId: string, options?: { targetSymbols?: string[] }): Promise<ScanResult[]> {
     const scanStartTime = Date.now();
 
     try {
@@ -224,26 +224,42 @@ class GoalScanner {
         );
       }
 
-      console.log(`[Goal Scanner] 📊 Ranking ${watchlist.length} symbols by opportunity quality...`);
+      // CCIP-2026-0515C: Per-pair scan support — when targetSymbols provided,
+      // skip the ranker quality gate (user explicitly requested these symbols)
+      // but still validate they are in the open-market watchlist.
+      let symbolsToScan: string[];
 
-      const rankings: SymbolScore[] = await multiSymbolRanker.rankSymbols(watchlist);
+      if (options?.targetSymbols && options.targetSymbols.length > 0) {
+        // Per-pair scan: validate requested symbols are in the open watchlist
+        const validTargets = options.targetSymbols.filter(s => watchlist.includes(s));
+        if (validTargets.length === 0) {
+          console.log(`[Goal Scanner] Per-pair scan: no requested symbols are in open markets. Requested: ${options.targetSymbols.join(', ')}, Open: ${watchlist.join(', ')}`);
+          return [];
+        }
+        symbolsToScan = validTargets;
+        console.log(`[Goal Scanner] Per-pair scan: scanning ${symbolsToScan.length} requested symbol(s): ${symbolsToScan.join(', ')}`);
+      } else {
+        console.log(`[Goal Scanner] 📊 Ranking ${watchlist.length} symbols by opportunity quality...`);
 
-      // Filter to only GOOD or better symbols (score ≥65)
-      const qualitySymbols = rankings.filter(r => r.totalScore >= 65);
+        const rankings: SymbolScore[] = await multiSymbolRanker.rankSymbols(watchlist);
 
-      console.log(`[Goal Scanner] Symbol Rankings (raw scores):`);
-      rankings.forEach((rank, idx) => {
-        console.log(`  ${idx + 1}. ${rank.symbol}: total=${rank.totalScore}/100 trend=${rank.trendStrength} vol=${rank.volatilityHealth} structure=${rank.structureClarity} manip=${rank.manipulationRisk} momentum=${rank.intradayMomentum}`);
-      });
+        // Filter to only GOOD or better symbols (score ≥65)
+        const qualitySymbols = rankings.filter(r => r.totalScore >= 65);
 
-      console.log(`[Goal Scanner] ✅ Filtered to ${qualitySymbols.length} quality symbols (score ≥65)`);
+        console.log(`[Goal Scanner] Symbol Rankings (raw scores):`);
+        rankings.forEach((rank, idx) => {
+          console.log(`  ${idx + 1}. ${rank.symbol}: total=${rank.totalScore}/100 trend=${rank.trendStrength} vol=${rank.volatilityHealth} structure=${rank.structureClarity} manip=${rank.manipulationRisk} momentum=${rank.intradayMomentum}`);
+        });
 
-      if (qualitySymbols.length === 0) {
-        console.log('[Goal Scanner] ⚠️ No quality symbols meet criteria - scanning all symbols as fallback');
+        console.log(`[Goal Scanner] ✅ Filtered to ${qualitySymbols.length} quality symbols (score ≥65)`);
+
+        if (qualitySymbols.length === 0) {
+          console.log('[Goal Scanner] ⚠️ No quality symbols meet criteria - scanning all symbols as fallback');
+        }
+
+        // Use quality-filtered symbols, or fall back to full watchlist if none pass
+        symbolsToScan = qualitySymbols.length > 0 ? qualitySymbols.map(r => r.symbol) : watchlist;
       }
-
-      // Use quality-filtered symbols, or fall back to full watchlist if none pass
-      const symbolsToScan = qualitySymbols.length > 0 ? qualitySymbols.map(r => r.symbol) : watchlist;
       const results: ScanResult[] = [];
 
       console.log(`[Goal Scanner] 🔍 Scanning ${symbolsToScan.length} symbols concurrently (10 parallel limit)...`);

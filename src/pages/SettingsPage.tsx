@@ -97,6 +97,9 @@ export function SettingsPage() {
   const [savingTier, setSavingTier] = useState<string | null>(null);
   const [membership, setMembership] = useState<UserMembership | null>(null);
 
+  const [partialClosePct, setPartialClosePct] = useState<number>(50);
+  const [savingPartialClose, setSavingPartialClose] = useState(false);
+
   const toggleSection = (section: keyof typeof collapsedSections) => {
     setCollapsedSections(prev => ({
       ...prev,
@@ -118,6 +121,7 @@ export function SettingsPage() {
       loadMonitorPreferences();
       loadPushSettings();
       loadBrokerCalibration();
+      loadPartialClosePreference();
       clubMembershipService.getUserMembership(user.id).then(m => setMembership(m)).catch(() => {});
     }
   }, [user]);
@@ -173,6 +177,44 @@ export function SettingsPage() {
     if (!user) return;
     const tiers = await brokerLotConfigService.loadAllTiers(user.id);
     setLotTiers(tiers);
+  };
+
+  const loadPartialClosePreference = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('user_max_risk_preferences')
+        .select('default_partial_close_pct')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!error && data?.default_partial_close_pct != null) {
+        setPartialClosePct(Math.round(data.default_partial_close_pct * 100));
+      }
+    } catch (e) {
+      console.error('Error loading partial close preference:', e);
+    }
+  };
+
+  const handleSavePartialClose = async (pctWhole: number) => {
+    if (!user) return;
+    setSavingPartialClose(true);
+    try {
+      const fraction = pctWhole / 100;
+      const { error } = await supabase
+        .from('user_max_risk_preferences')
+        .update({ default_partial_close_pct: fraction, updated_at: new Date().toISOString() })
+        .eq('user_id', user.id);
+      if (error) {
+        toast.error('Save Failed', 'Could not update TP1 partial close setting.');
+      } else {
+        setPartialClosePct(pctWhole);
+        toast.success('Saved', `TP1 will close ${pctWhole}% of the position.`);
+      }
+    } catch (e) {
+      toast.error('Save Failed', 'An unexpected error occurred.');
+    } finally {
+      setSavingPartialClose(false);
+    }
   };
 
   const handleTierChange = async (symbol: string, tier: LotTier) => {
@@ -1038,13 +1080,48 @@ export function SettingsPage() {
                 </div>
               </div>
 
+              <div className="mt-4 space-y-4">
+                <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3 mb-3">
+                    <TrendingUp size={18} className="text-amber-400" />
+                    <div className="text-white font-medium">TP1 Profit Lock</div>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-4">
+                    When TP1 is hit, this percentage of the position is closed to lock in profit. The remainder runs to TP2 with stop-loss moved to break-even.
+                  </p>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[0, 25, 50, 75, 100].map((pct) => (
+                      <button
+                        key={pct}
+                        disabled={savingPartialClose}
+                        onClick={() => handleSavePartialClose(pct)}
+                        className={`py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                          partialClosePct === pct
+                            ? 'bg-amber-600 text-white ring-2 ring-amber-400/50'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        } ${savingPartialClose ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 text-xs text-gray-500">
+                    {partialClosePct === 0 && 'Full position runs to TP2. No profit locked at TP1.'}
+                    {partialClosePct === 25 && '25% closed at TP1. 75% runner to TP2.'}
+                    {partialClosePct === 50 && '50% closed at TP1 (recommended). 50% runner to TP2.'}
+                    {partialClosePct === 75 && '75% closed at TP1. 25% runner to TP2.'}
+                    {partialClosePct === 100 && 'Full position closed at TP1. No runner to TP2.'}
+                  </div>
+                </div>
+              </div>
+
               <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
                 <div className="flex items-start gap-3">
                   <AlertCircle size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
                   <div className="text-sm text-blue-300">
                     <p className="font-medium mb-1">Important Note</p>
                     <p className="text-blue-300/80">
-                      This setting applies to all new Smart Goal Mode sessions. You can change this preference at any time.
+                      These settings apply to all new Smart Goal Mode sessions. You can change preferences at any time.
                     </p>
                   </div>
                 </div>

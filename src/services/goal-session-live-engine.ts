@@ -2528,6 +2528,52 @@ class GoalSessionLiveEngine {
         }
       }
 
+      // CCIP-2026-0515C: Drain pending manual scan requests (per-pair scan)
+      // Before running the normal scan cycle, check if user manually requested a specific pair
+      try {
+        const { data: manualRequests } = await supabase
+          .from('manual_scan_requests')
+          .select('id, symbol')
+          .eq('user_id', this.config.userId)
+          .eq('session_id', this.activeSession!)
+          .eq('status', 'pending')
+          .order('requested_at', { ascending: true })
+          .limit(3);
+
+        if (manualRequests && manualRequests.length > 0) {
+          // Mark as processing
+          const requestIds = manualRequests.map(r => r.id);
+          await supabase
+            .from('manual_scan_requests')
+            .update({ status: 'processing' })
+            .in('id', requestIds);
+
+          // Determine target symbols: null symbol means "scan all"
+          const targetSymbols = manualRequests
+            .map(r => r.symbol)
+            .filter((s): s is string => s !== null);
+
+          if (targetSymbols.length > 0) {
+            logger.info(LogCategory.AI_TRADING, `[Per-Pair Scan] Processing manual scan for: ${targetSymbols.join(', ')}`);
+            await this.processMultiSymbolCycle(targetSymbols);
+          } else {
+            // null symbol = scan all pairs (same as normal cycle)
+            const fullWatchlist = this.config.watchlist || getDefaultWatchlist();
+            await this.processMultiSymbolCycle(fullWatchlist);
+          }
+
+          // Mark completed
+          await supabase
+            .from('manual_scan_requests')
+            .update({ status: 'completed', completed_at: new Date().toISOString() })
+            .in('id', requestIds);
+
+          return;
+        }
+      } catch (manualScanErr) {
+        logger.warn(LogCategory.AI_TRADING, '[Per-Pair Scan] Error draining manual requests', { error: manualScanErr });
+      }
+
       const watchlist = this.config.watchlist || getDefaultWatchlist();
       const useMultiSymbolMode = watchlist.length > 1;
 

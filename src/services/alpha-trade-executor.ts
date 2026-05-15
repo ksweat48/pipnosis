@@ -1179,6 +1179,20 @@ class AlphaTradeExecutor {
       };
     }
 
+    // CCIP-2026-0515A: Fetch user's TP1 partial-close preference and stamp on the trade
+    try {
+      const { data: riskPref } = await this.db
+        .from('user_max_risk_preferences')
+        .select('default_partial_close_pct')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (riskPref?.default_partial_close_pct != null) {
+        tradeData.partial_close_pct = riskPref.default_partial_close_pct;
+      }
+    } catch (_) {
+      // Non-blocking — DB default (0.5) applies if fetch fails
+    }
+
     const { data: trade, error } = await this.db
       .from('goal_session_trades')
       .insert(tradeData)
@@ -1588,6 +1602,20 @@ class AlphaTradeExecutor {
         error: safetyValidation.message || 'Mandatory safety check failed',
         blockReason: `SAFETY_BLOCK: ${safetyValidation.blockReason}`
       };
+    }
+
+    // CCIP-2026-0515A: Fetch user's TP1 partial-close preference for pending trades
+    try {
+      const { data: riskPref } = await this.db
+        .from('user_max_risk_preferences')
+        .select('default_partial_close_pct')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (riskPref?.default_partial_close_pct != null) {
+        tradeData.partial_close_pct = riskPref.default_partial_close_pct;
+      }
+    } catch (_) {
+      // Non-blocking — DB default (0.5) applies if fetch fails
     }
 
     const { data: trade, error } = await this.db
