@@ -134,7 +134,7 @@ function applyMultipliers(
 
 function getAssetClass(symbol: string): AssetClass {
   if (['BTCUSD', 'ETHUSD'].includes(symbol)) return 'crypto';
-  if (['US30', 'SPX500', 'NAS100'].includes(symbol)) return 'indices';
+  if (['US30', 'NAS100'].includes(symbol)) return 'indices';
   if (symbol === 'XAUUSD') return 'commodities';
   return 'forex';
 }

@@ -110,7 +110,7 @@ const METALS_PROFILE: AssetClassRiskProfile = {
 
 const INDICES_PROFILE: AssetClassRiskProfile = {
   category: 'index',
-  displayName: 'Stock Indices (US30, NAS100, SPX500)',
+  displayName: 'Stock Indices (US30, NAS100)',
 
   typicalStopRange: {
     min: 1.0,
@@ -120,7 +120,7 @@ const INDICES_PROFILE: AssetClassRiskProfile = {
 
   commonMove: {
     min: 30,      // FIXED: Use absolute points, not ATR multipliers
-    max: 100,     // US30: ~30-100 points, NAS100: ~50-150 points, SPX500: ~20-60 points
+    max: 100,     // US30: ~30-100 points, NAS100: ~50-150 points
     unit: 'points'
   },
 

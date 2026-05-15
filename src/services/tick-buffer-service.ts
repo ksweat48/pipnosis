@@ -116,7 +116,7 @@ class TickBufferService {
       'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
       'NZDUSD', 'USDCHF', 'EURJPY', 'GBPJPY',
       'XAUUSD',
-      'US30', 'NAS100', 'SPX500',
+      'US30', 'NAS100',
       'BTCUSD', 'ETHUSD'
     ];
 
@@ -168,7 +168,7 @@ class TickBufferService {
       'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
       'NZDUSD', 'USDCHF', 'EURJPY', 'GBPJPY',
       'XAUUSD',
-      'US30', 'NAS100', 'SPX500',
+      'US30', 'NAS100',
       'BTCUSD', 'ETHUSD'
     ];
     symbols.forEach(symbol => this.clearBuffer(symbol));

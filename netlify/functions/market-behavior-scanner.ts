@@ -28,7 +28,7 @@ import { getSupabaseAdmin } from './_shared/supabase-admin';
 const supabase = getSupabaseAdmin();
 
 const SYMBOLS = [
-  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
   'BTCUSD', 'ETHUSD',
 ];

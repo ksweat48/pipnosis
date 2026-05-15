@@ -103,23 +103,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     typicalSessionMovePoints: 250,
     atrMultiplierForStop: 1.5,
   },
-  SPX500: {
-    symbol: 'SPX500',
-    category: 'index',
-    displayName: 'S&P 500',
-    marketSchedule: 'forex',
-    dataProvider: 'metaapi',
-    pipValue: 1.0,
-    pipMultiplier: 1,
-    decimalPlaces: 2,
-    contractSize: 1,
-    dollarPerPipPerLot: 100,
-    minLotSize: 0.01,
-    maxLotSize: 500.0,
-    typicalDailyRangePoints: 300,
-    typicalSessionMovePoints: 150,
-    atrMultiplierForStop: 1.5,
-  },
+  // CCIP-2026-0515B-SPX500-RETIREMENT: SPX500 retired 2026-05-15.
   UK100: {
     symbol: 'UK100',
     category: 'index',
@@ -459,8 +443,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
  */
 export type LotTier = 'standard' | 'mini' | 'micro';
 
+// CCIP-2026-0515B-SPX500-RETIREMENT: SPX500 retired from calibratable instruments.
 export const CALIBRATABLE_SYMBOLS = [
-  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
   'BTCUSD', 'ETHUSD',
 ] as const;

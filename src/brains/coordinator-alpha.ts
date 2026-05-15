@@ -2512,7 +2512,7 @@ WARNING: M15 direction fetch failed. M15 structural high/low unavailable. ATR-tr
         // For FX pairs: major round = 00-pip (X.XX00), minor round = 50-pip (X.XX50).
         // For indices/metals: nearest 100 and 50 levels.
         // For crypto: nearest 100 and 50 levels (prices >> 1000).
-        const isIndexOrMetal = ['US30', 'NAS100', 'SP500', 'SPX500', 'XAUUSD', 'XAGUSD'].includes(marketContext.symbol);
+        const isIndexOrMetal = ['US30', 'NAS100', 'XAUUSD', 'XAGUSD'].includes(marketContext.symbol);
         const isCrypto = ['BTCUSD', 'ETHUSD'].includes(marketContext.symbol);
         let roundStep: number;
         let minorStep: number;
@@ -5744,7 +5744,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           alphaMaxDeviationPips = 200;
         } else if (['XAUUSD', 'XAGUSD', 'GOLD'].some(m => sym.includes(m.replace('USD', '')))) {
           alphaMaxDeviationPips = 80;
-        } else if (['US30', 'NAS100', 'SPX500', 'UK100', 'DE30', 'JP225'].some(i => sym.includes(i))) {
+        } else if (['US30', 'NAS100', 'UK100', 'DE30', 'JP225'].some(i => sym.includes(i))) {
           alphaMaxDeviationPips = 50;
         } else {
           alphaMaxDeviationPips = 20;

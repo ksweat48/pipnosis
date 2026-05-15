@@ -23,7 +23,7 @@ import { shouldDisableMetaAPI, areFunctionsAvailable } from '@/lib/environment';
 import { pollingStrategyCoordinator } from './polling-strategy-coordinator';
 import { priceRefreshTrigger } from './price-refresh-trigger';
 
-const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'NAS100', 'SPX500', 'GBPUSD', 'USDJPY'];
+const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'NAS100', 'GBPUSD', 'USDJPY'];
 const CRYPTO_PAIRS = ['BTCUSD', 'ETHUSD'];
 const ALL_PAIRS = [...FOREX_PAIRS, ...CRYPTO_PAIRS];
 const REQUEST_TIMEOUT_MS = 8000;

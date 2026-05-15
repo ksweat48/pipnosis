@@ -64,7 +64,7 @@ import { isIndex } from '@/utils/currencyHelpers';
  */
 export const MAX_LOSS_OVERRUN = {
   DEFAULT: 1.75,  // 1.75x intended risk — applies to FOREX, CRYPTO, METAL
-  INDEX: 1.5,     // 1.5x intended risk — applies to US30, NAS100, SPX500 (faster moves, larger pip value)
+  INDEX: 1.5,     // 1.5x intended risk — applies to US30, NAS100 (faster moves, larger pip value)
 } as const;
 
 /**
@@ -261,9 +261,9 @@ class PositionMonitoringAuthority {
     const hasDualTP = position.tp1_price && position.tp2_price;
 
     if (hasDualTP) {
-      // Check TP1 (ADVISORY MILESTONE ONLY - NO PARTIAL CLOSE)
-      // TP1 is used for Alpha learning and progress tracking only
-      // Position stays 100% open and continues to TP2
+      // CCIP-2026-0515A: TP1 partial close (default 50%, per-trade configurable).
+      // Authority writes the partial close (lot_size reduction + BE SL) inside markTP1Hit
+      // and the DB trigger. Frontend monitor returns the milestone for notification flow.
       const shouldHitTP1 = !position.tp1_hit && (position.direction === 'buy'
         ? price >= position.tp1_price!
         : price <= position.tp1_price!);
@@ -439,7 +439,7 @@ class PositionMonitoringAuthority {
       // Fetch the trade to calculate tp1_pnl at the exact hit price
       const { data: trade } = await supabase
         .from('goal_session_trades')
-        .select('direction, entry_price, lot_size, position_size, symbol, tp1_hit')
+        .select('direction, entry_price, lot_size, position_size, symbol, tp1_hit, partial_close_pct, original_lot_size, trade_style')
         .eq('id', positionId)
         .eq('user_id', userId)
         .maybeSingle();
@@ -449,12 +449,24 @@ class PositionMonitoringAuthority {
         return { success: false, already_processed: true };
       }
 
-      // Calculate the P&L locked in at the TP1 price
+      // CCIP-2026-0515A: TP1 partial close — preserve TP1 profit by reducing
+      // lot_size for the runner. Default 50%, configurable per-trade via
+      // partial_close_pct. Skip when style=scalp or remaining lot < 0.01.
+      const isScalp = (trade?.trade_style ?? '') === 'scalp';
+      const partialPct = typeof trade?.partial_close_pct === 'number' ? trade.partial_close_pct : 0.5;
+      const origLot = trade?.original_lot_size ?? trade?.lot_size ?? trade?.position_size ?? null;
+      const closedLot = origLot != null ? origLot * partialPct : null;
+      const remainingLot = origLot != null && closedLot != null ? origLot - closedLot : null;
+      const partialEligible = !isScalp
+        && origLot != null && closedLot != null && remainingLot != null
+        && remainingLot >= 0.01 && partialPct > 0 && partialPct < 1;
+
+      // Calculate the P&L locked in at the TP1 price (against closed portion only when partial)
       let tp1Pnl: number | null = null;
       if (trade && trade.entry_price != null) {
-        const lotSize = trade.lot_size ?? trade.position_size;
-        if (lotSize != null && lotSize > 0) {
-          tp1Pnl = calculatePnL(trade.direction, trade.entry_price, tp1Price, lotSize, trade.symbol);
+        const pnlLot = partialEligible ? closedLot! : (trade.lot_size ?? trade.position_size);
+        if (pnlLot != null && pnlLot > 0) {
+          tp1Pnl = calculatePnL(trade.direction, trade.entry_price, tp1Price, pnlLot, trade.symbol);
         }
       }
 
@@ -469,6 +481,11 @@ class PositionMonitoringAuthority {
       };
       if (tp1Pnl !== null) {
         updatePayload.tp1_pnl = tp1Pnl;
+      }
+      if (partialEligible) {
+        updatePayload.original_lot_size = origLot;
+        updatePayload.lot_size = remainingLot;
+        updatePayload.position_size = remainingLot;
       }
 
       const { data: updatedRows, error: updateError } = await supabase

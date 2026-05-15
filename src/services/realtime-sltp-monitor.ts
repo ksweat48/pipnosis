@@ -304,8 +304,11 @@ class RealtimeSLTPMonitor {
   }
 
   /**
-   * Handle TP1 hit: Mark TP1 as hit, auto-move SL to breakeven+ATR buffer, keep monitoring for TP2
-   * CRITICAL: position_size/lot_size NEVER changes - only TP1 flag and SL are updated
+   * Handle TP1 hit: Mark TP1 as hit, partial-close per `partial_close_pct` (default 50%),
+   * auto-move SL to breakeven+ATR buffer, keep monitoring runner to TP2.
+   * CCIP-2026-0515A: lot_size is reduced to (1 - partial_close_pct) of original. Scalp
+   * trades skip the partial close. The DB trigger and authority both perform the
+   * reduction atomically; whoever wins the optimistic lock writes the new lot_size.
    * SSOT: Delegates to authority for all database updates
    *
    * CCIP 2026-03-02: ATR fallback added — SL move is now GUARANTEED after TP1.

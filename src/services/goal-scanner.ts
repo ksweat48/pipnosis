@@ -605,7 +605,7 @@ class GoalScanner {
       // If the gap exceeds the asset threshold, invalidate the snapshot before Alpha sees it.
       const CANDLE_INTEGRITY_THRESHOLDS: Record<string, number> = {
         XAUUSD: 20, XAGUSD: 20,
-        US30: 50, NAS100: 50, SPX500: 30, UK100: 30, GER40: 30,
+        US30: 50, NAS100: 50, UK100: 30, GER40: 30,
         BTCUSD: 300, ETHUSD: 100,
       };
       const integrityThresholdPips = CANDLE_INTEGRITY_THRESHOLDS[symbol] ?? 15;

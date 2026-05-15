@@ -341,7 +341,7 @@ class AlphaOmegaOrchestrator {
       const driftPips = Math.abs(calculatePipDistance(marketState.symbol, signalPrice, snapshot.price));
       const DRIFT_THRESHOLDS: Record<string, number> = {
         XAUUSD: 20, XAGUSD: 20,
-        US30: 50, NAS100: 50, SPX500: 30, UK100: 30, GER40: 30,
+        US30: 50, NAS100: 50, UK100: 30, GER40: 30,
         BTCUSD: 150, ETHUSD: 50,
       };
       const driftLimit = DRIFT_THRESHOLDS[marketState.symbol] ?? 15;
@@ -548,7 +548,7 @@ class AlphaOmegaOrchestrator {
       'EURUSD': 1.0, 'GBPUSD': 1.5, 'USDJPY': 1.0, 'AUDUSD': 1.2, 'USDCAD': 1.5,
       'NZDUSD': 1.8, 'USDCHF': 1.5, 'XAUUSD': 3.0, 'BTCUSD': 10.0, 'ETHUSD': 2.0,
       'EURJPY': 1.5, 'GBPJPY': 2.5, 'AUDJPY': 1.8, 'EURGBP': 1.2, 'USDMXN': 3.0,
-      'SPX500': 0.5, 'US30': 2.0, 'NAS100': 1.0, 'GER40': 1.0, 'UK100': 1.0,
+      'US30': 2.0, 'NAS100': 1.0, 'GER40': 1.0, 'UK100': 1.0,
     };
     const estimatedSpreadPips = TYPICAL_SPREADS_PIPS[snapshot.symbol] ?? 2.0;
 

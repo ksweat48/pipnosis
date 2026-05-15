@@ -492,7 +492,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     const isMobileViewport = window.innerWidth < 640;
     const isCryptoSymbol = ['BTCUSD', 'ETHUSD'].includes(symbol);
     const isGoldSymbol = symbol === 'XAUUSD';
-    const isIndexSymbol = ['US30', 'NAS100', 'SPX500'].includes(symbol);
+    const isIndexSymbol = ['US30', 'NAS100'].includes(symbol);
     const chartPrecision = isMobileViewport
       ? 2
       : (isCryptoSymbol || isGoldSymbol || isIndexSymbol ? 2 : 5);
@@ -2402,7 +2402,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }, [bidPrice, askPrice]);
 
   const FOREX_PAIRS = [
-    'XAUUSD', 'US30', 'NAS100', 'SPX500',
+    'XAUUSD', 'US30', 'NAS100',
     'EURUSD', 'GBPUSD', 'USDJPY',
     'BTCUSD', 'ETHUSD'
   ];

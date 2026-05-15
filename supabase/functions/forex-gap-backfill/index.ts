@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const ALL_FOREX_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30', 'NAS100', 'SPX500'];
+const ALL_FOREX_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30', 'NAS100'];
 
 const FINNHUB_SYMBOL_MAP: Record<string, string> = {
   'EURUSD': 'OANDA:EUR_USD',
@@ -16,7 +16,6 @@ const FINNHUB_SYMBOL_MAP: Record<string, string> = {
   'XAUUSD': 'OANDA:XAU_USD',
   'US30': 'OANDA:US30_USD',
   'NAS100': 'OANDA:NAS100_USD',
-  'SPX500': 'OANDA:SPX500_USD',
 };
 
 const TIMEFRAMES = [

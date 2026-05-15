@@ -82,7 +82,7 @@ class GlobalPollingCoordinator {
   private readonly SYMBOL_BACKOFF_MS = 15000;
 
   private readonly FOREX_PAIRS = [
-    'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD', 'NAS100', 'SPX500'
+    'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD', 'NAS100'
   ];
 
   private readonly CRYPTO_PAIRS = [

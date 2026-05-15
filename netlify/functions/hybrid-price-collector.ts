@@ -19,7 +19,7 @@ const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID || '';
 
 const supabase = getSupabaseAdmin();
 
-const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
+const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100'];
 const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
 const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
 

@@ -13,7 +13,7 @@
 export function formatPrice(price: number, symbol: string, isMobile: boolean = false): string {
   const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
   const isGold = symbol === 'XAUUSD';
-  const isIndex = ['US30', 'NAS100', 'SPX500'].includes(symbol);
+  const isIndex = ['US30', 'NAS100'].includes(symbol);
 
   if (isMobile) {
     // MOBILE STANDARD: 2 decimal places for ALL symbol types — no exceptions.

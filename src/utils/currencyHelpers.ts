@@ -56,7 +56,7 @@ export function isXAUUSD(symbol: string): boolean {
 }
 
 /**
- * Check if a symbol is an index (US30, NAS100, SPX500, etc.)
+ * Check if a symbol is an index (US30, NAS100, etc.)
  */
 export function isIndex(symbol: string): boolean {
   const normalized = safeNormalizeSymbol(symbol);
@@ -128,7 +128,7 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
     };
   }
 
-  // Indices (US30, NAS100, SPX500, etc.)
+  // Indices (US30, NAS100, etc.)
   if (isIndex(symbol)) {
     return {
       pipValue: 1.0,            // 1 point = 1.0
@@ -426,8 +426,7 @@ export function checkPriceSymbolMismatch(symbol: string, entryPrice: number): st
     'BTCUSD': { min: 15000, max: 250000, description: 'Bitcoin' },
     'ETHUSD': { min: 500, max: 15000, description: 'Ethereum' },
     'US30': { min: 20000, max: 65000, description: 'Dow Jones' },
-    'NAS100': { min: 10000, max: 35000, description: 'Nasdaq' },
-    'SPX500': { min: 3000, max: 9000, description: 'S&P 500' }
+    'NAS100': { min: 10000, max: 35000, description: 'Nasdaq' }
   };
 
   const range = priceRanges[normalized];

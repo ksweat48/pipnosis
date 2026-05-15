@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const ALL_SYMBOLS = [
-  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'
+  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100'
 ];
 
 const TIMEFRAMES = [

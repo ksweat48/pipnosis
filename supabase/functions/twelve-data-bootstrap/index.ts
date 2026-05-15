@@ -27,7 +27,6 @@ const SYMBOL_CONFIGS: SymbolConfig[] = [
   { pipnosisSymbol: 'BTCUSD', twelveDataSymbol: 'BTC/USD', interval: '1h', outputsize: 168 },
   { pipnosisSymbol: 'ETHUSD', twelveDataSymbol: 'ETH/USD', interval: '1h', outputsize: 168 },
   { pipnosisSymbol: 'NAS100', twelveDataSymbol: 'IXIC', interval: '1h', outputsize: 168 },
-  { pipnosisSymbol: 'SPX500', twelveDataSymbol: '^GSPC', interval: '1h', outputsize: 168 },
 ];
 
 const TIMEFRAME_MAP: Record<string, string> = {

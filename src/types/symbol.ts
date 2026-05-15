@@ -27,7 +27,6 @@ export const KNOWN_SYMBOLS = [
   // Indices
   'US30',    // Dow Jones
   'NAS100',  // NASDAQ
-  'SPX500',  // S&P 500
   'UK100',   // FTSE 100
   'GER40',   // DAX
   // Major Forex
@@ -183,7 +182,7 @@ export type SymbolCategory = 'forex' | 'metal' | 'index' | 'crypto' | 'energy';
 
 export function getSymbolCategory(symbol: ValidatedSymbol): SymbolCategory {
   if (symbol.startsWith('X') && symbol.endsWith('USD')) return 'metal';
-  if (['US30', 'NAS100', 'SPX500', 'UK100', 'GER40'].includes(symbol)) return 'index';
+  if (['US30', 'NAS100', 'UK100', 'GER40'].includes(symbol)) return 'index';
   if (['BTCUSD', 'ETHUSD'].includes(symbol)) return 'crypto';
   if (symbol.includes('OIL')) return 'energy';
   if (symbol.includes('USD') || symbol.includes('JPY') || symbol.includes('GBP') || symbol.includes('EUR') || symbol.includes('CHF') || symbol.includes('AUD') || symbol.includes('NZD') || symbol.includes('CAD')) return 'forex';

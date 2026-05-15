@@ -51,7 +51,7 @@ const supabase = getSupabaseAdmin();
  * SSOT: Must match DEFAULT_WATCHLIST in src/config/watchlist.ts.
  */
 const SYMBOLS = [
-  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
   'BTCUSD', 'ETHUSD',
 ];

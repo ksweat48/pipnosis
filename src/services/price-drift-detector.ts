@@ -27,7 +27,6 @@ const DRIFT_THRESHOLDS_BY_ASSET: Record<string, { pips?: number; percent?: numbe
   ETHUSD: { percent: 0.5 },
   US30: { percent: 0.3 },
   NAS100: { percent: 0.3 },
-  SPX500: { percent: 0.3 },
 };
 
 export class PriceDriftDetector {

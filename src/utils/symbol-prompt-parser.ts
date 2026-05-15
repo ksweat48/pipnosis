@@ -37,9 +37,6 @@ const SYMBOL_ALIASES: Record<string, string> = {
   'dow jones': 'US30',
   'nasdaq': 'NAS100',
   'nas': 'NAS100',
-  'sp500': 'SPX500',
-  's&p': 'SPX500',
-  's&p 500': 'SPX500',
 };
 
 const NOISE_WORDS = new Set([

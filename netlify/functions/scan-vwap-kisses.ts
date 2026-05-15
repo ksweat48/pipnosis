@@ -28,7 +28,7 @@ const supabase = getSupabaseAdmin();
 // Watchlist symbols to scan
 // SSOT: Must match the official 9-pair watchlist from src/config/watchlist.ts
 const WATCHLIST = [
-  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
   'BTCUSD', 'ETHUSD'
 ];

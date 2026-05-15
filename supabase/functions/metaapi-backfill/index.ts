@@ -29,11 +29,6 @@ const SYMBOL_CONFIGS: SymbolConfig[] = [
     daysBack: 7,
     timeframes: ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
   },
-  {
-    symbol: 'SPX500',
-    daysBack: 7,
-    timeframes: ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
-  },
 ];
 
 const TIMEFRAME_DURATIONS: Record<string, number> = {

@@ -5,8 +5,9 @@
  * The AI analyzes all symbols every cycle and selects the best opportunity.
  */
 
+// CCIP-2026-0515B-SPX500-RETIREMENT: SPX500 retired from the platform.
 export const DEFAULT_WATCHLIST = [
-  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
   'BTCUSD', 'ETHUSD'
 ] as const;

@@ -24,7 +24,7 @@ import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 const supabase = getSupabaseAdmin();
 
-const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
+const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100'];
 const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
 // CCIP-2026-0510E: Crypto processed FIRST — 24/7 markets must never be starved
 // by slow forex symbols exhausting the 90s function budget.

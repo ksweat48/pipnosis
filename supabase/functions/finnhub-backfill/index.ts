@@ -18,7 +18,6 @@ const SYMBOL_CONFIGS: SymbolConfig[] = [
   { pipnosisSymbol: 'BTCUSD', finnhubSymbol: 'BINANCE:BTCUSDT', resolution: '60', daysBack: 7 },
   { pipnosisSymbol: 'ETHUSD', finnhubSymbol: 'BINANCE:ETHUSDT', resolution: '60', daysBack: 7 },
   { pipnosisSymbol: 'NAS100', finnhubSymbol: 'IXIC', resolution: '60', daysBack: 7 },
-  { pipnosisSymbol: 'SPX500', finnhubSymbol: 'SPX', resolution: '60', daysBack: 7 },
 ];
 
 interface FinnhubResponse {

@@ -50,10 +50,9 @@ const SYMBOL_PRICE_RANGES_FALLBACK: Record<string, PriceRange> = {
   XPTUSD: { min: 700, max: 1300, typical: 950 },
   XPDUSD: { min: 700, max: 1800, typical: 1000 },
 
-  // Indices - EXPANDED SPX500 to handle current rally
+  // Indices
   US30: { min: 35000, max: 52000, typical: 42500 },
   NAS100: { min: 20000, max: 30000, typical: 25500 },
-  SPX500: { min: 4500, max: 7500, typical: 6100 }, // EXPANDED: max 7500 (was 6500), typical 6100 (was 5900)
   UK100: { min: 6500, max: 8800, typical: 7500 },
   GER40: { min: 14000, max: 20000, typical: 17200 },
 

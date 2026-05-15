@@ -78,18 +78,6 @@ export const MINIMUM_SL_DISTANCE_BY_SYMBOL: Record<string, MinimumStopLossConstr
     minSpreadMultiple: 2,
     reason: 'Nasdaq 100 alias - same constraints as NAS100'
   },
-  SPX500: {
-    minPips: 3,
-    minAtrMultiple: 0.3,
-    minSpreadMultiple: 2,
-    reason: 'S&P 500 index - points-based, spread ~1pt, lower minimum viable for execution'
-  },
-  US500: {
-    minPips: 3,
-    minAtrMultiple: 0.3,
-    minSpreadMultiple: 2,
-    reason: 'S&P 500 alias - same constraints as SPX500'
-  },
   BTCUSD: {
     minPips: 50,
     minAtrMultiple: 0.2,

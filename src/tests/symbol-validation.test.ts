@@ -128,7 +128,6 @@ describe('Symbol Validation - Type System Protection', () => {
     test('should categorize indices', () => {
       expect(getSymbolCategory('US30' as any)).toBe('index');
       expect(getSymbolCategory('NAS100' as any)).toBe('index');
-      expect(getSymbolCategory('SPX500' as any)).toBe('index');
     });
 
     test('should categorize crypto', () => {

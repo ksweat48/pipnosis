@@ -12,7 +12,7 @@ const supabase = getSupabaseAdmin();
 
 const VALID_SYMBOLS = [
   'BTCUSD', 'ETHUSD',
-  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'
+  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100'
 ];
 
 const PRICE_RANGES: Record<string, { min: number; max: number }> = {
@@ -24,7 +24,6 @@ const PRICE_RANGES: Record<string, { min: number; max: number }> = {
   GBPUSD: { min: 0.5, max: 2.5 },
   USDJPY: { min: 50, max: 250 },
   NAS100: { min: 8000, max: 30000 },
-  SPX500: { min: 2000, max: 8000 },
 };
 
 interface WebSocketPrice {
