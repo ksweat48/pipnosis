@@ -76,6 +76,21 @@ const IDENTITY_FORBIDDEN = [
   { pattern: /\bXAUUSD\s+(?:requires|needs|minimum)\s+\d+\s+pips/i, label: 'XAUUSD-specific SL floor (0514F)' },
   { pattern: /\bif\s+sl_distance_pips\s*[><=]/i, label: 'Procedural sl_distance_pips rule (0514F)' },
   { pattern: /\bif\s+sl_distance_vs_m5_atr_ratio\s*[><=]/i, label: 'Procedural ATR-ratio rule (0514F)' },
+  // CCIP-2026-0514G: Always-Execute Reaffirmation — Alpha never withholds a
+  // decision. action is always BUY or SELL with an honest confidence_tier and
+  // a fitting entry_mode (execute_now / wait_pullback / push_confirmation).
+  // Block decline/abstain/walk-away/stand-aside/no-setup/pass-on-this language
+  // anywhere in the prompt — these tokens leak the option to not produce a
+  // decision and break the cross-pair selector's ranking premise.
+  { pattern: /\bdecline\b/i, label: 'Decline language — Alpha never declines (0514G)' },
+  { pattern: /\bdeclined\b/i, label: 'Declined language — Alpha never declines (0514G)' },
+  { pattern: /\bdo\s+not\s+take\s+the\s+trade\b/i, label: 'Do-not-take-the-trade language (0514G)' },
+  { pattern: /\bwalk\s+away\b/i, label: 'Walk-away language (0514G)' },
+  { pattern: /\bstand\s+aside\b/i, label: 'Stand-aside language (0514G)' },
+  { pattern: /\bpass\s+on\s+this\b/i, label: 'Pass-on-this language (0514G)' },
+  { pattern: /\babstain\b/i, label: 'Abstain language (0514G)' },
+  { pattern: /\bno\s+setup\b/i, label: 'No-setup language (0514G)' },
+  { pattern: /\bskip\s+the\s+trade\b/i, label: 'Skip-the-trade language (0514G)' },
 ];
 
 // ─── 0512A: Raw-Data Doctrine guard for prompt-producing files ───────────────
