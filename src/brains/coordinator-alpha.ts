@@ -4633,7 +4633,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           errorDetails: {
             action,
             tradeStyle,
-            confidence: tradeConfidence,
+            confidence: tradeConfidenceContinuous,
             sessionId: goalContext?.sessionId ?? null,
             userId: userId ?? null,
           }
@@ -5262,7 +5262,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // PHASE 4: NARRATIVE COHERENCE VALIDATION
       // ═══════════════════════════════════════════════════════════════════
       let narrativeValidation: NarrativeValidation | null = null;
-      let adjustedConfidence = tradeConfidence;
+      // CCIP-2026-0514H-CONFIDENCE-SSOT: `confidence` carries the continuous
+      // band-spread value. The tier midpoint is no longer the persisted scalar —
+      // `confidence_tier` (text) + `confidence` (continuous) are the SSOT pair.
+      let adjustedConfidence = tradeConfidenceContinuous;
 
       // Narrative validation for telemetry (no confidence modification)
       if (action === 'BUY' || action === 'SELL') {
@@ -5409,7 +5412,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             entry: currentPrice,
             stopLoss: parsed.stopLoss ?? currentPrice,
             takeProfit: parsed.takeProfit ?? currentPrice,
-            confidence: tradeConfidence,
+            confidence: tradeConfidenceContinuous,
             reasoning: parsed.reasoning,
           },
         };
@@ -5448,7 +5451,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             entry: entry ?? currentPrice,
             stopLoss: currentPrice,
             takeProfit: takeProfit ?? currentPrice,
-            confidence: tradeConfidence,
+            confidence: tradeConfidenceContinuous,
             reasoning: parsed.reasoning,
           },
         };
@@ -5472,7 +5475,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             entry: entry ?? currentPrice,
             stopLoss: stopLoss ?? currentPrice,
             takeProfit: currentPrice,
-            confidence: tradeConfidence,
+            confidence: tradeConfidenceContinuous,
             reasoning: parsed.reasoning,
           },
         };
@@ -5569,7 +5572,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             entry,
             stopLoss,
             takeProfit,
-            confidence: tradeConfidence,
+            confidence: tradeConfidenceContinuous,
             entry_mode: entryMode,
             reasoning: parsed.reasoning,
           },
@@ -5666,7 +5669,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
               entry: entry ?? currentPrice,
               stopLoss: stopLoss ?? currentPrice,
               takeProfit: takeProfit ?? currentPrice,
-              confidence: tradeConfidence,
+              confidence: tradeConfidenceContinuous,
               entry_mode: entryMode,
               reasoning: parsed.reasoning,
             },

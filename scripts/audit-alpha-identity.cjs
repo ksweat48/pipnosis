@@ -222,6 +222,15 @@ const RAW_DATA_FORBIDDEN = [
   { pattern: /\bDELIVERY_BEARISH\b/, label: 'DELIVERY_BEARISH weekly-narrative verdict literal (0513N)' },
   { pattern: /Weekly\s+context\s*:\s*\$\{/i, label: 'Weekly context: ${...} narrative injection (0513N)' },
   { pattern: /Q8D_WEEKLY_NARRATIVE_CONFLICT/, label: 'Q8D weekly-narrative conflict violation type (0513N)' },
+  // CCIP-2026-0514H-CONFIDENCE-SSOT: `confidence` and `confidence_continuous`
+  // were a dual-field SSOT violation — `confidence` always carried the tier
+  // midpoint (e.g. 65) while `confidence_continuous` carried the band-spread
+  // value. The UI reads `confidence`, so every confident-tier trade displayed
+  // 65% regardless of Alpha's true reasoning. Collapsed to a single SSOT:
+  // `confidence` now carries the continuous value derived from the tier band,
+  // Q5_failure_probability, and counter_thesis_probability. Any reintroduction
+  // of `confidence: tradeConfidence` in coordinator-alpha.ts re-opens the bug.
+  { pattern: /\bconfidence\s*:\s*tradeConfidence\b(?!Continuous)/, label: '0514H confidence: tradeConfidence reintroduction — use tradeConfidenceContinuous (CCIP-2026-0514H)' },
 ];
 
 // CCIP-2026-0513J SEALED-PROMPT DOCTRINE strict rules — only applied to
