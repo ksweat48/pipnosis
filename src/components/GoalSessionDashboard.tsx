@@ -53,7 +53,6 @@ export const GoalSessionDashboard: React.FC = () => {
   const [showTP1Modal, setShowTP1Modal] = useState(false);
   const [tp1DecisionData, setTP1DecisionData] = useState<TP1DecisionData | null>(null);
   const processedTP1Hits = useRef<Set<string>>(new Set());
-  const [manualScanStatuses, setManualScanStatuses] = useState<Record<string, 'pending' | 'processing' | 'completed' | 'error'>>({});
   // CCIP-SSOT (2026-03-02 TRADE-CLOSE-MODAL-SSOT): Guard ref so the fallback
   // condition check on line ~176 does not crash. GoalSessionDashboard no longer
   // owns trade-close modal display — RealtimeTradeNotificationListener is the
@@ -520,29 +519,6 @@ export const GoalSessionDashboard: React.FC = () => {
     return () => unsubscribe();
   }, [activeSession?.sessionId]);
 
-  useEffect(() => {
-    if (!activeSession || !user) return;
-    const channel = supabase
-      .channel(`manual-scans-${activeSession.sessionId}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'manual_scan_requests',
-        filter: `session_id=eq.${activeSession.sessionId}`,
-      }, (payload: any) => {
-        const row = payload.new;
-        if (!row) return;
-        const key = row.symbol || '__all__';
-        if (row.status === 'completed' || row.status === 'error') {
-          setManualScanStatuses(prev => { const n = { ...prev }; delete n[key]; return n; });
-        } else {
-          setManualScanStatuses(prev => ({ ...prev, [key]: row.status }));
-        }
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [activeSession?.sessionId, user?.id]);
 
   const loadSessionData = async () => {
     if (!user) return;
@@ -802,35 +778,6 @@ export const GoalSessionDashboard: React.FC = () => {
       await loadSessionData();
     } catch (error) {
       console.error('[GoalSessionDashboard] Error triggering user rescan:', error);
-    }
-  };
-
-  const handleManualScan = async (symbol: string | null) => {
-    if (!user || !activeSession) return;
-    const key = symbol || '__all__';
-    setManualScanStatuses(prev => ({ ...prev, [key]: 'pending' }));
-    try {
-      const { error } = await supabase.from('manual_scan_requests').insert({
-        user_id: user.id,
-        session_id: activeSession.sessionId,
-        symbol,
-        status: 'pending',
-      });
-      if (error) throw error;
-      setTimeout(() => {
-        setManualScanStatuses(prev => {
-          const next = { ...prev };
-          if (next[key] === 'pending') delete next[key];
-          return next;
-        });
-      }, 30000);
-    } catch (err) {
-      console.error('[GoalSessionDashboard] Manual scan request failed:', err);
-      setManualScanStatuses(prev => ({ ...prev, [key]: 'error' }));
-      showToast({ type: 'error', title: 'Scan Failed', message: 'Could not submit scan request.' });
-      setTimeout(() => {
-        setManualScanStatuses(prev => { const n = { ...prev }; delete n[key]; return n; });
-      }, 3000);
     }
   };
 
@@ -2037,49 +1984,14 @@ export const GoalSessionDashboard: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              {/* CCIP-2026-0515C: Per-pair manual scan buttons */}
-              <div className="bg-gray-800/60 border border-gray-700/40 rounded-lg p-3">
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => handleManualScan(null)}
-                    disabled={!!manualScanStatuses['__all__']}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 ${
-                      manualScanStatuses['__all__']
-                        ? 'bg-blue-900/40 text-blue-300 border border-blue-500/40 cursor-not-allowed'
-                        : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm hover:shadow-blue-500/25 active:scale-95'
-                    }`}
-                  >
-                    {manualScanStatuses['__all__'] ? 'Queued...' : 'Scan All'}
-                  </button>
-                  {activeWatchlist.map(symbol => {
-                    const status = manualScanStatuses[symbol];
-                    return (
-                      <button
-                        key={symbol}
-                        onClick={() => handleManualScan(symbol)}
-                        disabled={!!status}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
-                          status
-                            ? 'bg-emerald-900/30 text-emerald-300 border border-emerald-500/40 cursor-not-allowed'
-                            : 'bg-gray-700 hover:bg-gray-600 text-gray-200 border border-gray-600/50 hover:border-gray-500 active:scale-95'
-                        }`}
-                      >
-                        {status === 'pending' ? `${symbol}...` : symbol}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <AlphaScanningFeed
-                sessionId={activeSession.sessionId}
-                hasActiveTrades={openTrades.length > 0}
-                isScanning={true}
-                activePairsCount={activeSession.activePairsCount || activeWatchlist.length}
-                totalPairs={activeSession.config.watchlist.length}
-                watchlist={activeWatchlist}
-              />
-            </div>
+            <AlphaScanningFeed
+              sessionId={activeSession.sessionId}
+              hasActiveTrades={openTrades.length > 0}
+              isScanning={true}
+              activePairsCount={activeSession.activePairsCount || activeWatchlist.length}
+              totalPairs={activeSession.config.watchlist.length}
+              watchlist={activeWatchlist}
+            />
           )}
         </div>
       )}
