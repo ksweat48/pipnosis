@@ -24,7 +24,8 @@ import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { supabase } from '../lib/supabase';
 import { TRADE_STYLES, TradeStyle, calculateSuggestedAmounts, validateDollarAmount, MINIMUM_ACCOUNT_BALANCE } from '../config/trade-styles';
-import { getAssetClassInfo, type AssetClass } from '../utils/asset-class-mapper';
+import { getAssetClassInfo, getSymbolsByAssetClass, type AssetClass } from '../utils/asset-class-mapper';
+import { DEFAULT_WATCHLIST } from '../config/watchlist';
 import { creditMeterService } from '../services/credit-meter-service';
 import { InsufficientCreditsModal } from './InsufficientCreditsModal';
 import { TOKENOMICS } from '../config/tokenomics-constants';
@@ -53,6 +54,7 @@ export const SmartGoalPanel: React.FC = () => {
   const [loadingPreferences, setLoadingPreferences] = useState(true);
   const [multiTradeEnabled, setMultiTradeEnabled] = useState(false);
   const [selectedAssetClasses, setSelectedAssetClasses] = useState<AssetClass[]>(['forex', 'crypto', 'indices', 'gold']);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([...DEFAULT_WATCHLIST]);
   const [customInstructions, setCustomInstructions] = useState('');
   const [pendingSymbol, setPendingSymbol] = useState<string | null>(null);
   const [pendingCardSignal, setPendingCardSignal] = useState<Record<string, unknown> | null>(null);
@@ -108,6 +110,7 @@ export const SmartGoalPanel: React.FC = () => {
           const savedAssetClasses = data.trading_preferences?.assetClassFilter;
           if (Array.isArray(savedAssetClasses) && savedAssetClasses.length > 0) {
             setSelectedAssetClasses(savedAssetClasses as AssetClass[]);
+            setSelectedSymbols(getSymbolsByAssetClass(savedAssetClasses as AssetClass[]));
           }
         }
 
@@ -338,6 +341,12 @@ export const SmartGoalPanel: React.FC = () => {
         return;
       }
 
+      const symbolsToPass = pendingSymbol
+        ? [pendingSymbol]
+        : selectedSymbols.length < DEFAULT_WATCHLIST.length
+          ? selectedSymbols
+          : undefined;
+
       const session = await smartGoalSessionManager.createSmartGoalSession(
         user.id,
         `Make me money using ${TRADE_STYLES[selectedStyle].displayName} style with $${dollarRisk} risk per trade`,
@@ -346,7 +355,7 @@ export const SmartGoalPanel: React.FC = () => {
         selectedStyle,
         dollarRisk,
         selectedAssetClasses.length < 4 ? selectedAssetClasses : undefined,
-        pendingSymbol ? [pendingSymbol] : undefined,
+        symbolsToPass,
         customInstructions || undefined,
         pendingCardSignal || undefined
       );
@@ -627,6 +636,12 @@ export const SmartGoalPanel: React.FC = () => {
                           if (user) {
                             persistAssetClassPreference(next);
                           }
+                          const classSymbols = info.symbols;
+                          if (prev.includes(info.assetClass)) {
+                            setSelectedSymbols(s => s.filter(sym => !classSymbols.includes(sym)));
+                          } else {
+                            setSelectedSymbols(s => [...new Set([...s, ...classSymbols])]);
+                          }
                           return next;
                         });
                       }}
@@ -644,8 +659,38 @@ export const SmartGoalPanel: React.FC = () => {
                     </button>
                   ))}
                 </div>
+
+                {/* Individual pair toggles */}
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {(DEFAULT_WATCHLIST as readonly string[]).map(symbol => {
+                    const isSelected = selectedSymbols.includes(symbol);
+                    return (
+                      <button
+                        key={symbol}
+                        onClick={() => {
+                          setSelectedSymbols(prev => {
+                            if (prev.includes(symbol)) {
+                              if (prev.length <= 1) return prev;
+                              return prev.filter(s => s !== symbol);
+                            }
+                            return [...prev, symbol];
+                          });
+                        }}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                          isSelected
+                            ? 'bg-emerald-600/30 text-emerald-200 border border-emerald-500/50'
+                            : 'bg-gray-800/60 text-gray-500 border border-gray-700/50 hover:text-gray-300'
+                        }`}
+                      >
+                        {symbol}
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="text-xs text-gray-500 mt-2">
-                  {selectedAssetClasses.length === 4 ? 'All markets selected' : `${selectedAssetClasses.length} asset class(es) selected`}
+                  {selectedSymbols.length === DEFAULT_WATCHLIST.length
+                    ? 'All pairs selected'
+                    : `${selectedSymbols.length} pair${selectedSymbols.length !== 1 ? 's' : ''} selected`}
                 </div>
               </div>
 
