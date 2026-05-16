@@ -4475,27 +4475,28 @@ Return PURE JSON only — all required fields from the schema in my system promp
         ? tierToNumber(confidenceTier)
         : (parsed.trade_confidence ?? parsed.confidence ?? 0);
 
-      // CCIP-2026-0510C: Continuous-confidence derivation inside the tier band.
-      // Alpha's own answer_sheet supplies the spread: Q5_failure_probability is the
-      // structural failure estimate; counter_thesis_probability is the opposite-side
-      // chance (so reward likelihood ~= 100 - counter_thesis_probability). Averaged
-      // and clamped into the tier's numeric range by deriveContinuousConfidence.
-      const q5FailureProbRaw = parsed?.answer_sheet?.Q5_failure_probability;
-      const counterThesisProbRaw = parsed?.counter_thesis_probability;
-      const q5FailureProb = typeof q5FailureProbRaw === 'number' ? q5FailureProbRaw : null;
-      const rewardProb = typeof counterThesisProbRaw === 'number'
-        ? Math.max(0, Math.min(100, 100 - counterThesisProbRaw))
-        : null;
-      const tradeConfidenceContinuous = confidenceTier
-        ? deriveContinuousConfidence(confidenceTier, q5FailureProb, rewardProb)
-        : tradeConfidence;
+      // CCIP-2026-0516: Use Alpha's winning hypothesis probability directly.
+      // Alpha outputs probability on each hypothesis (0-100, higher = more confident).
+      // The winning hypothesis probability IS Alpha's actual confidence in the trade.
+      // Fallback chain: winning hypothesis probability → (100 - failure_probability) → tier midpoint.
+      const winningHyp = action === 'BUY' ? 'hypothesis_buy' : 'hypothesis_sell';
+      const winningProbRaw = parsed?.answer_sheet?.[winningHyp]?.probability;
+      const failureProbRaw = parsed?.answer_sheet?.failure_probability ?? parsed?.answer_sheet?.Q5_failure_probability;
+      let tradeConfidenceContinuous: number;
+      if (typeof winningProbRaw === 'number' && winningProbRaw > 0 && winningProbRaw <= 100) {
+        tradeConfidenceContinuous = Math.round(winningProbRaw);
+      } else if (typeof failureProbRaw === 'number' && failureProbRaw >= 0) {
+        tradeConfidenceContinuous = Math.round(Math.max(0, Math.min(100, 100 - failureProbRaw)));
+      } else {
+        tradeConfidenceContinuous = tradeConfidence;
+      }
 
-      // CCIP-2026-0413: Post-parse confidence log.
+      // CCIP-2026-0516: Confidence resolution log.
       console.log(
         `[Alpha Parse] symbol=${symbol} action=${parsed.action} ` +
         `confidence_tier=${rawTier ?? 'MISSING'} ` +
-        `resolved_numeric=${tradeConfidence}` +
-        (confidenceTier ? '' : ` (LEGACY_FALLBACK: raw.trade_confidence=${parsed.trade_confidence ?? 'MISSING'})`)
+        `continuous=${tradeConfidenceContinuous} ` +
+        `(source: ${typeof winningProbRaw === 'number' ? `${winningHyp}.probability=${winningProbRaw}` : typeof failureProbRaw === 'number' ? `100-failure_probability=${failureProbRaw}` : 'tier_midpoint'})`
       );
 
       // CCIP-2026-0413: Detect schema violation — Alpha output a number instead of a tier.
