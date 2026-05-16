@@ -995,8 +995,10 @@ export const GoalSessionDashboard: React.FC = () => {
     try {
       console.log('[GoalSessionDashboard] 📤 Manually closing position:', trade.id);
 
-      // Fetch current live price for the symbol
-      const { data: priceData, error: priceError } = await supabase
+      // Fetch current live price for the symbol (DB first, then direct API fallback)
+      let priceData: { bid: number; ask: number } | null = null;
+
+      const { data: dbPrice, error: priceError } = await supabase
         .from('realtime_prices')
         .select('bid, ask')
         .eq('symbol', trade.symbol)
@@ -1004,7 +1006,24 @@ export const GoalSessionDashboard: React.FC = () => {
         .limit(1)
         .maybeSingle();
 
-      if (priceError || !priceData) {
+      if (!priceError && dbPrice && dbPrice.bid > 0 && dbPrice.ask > 0) {
+        priceData = dbPrice;
+      } else {
+        // Fallback: fetch directly from get-live-price (bypasses stale DB)
+        try {
+          const resp = await fetch(`/.netlify/functions/get-live-price?symbol=${encodeURIComponent(trade.symbol)}&t=${Date.now()}`);
+          if (resp.ok) {
+            const liveData = await resp.json();
+            if (liveData.bid > 0 && liveData.ask > 0) {
+              priceData = { bid: parseFloat(liveData.bid), ask: parseFloat(liveData.ask) };
+            }
+          }
+        } catch {
+          // Silent: will throw below if priceData is still null
+        }
+      }
+
+      if (!priceData) {
         throw new Error('Could not fetch current price. Please try again.');
       }
 
