@@ -40,6 +40,10 @@ class RealtimeSLTPMonitor {
   private minCheckIntervalMs = 100;
   private abortController: AbortController | null = null;
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
+  private directPriceFallbackInterval: ReturnType<typeof setInterval> | null = null;
+  private lastPriceReceivedAt: Map<string, number> = new Map();
+  private readonly STALE_THRESHOLD_MS = 30_000; // 30 seconds without a price = stale
+  private readonly DIRECT_POLL_INTERVAL_MS = 3_000; // Check for stale symbols every 3 seconds
 
   private isAbortError(error: unknown): boolean {
     return error instanceof DOMException && error.name === 'AbortError'
@@ -80,6 +84,9 @@ class RealtimeSLTPMonitor {
     }
 
     this.refreshInterval = setInterval(() => this.refreshOpenPositions(), 5000);
+
+    // Direct price fallback: polls get-live-price for symbols starved of data
+    this.directPriceFallbackInterval = setInterval(() => this.fetchDirectPricesForStaleSymbols(), this.DIRECT_POLL_INTERVAL_MS);
   }
 
   stop(): void {
@@ -91,6 +98,11 @@ class RealtimeSLTPMonitor {
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
+    }
+
+    if (this.directPriceFallbackInterval) {
+      clearInterval(this.directPriceFallbackInterval);
+      this.directPriceFallbackInterval = null;
     }
 
     if (this.unsubscribe) {
@@ -105,6 +117,7 @@ class RealtimeSLTPMonitor {
 
     this.openPositions.clear();
     this.lastCheckTime.clear();
+    this.lastPriceReceivedAt.clear();
   }
 
   private async refreshOpenPositions(): Promise<void> {
@@ -171,6 +184,9 @@ class RealtimeSLTPMonitor {
       );
       return;
     }
+
+    // Track freshness for staleness detection
+    this.lastPriceReceivedAt.set(symbol, Date.now());
 
     // Get all open positions for this symbol
     const positions = this.openPositions.get(symbol);
@@ -526,6 +542,71 @@ class RealtimeSLTPMonitor {
     }
 
     this.lastCheckTime.delete(tradeId);
+  }
+
+  /**
+   * Inject a price update from any external source (e.g., chart poller websocket).
+   * Provides resilience when the database tick pipeline is stale but live prices
+   * are still arriving via the chart's direct Kraken/MetaAPI feed.
+   */
+  injectDirectPrice(symbol: string, bid: number, ask: number): void {
+    if (!this.isRunning) return;
+
+    const positions = this.openPositions.get(symbol);
+    if (!positions || positions.length === 0) return;
+
+    this.handlePriceUpdate({ symbol, bid, ask, timestamp: new Date().toISOString() });
+  }
+
+  /**
+   * Fallback: Directly fetch live prices from get-live-price for symbols
+   * that have not received a price update in STALE_THRESHOLD_MS.
+   * This bypasses the database entirely (goes Kraken/MetaAPI -> SL/TP check).
+   */
+  private async fetchDirectPricesForStaleSymbols(): Promise<void> {
+    if (!this.isRunning) return;
+
+    const now = Date.now();
+    const staleSymbols: string[] = [];
+
+    for (const symbol of this.openPositions.keys()) {
+      const lastReceived = this.lastPriceReceivedAt.get(symbol) || 0;
+      if (now - lastReceived > this.STALE_THRESHOLD_MS) {
+        staleSymbols.push(symbol);
+      }
+    }
+
+    if (staleSymbols.length === 0) return;
+
+    for (const symbol of staleSymbols) {
+      try {
+        const url = `/.netlify/functions/get-live-price?symbol=${encodeURIComponent(symbol)}&t=${now}`;
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          signal: this.abortController?.signal,
+        });
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        if (data.bid && data.ask) {
+          const bid = parseFloat(data.bid);
+          const ask = parseFloat(data.ask);
+          if (isFinite(bid) && isFinite(ask) && bid > 0 && ask > 0) {
+            console.log(`[RealtimeSLTPMonitor] 🔄 Direct fallback price for ${symbol}: bid=${bid.toFixed(5)} ask=${ask.toFixed(5)} (source: ${data.activeSource || data.source || 'direct'})`);
+            this.handlePriceUpdate({ symbol, bid, ask, timestamp: new Date().toISOString() });
+          }
+        }
+      } catch (error) {
+        if (this.isAbortError(error)) return;
+        // Silent: direct fallback is best-effort
+      }
+    }
+  }
+
+  getMonitoredSymbols(): string[] {
+    return Array.from(this.openPositions.keys());
   }
 
   getStatus(): {

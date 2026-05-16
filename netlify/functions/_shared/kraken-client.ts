@@ -61,7 +61,7 @@ interface KrakenTickerResponse {
 
 const SYMBOL_MAP: Record<string, string> = {
   BTCUSD: 'XBTUSD',  // Kraken uses XBT instead of BTC
-  ETHUSD: 'ETHUSD',
+  ETHUSD: 'XETHZUSD',  // Kraken canonical pair name for ETH/USD
 };
 
 const KRAKEN_API_BASE = 'https://api.kraken.com/0/public';
