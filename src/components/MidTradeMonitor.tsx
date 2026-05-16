@@ -529,17 +529,11 @@ const AlphaAnswerSheet: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
   const sheet = guide.answerSheet;
   if (!sheet) return null;
 
-  const alignColor = sheet.Q1_trend_alignment === 'ALIGNED'
-    ? 'text-green-400 bg-green-500/15 border-green-500/30'
-    : sheet.Q1_trend_alignment === 'CONFLICT'
-      ? 'text-red-400 bg-red-500/15 border-red-500/30'
-      : 'text-yellow-400 bg-yellow-500/15 border-yellow-500/30';
+  // CCIP-2026-0516A: Detect whether this is new free-form schema or legacy Q-field schema
+  const isFreeForm = !!(sheet.market_analysis || sheet.direction_thesis);
 
-  const objColor = sheet.Q5B_objective_alignment === 'SERVES'
-    ? 'text-green-400'
-    : sheet.Q5B_objective_alignment === 'DOES_NOT_SERVE'
-      ? 'text-red-400'
-      : 'text-yellow-400';
+  const failProb = sheet.failure_probability ?? sheet.Q5_failure_probability;
+  const failScenario = sheet.failure_scenario ?? sheet.Q5_failure_mode;
 
   return (
     <div className="mt-2">
@@ -552,9 +546,6 @@ const AlphaAnswerSheet: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
           <div className="flex items-center gap-1.5">
             <Brain className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
             <span className="text-xs font-semibold text-sky-300">Alpha Pre-Trade Reasoning</span>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 ${alignColor}`}>
-              {sheet.Q1_trend_alignment}
-            </span>
           </div>
           {expanded ? (
             <ChevronUp className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
@@ -566,56 +557,63 @@ const AlphaAnswerSheet: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
 
       {expanded && (
         <div className="mt-1 rounded-lg bg-sky-900/10 border border-sky-700/20 overflow-hidden divide-y divide-sky-800/20">
-          <div className="px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1.5">
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Structure Level</p>
-              <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q2_structure_level}</p>
+          {isFreeForm ? (
+            <>
+              {sheet.market_analysis && (
+                <div className="px-3 py-2">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Market Analysis</p>
+                  <p className="text-[11px] text-gray-300 leading-snug">{sheet.market_analysis}</p>
+                </div>
+              )}
+              {sheet.direction_thesis && (
+                <div className="px-3 py-2">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Direction Thesis</p>
+                  <p className="text-[11px] text-gray-300 leading-snug">{sheet.direction_thesis}</p>
+                </div>
+              )}
+              {sheet.invalidation_thesis && (
+                <div className="px-3 py-2">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Invalidation</p>
+                  <p className="text-[11px] text-gray-300 leading-snug">{sheet.invalidation_thesis}</p>
+                </div>
+              )}
+              {sheet.reward_thesis && (
+                <div className="px-3 py-2">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Reward Thesis</p>
+                  <p className="text-[11px] text-gray-300 leading-snug">{sheet.reward_thesis}</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1.5">
+              {sheet.Q2_structure_level && (
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Structure Level</p>
+                  <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q2_structure_level}</p>
+                </div>
+              )}
+              {sheet.Q4_momentum_stage && (
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Momentum Stage</p>
+                  <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q4_momentum_stage}</p>
+                </div>
+              )}
+              {sheet.Q6_entry_trigger && (
+                <div className="col-span-2">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Entry Trigger</p>
+                  <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q6_entry_trigger}</p>
+                </div>
+              )}
             </div>
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Prior Rejections</p>
-              <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q3_prior_rejections}</p>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Momentum Stage</p>
-              <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q4_momentum_stage}</p>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Entry Trigger</p>
-              <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q6_entry_trigger}</p>
-            </div>
-            <div className="col-span-2">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Confluence Confirmed</p>
-              <p className="text-[11px] text-gray-300 leading-snug">
-                {sheet.Q7_confluence_confirmed || sheet.Q7_confluence_count || '—'}
+          )}
+          {(failScenario || failProb != null) && (
+            <div className="px-3 py-2 bg-red-900/10">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-red-500 mb-0.5">
+                Failure Scenario{failProb != null ? ` · ${failProb}% probability` : ''}
               </p>
+              <p className="text-[11px] text-red-300/80 leading-snug">{failScenario || '—'}</p>
             </div>
-            {sheet.Q7_confluence_judgment && (
-              <div className="col-span-2">
-                <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Confluence Judgment</p>
-                <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q7_confluence_judgment}</p>
-              </div>
-            )}
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Objective Fit</p>
-              <p className={`text-[11px] font-semibold leading-snug ${objColor}`}>{sheet.Q5B_objective_alignment}</p>
-            </div>
-          </div>
-          <div className="px-3 py-2 bg-red-900/10">
-            <p className="text-[9px] font-bold uppercase tracking-wider text-red-500 mb-0.5">
-              Primary Failure Mode &nbsp;·&nbsp; {sheet.Q5_failure_probability}% probability
-            </p>
-            <p className="text-[11px] text-red-300/80 leading-snug">{sheet.Q5_failure_mode}</p>
-          </div>
-          <div className="px-3 py-2 grid grid-cols-2 gap-x-4">
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Move Position</p>
-              <p className="text-[11px] text-gray-300 font-mono">{sheet.Q8_move_position_pct}% into range</p>
-            </div>
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Session Range</p>
-              <p className="text-[11px] text-gray-300 font-mono">{sheet.Q8B_session_range_pct}% used</p>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>

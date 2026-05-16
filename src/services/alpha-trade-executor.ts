@@ -90,8 +90,18 @@ function buildMarketReadFromDecision(decision: AlphaDecision): string {
     return narrative || `${decision.action} ${decision.symbol} — trend and structure aligned.`;
   }
 
-  const parts: string[] = [];
+  // CCIP-2026-0516A: Prefer free-form reasoning fields, fallback to legacy Q-fields
+  if (as.market_analysis || as.direction_thesis) {
+    const parts: string[] = [];
+    if (as.market_analysis) parts.push(as.market_analysis);
+    if (as.direction_thesis && as.direction_thesis !== as.market_analysis) {
+      parts.push(as.direction_thesis);
+    }
+    return parts.join(' ') || `${decision.action} ${decision.symbol} — market conditions favourable at entry.`;
+  }
 
+  // Legacy fallback for stored records with old Q-field schema
+  const parts: string[] = [];
   if (as.Q1_trend_alignment) parts.push(`Trend: ${as.Q1_trend_alignment}`);
   if (as.Q2_structure_level) parts.push(`Structure: ${as.Q2_structure_level}`);
   if (as.Q4_momentum_stage) parts.push(`Momentum: ${as.Q4_momentum_stage}`);
@@ -143,10 +153,13 @@ function buildExpectedOutcomeFromDecision(
   }
 
   const as = decision.answer_sheet;
-  if (as?.Q5B_objective_alignment) plan += `. Objective: ${as.Q5B_objective_alignment}`;
-  if (as?.Q5_failure_mode && as.Q5_failure_mode !== 'NONE') {
+  // CCIP-2026-0516A: Prefer free-form fields, fallback to legacy
+  if (as?.invalidation_thesis) {
+    plan += `. Invalidated if: ${as.invalidation_thesis}`;
+  } else if (as?.Q5_failure_mode && as.Q5_failure_mode !== 'NONE') {
     plan += `. Invalidated if: ${as.Q5_failure_mode}`;
   }
+  if (as?.Q5B_objective_alignment) plan += `. Objective: ${as.Q5B_objective_alignment}`;
 
   return plan;
 }

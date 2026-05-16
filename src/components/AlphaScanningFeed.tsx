@@ -634,13 +634,13 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
                               : (typeof as.hypothesis_sell === 'string' ? as.hypothesis_sell.slice(0, 120) : '—'),
                           },
                           {
-                            key: 'Q_SWEEP_MAP_DIRECTION',
+                            key: 'sweep_map_direction',
                             label: 'Sweep Map Direction',
-                            ok: typeof as.Q_SWEEP_MAP_DIRECTION === 'string' &&
+                            ok: typeof (as.sweep_map_direction ?? as.Q_SWEEP_MAP_DIRECTION) === 'string' &&
                               ['BUY_FAVORED', 'SELL_FAVORED', 'BALANCED', 'INVERTED'].includes(
-                                String(as.Q_SWEEP_MAP_DIRECTION).trim().toUpperCase().split(' ')[0].replace(/[—-].*/, '').trim()
+                                String(as.sweep_map_direction ?? as.Q_SWEEP_MAP_DIRECTION ?? '').trim().toUpperCase().split(' ')[0].replace(/[—-].*/, '').trim()
                               ),
-                            display: as.Q_SWEEP_MAP_DIRECTION || '—',
+                            display: as.sweep_map_direction ?? as.Q_SWEEP_MAP_DIRECTION ?? '—',
                           },
                           {
                             key: 'winning_hypothesis',
@@ -748,31 +748,25 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
                         );
                       })()}
 
-                      {/* Answer sheet key fields */}
+                      {/* Answer sheet key fields — prefer free-form, fallback to legacy */}
                       {result.answer_sheet && (
                         <div className="mt-3 grid grid-cols-2 gap-2">
-                          {result.answer_sheet.Q1_trend_alignment && (
-                            <div className="bg-gray-800/40 rounded p-2 border border-gray-700/30">
-                              <div className="text-[10px] text-gray-500 uppercase mb-0.5">Trend Alignment</div>
-                              <div className="text-xs text-gray-200">{result.answer_sheet.Q1_trend_alignment}</div>
-                            </div>
-                          )}
-                          {result.answer_sheet.Q8C_price_location_zone && (
-                            <div className="bg-gray-800/40 rounded p-2 border border-gray-700/30">
-                              <div className="text-[10px] text-gray-500 uppercase mb-0.5">Price Location</div>
-                              <div className="text-xs text-gray-200">{result.answer_sheet.Q8C_price_location_zone}</div>
-                            </div>
-                          )}
-                          {result.answer_sheet.Q6_entry_trigger && (
+                          {(result.answer_sheet.market_analysis || result.answer_sheet.Q1_trend_alignment) && (
                             <div className="bg-gray-800/40 rounded p-2 border border-gray-700/30 col-span-2">
-                              <div className="text-[10px] text-gray-500 uppercase mb-0.5">Entry Trigger</div>
-                              <div className="text-xs text-gray-200 leading-relaxed">{result.answer_sheet.Q6_entry_trigger}</div>
+                              <div className="text-[10px] text-gray-500 uppercase mb-0.5">Market Analysis</div>
+                              <div className="text-xs text-gray-200 leading-relaxed">{result.answer_sheet.market_analysis || result.answer_sheet.Q1_trend_alignment}</div>
                             </div>
                           )}
-                          {result.answer_sheet.Q4_momentum_stage && (
+                          {(result.answer_sheet.direction_thesis || result.answer_sheet.Q6_entry_trigger) && (
+                            <div className="bg-gray-800/40 rounded p-2 border border-gray-700/30 col-span-2">
+                              <div className="text-[10px] text-gray-500 uppercase mb-0.5">Direction Thesis</div>
+                              <div className="text-xs text-gray-200 leading-relaxed">{result.answer_sheet.direction_thesis || result.answer_sheet.Q6_entry_trigger}</div>
+                            </div>
+                          )}
+                          {(result.answer_sheet.risk_assessment || result.answer_sheet.Q4_momentum_stage) && (
                             <div className="bg-gray-800/40 rounded p-2 border border-gray-700/30">
-                              <div className="text-[10px] text-gray-500 uppercase mb-0.5">Momentum Stage</div>
-                              <div className="text-xs text-gray-200">{result.answer_sheet.Q4_momentum_stage}</div>
+                              <div className="text-[10px] text-gray-500 uppercase mb-0.5">{result.answer_sheet.risk_assessment ? 'Risk Assessment' : 'Momentum Stage'}</div>
+                              <div className="text-xs text-gray-200">{result.answer_sheet.risk_assessment || result.answer_sheet.Q4_momentum_stage}</div>
                             </div>
                           )}
                           {result.answer_sheet.liquidity_sweep_read && (

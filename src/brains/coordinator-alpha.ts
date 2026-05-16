@@ -386,154 +386,100 @@ export interface AlphaDecision {
     reasoning: string;
   };
   answer_sheet?: {
-    Q1_trend_alignment: string;
-    Q2_structure_level: string;
-    Q3_prior_rejections: string;
-    Q4_momentum_stage: string;
-    Q5_failure_mode: string;
-    Q5_failure_probability: number;
-    Q5B_objective_alignment: string;
-    Q6_entry_trigger: string;
-    /**
-     * @deprecated Use Q7_confluence_confirmed + Q7_confluence_judgment instead.
-     * Retained for backward-compatibility with stored records from before CCIP-2026-0316A.
-     */
-    Q7_confluence_count?: string;
-    /** X/7 — each confirmed dimension with the specific data point that confirms it */
-    Q7_confluence_confirmed?: string;
-    /** Alpha's self-determined threshold, confirmed count, and PROCEED/NO_TRADE decision */
-    Q7_confluence_judgment?: string;
-    Q8_move_position_pct: number;
-    Q8B_session_range_pct: number;
-    /**
-     * Q8C: Price location zone within control TF range.
-     * DISCOUNT (<38%) / EQUILIBRIUM (38-62%) / PREMIUM (>62%)
-     */
-    Q8C_price_location_zone?: string;
-    /** Kill zone alignment at entry time */
-    kill_zone?: string;
-    /** News event status at entry time */
-    news_status?: string;
-    /** Equal highs/lows within 2x ATR — unswept liquidity pools */
-    equal_highs_lows?: string;
-    /** Trap signature assessment */
-    trap_signature?: string;
-    /** Failed auction assessment */
-    failed_auction?: string;
-    /** Intermarket correlation: CONFLUENT / DIVERGENT / UNKNOWN */
-    intermarket_correlation?: string;
-    /**
-     * Q9: SL wick proximity self-check.
-     * Alpha scans recent primary-timeframe wick extremes and states whether
-     * his SL price is within 1 pip of any wick. This is advisory — Alpha
-     * reasons about proximity risk and explains his placement.
-     * Format: "CLEAR — nearest wick extreme at [price] is [X] pips from SL"
-     *      or "PROXIMITY_RISK — SL at [price] is [X] pips from wick at [price]. [reasoning]"
-     */
-    Q9_sl_wick_proximity?: string;
-    /**
-     * Q10: Entry conviction self-rating — MICRO_INTRADAY (CCIP-2026-0427E-STYLE-CONSOLIDATION).
-     *
-     * CCIP-2026-0323A: Independent of trade_confidence. Assesses whether THIS SPECIFIC
-     * ENTRY MOMENT is well-timed within the identified structure.
-     * SNIPER = exact anchor + trigger fired.
-     * ACCEPTABLE = valid but not ideal — justification required in trader_statement.
-     * FORCED = timing wrong — execute_now PROHIBITED, must use wait_pullback/push_confirmation.
-     *
-     * SSOT: alpha-identity.ts is the authoritative definition. This interface mirrors it.
-     */
-    Q10_entry_conviction?: 'SNIPER' | 'ACCEPTABLE' | 'FORCED';
-    /**
-     * Q11: Zone entry quality self-rating — MICRO_INTRADAY (CCIP-2026-0427E-STYLE-CONSOLIDATION).
-     *
-     * CCIP-2026-0323B: Independent of trade_confidence. Assesses whether Alpha is entering
-     * at the STRUCTURALLY OPTIMAL POSITION within the M15/H1 structural zone.
-     * PRECISE = near edge of zone — best RR preservation, highest structural clarity.
-     * MID_ZONE = mid-zone — valid but SL/RR must reflect the consumed structural buffer.
-     * DEEP_ZONE = far edge of zone, near invalidation — execute_now PROHIBITED, must use
-     *   wait_pullback or push_confirmation targeting the near zone edge.
-     *
-     * SSOT: alpha-identity.ts is the authoritative definition. This interface mirrors it.
-     */
-    Q11_zone_entry_quality?: 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE';
-    /**
-     * liquidity_sweep_read: Alpha's structured sweep analysis.
-     * MANDATORY when sweep sensor data was present in the briefing (sweepFacts.sweep_detected).
-     * Contains: wick quality, BOS impact, recency judgment, volume ratio interpretation,
-     * and net edge judgment. Value "NONE" means no sweep data was provided.
-     *
-     * CCIP-2026-0324C: Missing when sweep data was present is a governance violation.
-     * SSOT: alpha-identity.ts defines the mandatory format. coordinator-alpha.ts enforces presence.
-     */
+    // CCIP-2026-0516A: Free-form reasoning architecture
+    // Dual hypothesis
+    hypothesis_buy?: { thesis: string; entry: number | null; sl: number | null; tp: number | null; probability: number | null; reward_pips: number | null; risk_pips: number | null };
+    hypothesis_sell?: { thesis: string; entry: number | null; sl: number | null; tp: number | null; probability: number | null; reward_pips: number | null; risk_pips: number | null };
+    // Winner selection / reconciliation
+    sweep_map_direction?: string;
+    winning_hypothesis?: string;
+    win_reason?: string;
+    losing_hypothesis_disqualifier?: string;
+    contradictions_fired?: string[];
+    contradictions_scanned_count?: number;
+    contradictions_unresolved_count?: number;
+    reconciliation_ledger_complete?: boolean;
+    // Free-form reasoning
+    market_analysis?: string;
+    direction_thesis?: string;
+    invalidation_thesis?: string;
+    reward_thesis?: string;
+    risk_assessment?: string;
+    session_context?: string | null;
+    failure_scenario?: string;
+    failure_probability?: number;
+    // Sweep / liquidity
+    sweep_reclaim_status?: string;
+    trapped_fuel?: string;
     liquidity_sweep_read?: string;
-    /**
-     * Q12: Market phase classification on the control TF.
-     * ACCUMULATION | EXPANSION | DISTRIBUTION | RETRACEMENT | REVERSAL
-     * Named candle evidence FIRST, phase label as conclusion.
-     * Must be consistent with Q4_momentum_stage — conflicts require thesis_coherence_statement resolution.
-     *
-     * CCIP-2026-0325A: Mandatory field. Missing or blank = governance violation.
-     * SSOT: alpha-identity.ts defines the format. coordinator-alpha.ts extracts and audits.
-     */
+    // Trap-aware geometry
+    trap_map_invalidation_side?: string | null;
+    trap_map_reward_side?: string | null;
+    sl_sweep_risk_acknowledged?: string | null;
+    entry_sweep_alignment?: string | null;
+    tp_sweep_alignment?: string | null;
+    trap_reconciliation_complete?: boolean | null;
+    // RR profitability
+    rr_planned_ratio?: number | null;
+    breakeven_win_rate_implied?: number | null;
+    rr_profitability_check?: string | null;
+    rr_profitability_resolution?: string | null;
+    // Entry sharpness
+    m5_expected_mae_pips?: number | null;
+    m5_mae_vs_risk_ratio?: number | null;
+    entry_sharpness_check?: string | null;
+    // SL reconciliation
+    sl_distance_pips?: number | null;
+    sl_distance_vs_m5_atr_ratio?: number | null;
+    sl_distance_vs_mae_forecast_ratio?: number | null;
+    sl_pool_clearance_pips?: number | null;
+    sl_placement_verdict?: string | null;
+    // TP geometry
+    tp1_omitted?: boolean | null;
+    tp1_omission_reason?: string | null;
+    tp1_partial_value_pips?: number | null;
+    tp1_partial_value_ratio?: number | null;
+    tp2_omitted?: boolean | null;
+    tp2_omission_reason?: string | null;
+    // M5 hierarchy
+    m5_micro_leg_state?: string | null;
+    // Legacy fields (backward compat with stored records — never required in new schema)
+    Q1_trend_alignment?: string;
+    Q2_structure_level?: string;
+    Q3_prior_rejections?: string;
+    Q4_momentum_stage?: string;
+    Q5_failure_mode?: string;
+    Q5_failure_probability?: number;
+    Q5B_objective_alignment?: string;
+    Q6_entry_trigger?: string;
+    Q7_confluence_count?: string;
+    Q7_confluence_confirmed?: string;
+    Q7_confluence_judgment?: string;
+    Q8_move_position_pct?: number;
+    Q8B_session_range_pct?: number;
+    Q8C_price_location_zone?: string;
+    kill_zone?: string;
+    news_status?: string;
+    equal_highs_lows?: string;
+    trap_signature?: string;
+    failed_auction?: string;
+    intermarket_correlation?: string;
+    Q9_sl_wick_proximity?: string;
+    Q10_entry_conviction?: 'SNIPER' | 'ACCEPTABLE' | 'FORCED';
+    Q11_zone_entry_quality?: 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE';
     Q12_market_phase?: string;
-    /**
-     * Session boundary prices — named prices Alpha is reasoning from.
-     * CCIP-2026-0325A: Forces Alpha to surface the actual session levels, not reason from
-     * implicit assumptions. UNKNOWN is acceptable when data is unavailable. Blank is a violation.
-     */
     session_high?: number | null | string;
     session_low?: number | null | string;
     prior_session_high?: number | null | string;
     prior_session_low?: number | null | string;
-    /**
-     * session_sweep_status: Which session boundaries have been swept and which remain as draw.
-     * MANDATORY for London and NY sessions on forex instruments.
-     * Format: "ASIAN_LOW_SWEPT at [price] | ASIAN_HIGH_INTACT at [price]" etc.
-     *
-     * CCIP-2026-0325A: Mandatory field for London and NY sessions.
-     * SSOT: alpha-identity.ts defines the format. coordinator-alpha.ts extracts for audit/learning.
-     */
     session_sweep_status?: string;
-    /**
-     * Q_SWEEP_RECLAIM_STATUS: Sweep-reclaim lifecycle state.
-     * Values: NO_SWEEP_PENDING | NO_RECLAIM_PENDING | RECLAIM_CONFIRMED | N/A
-     *
-     * CCIP-2026-0422B: Single-sided NO_SWEEP_PENDING or NO_RECLAIM_PENDING mandates
-     * a directional wait_pullback output, not NO_TRADE. This field drives the
-     * CCIP-0422B-GATE upgrade logic in the coordinator.
-     */
     Q_SWEEP_RECLAIM_STATUS?: string;
-    /**
-     * Q_TRAPPED_FUEL: Assessment of trapped participant energy available to drive the move.
-     * Present when Alpha identifies trapped longs/shorts that will amplify directional momentum.
-     */
+    Q_SWEEP_MAP_DIRECTION?: string;
     Q_TRAPPED_FUEL?: string;
-    /**
-     * Q4B_realtime_participant_read: Live read of who is entering/exiting right now.
-     * Distinguishes informed flow from retail noise at the current price level.
-     */
     Q4B_realtime_participant_read?: string;
-    /**
-     * Q_PRICED_IN: Assessment of whether the structural setup has already been discovered
-     * and partially exploited, reducing remaining edge.
-     */
     Q_PRICED_IN?: string;
-    /**
-     * Q_LIQUIDITY_CASCADE: Directional cascade sequence when trapped participants are forced out.
-     * Named direction and sequence of expected liquidation flow.
-     * CCIP-2026-0422B: When present, the cascade direction overrides conflicting signals.
-     */
     Q_LIQUIDITY_CASCADE?: string;
-    /**
-     * Q_WHO_IS_TRAPPED: Identity of the trapped participant group (retail longs, trapped shorts, etc.).
-     * CCIP-2026-0422D: Mandatory when trap_likely pattern fires. Missing = incomplete reasoning.
-     */
     Q_WHO_IS_TRAPPED?: string;
-    /**
-     * Q_WHAT_DIRECTION_WHEN_THEY_RUN: Named direction trapped participants will move when stopped out.
-     * CCIP-2026-0422D: Mandatory when Q_WHO_IS_TRAPPED is populated.
-     * "trap likely but no directional bias" is a self-contradiction when this field can be derived.
-     */
     Q_WHAT_DIRECTION_WHEN_THEY_RUN?: string;
   };
   // CCIP-2026-0321A: Alpha-owned entry deviation tolerance.
@@ -3741,11 +3687,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
         if (hBuy == null || typeof hBuy !== 'object') missing.push('hypothesis_buy');
         if (hSell == null || typeof hSell !== 'object') missing.push('hypothesis_sell');
 
-        const sweepMapDir = pickField('Q_SWEEP_MAP_DIRECTION');
+        const sweepMapDir = pickField('sweep_map_direction') || pickField('Q_SWEEP_MAP_DIRECTION');
         const validSweepMapDir = ['BUY_FAVORED', 'SELL_FAVORED', 'BALANCED', 'INVERTED'];
         if (typeof sweepMapDir !== 'string' || !validSweepMapDir.includes(sweepMapDir.trim().toUpperCase())) {
-          if (sweepMapDir == null || sweepMapDir === '') missing.push('Q_SWEEP_MAP_DIRECTION');
-          else invalid.push(`Q_SWEEP_MAP_DIRECTION=${String(sweepMapDir)}`);
+          if (sweepMapDir == null || sweepMapDir === '') missing.push('sweep_map_direction');
+          else invalid.push(`sweep_map_direction=${String(sweepMapDir)}`);
         }
 
         const winning = pickField('winning_hypothesis');
@@ -3802,7 +3748,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
 
         // Direction-integrity B: sweep-reclaim self-contradiction against execute_now
-        const sweepReclaim = pickField('Q_SWEEP_RECLAIM_STATUS');
+        const sweepReclaim = pickField('sweep_reclaim_status') || pickField('Q_SWEEP_RECLAIM_STATUS');
         if (isExecuteNow && typeof sweepReclaim === 'string') {
           const srUpper = sweepReclaim.toUpperCase();
           if (
@@ -3811,7 +3757,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             srUpper.includes('NO_SWEEP_PENDING') ||
             srUpper.includes('NO_RECLAIM_PENDING')
           ) {
-            invalid.push(`SWEEP_RECLAIM_SELF_CONTRADICTION: Q_SWEEP_RECLAIM_STATUS contradicts execute_now`);
+            invalid.push(`SWEEP_RECLAIM_SELF_CONTRADICTION: sweep_reclaim_status contradicts execute_now`);
           }
         }
 
@@ -3929,7 +3875,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           // or push_confirmation, that choice stands — it's his timing
           // preference, not a system override.
 
-          const q5Raw = (decision as any)?.answer_sheet?.Q5_failure_probability;
+          const q5Raw = (decision as any)?.answer_sheet?.failure_probability ?? (decision as any)?.answer_sheet?.Q5_failure_probability;
           const counterRaw = (decision as any)?.counter_thesis_probability;
           const q5Fail = typeof q5Raw === 'number' ? q5Raw : null;
           const rewardProb = typeof counterRaw === 'number'
@@ -3991,24 +3937,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       // Note: narrativeValidation is already set by parseDecision()
 
-      // CCIP-2026-0325A: Q12 market phase omission audit.
-      // Advisory violation only — trade is NOT blocked. Logged for governance audit trail.
-      const q12Raw = decision.answer_sheet?.Q12_market_phase;
-      const q12Str = typeof q12Raw === 'string' ? q12Raw.trim() : '';
-      if (decision.answer_sheet && q12Str === '') {
-        logViolation({
-          violationType: 'Q12_MARKET_PHASE_OMITTED',
-          symbol: marketContext.symbol,
-          attemptedOperation: 'answer_sheet_validation',
-          callLocation: 'coordinator-alpha/coordinate',
-          blocked: false,
-          errorDetails: { userId: userId || 'unknown' },
-        }).catch(() => {});
-        console.warn(
-          `[Alpha Coordinator] CCIP-2026-0325A: Q12_MARKET_PHASE_OMITTED — ` +
-          `Symbol=${marketContext.symbol}, Action=${decision.action}.`
-        );
-      }
+      // CCIP-2026-0516A: Q12 market phase field removed from schema (free-form reasoning).
+      // Legacy advisory check retired.
 
       // Add Phase 5: Pattern Intelligence
       if (patternIntelligence) {
@@ -4210,8 +4140,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
             // NO_TRADE JSON is flat — answer_sheet only exists in BUY/SELL responses.
             // Read top-level first (NO_TRADE path), fall back to answer_sheet (BUY/SELL path).
             const src = rawParsed.answer_sheet ?? rawParsed;
-            auditSweepReclaimStatus = src.Q_SWEEP_RECLAIM_STATUS || 'NOT_PRESENT';
-            auditQTrappedFuel = src.Q_TRAPPED_FUEL || 'NOT_PRESENT';
+            auditSweepReclaimStatus = src.sweep_reclaim_status || src.Q_SWEEP_RECLAIM_STATUS || 'NOT_PRESENT';
+            auditQTrappedFuel = src.trapped_fuel || src.Q_TRAPPED_FUEL || 'NOT_PRESENT';
             auditQ12Phase = src.Q12 || 'NOT_PRESENT';
             auditQPricedIn = src.Q_PRICED_IN || 'NOT_PRESENT';
             auditQ4B = src.Q4B_realtime_participant_read || 'NOT_PRESENT';
@@ -4657,9 +4587,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
       if (correctedAction !== 'NO_TRADE' && entryMode === 'execute_now') {
         const answerSheet = parsed.answer_sheet ?? {};
         const proseFields = [
-          answerSheet.Q_SWEEP_RECLAIM_STATUS,
+          answerSheet.sweep_reclaim_status ?? answerSheet.Q_SWEEP_RECLAIM_STATUS,
           answerSheet.Q6_entry_trigger,
           answerSheet.Q_WHAT_DIRECTION_WHEN_THEY_RUN,
+          (parsed as Record<string, unknown>).sweep_reclaim_status,
           (parsed as Record<string, unknown>).Q_SWEEP_RECLAIM_STATUS,
           (parsed as Record<string, unknown>).Q6_entry_trigger,
         ]
@@ -4778,139 +4709,88 @@ Return PURE JSON only — all required fields from the schema in my system promp
       const executionPreference = parsed.execution_preference || null;
       const acceptableProfitRange = parsed.acceptable_profit_range || null;
 
-      // CCIP-FIX: Extract Alpha's answer_sheet (full checklist Q1-Q9 + extended fields)
-      // from LLM response. Previously only Q1-Q9 were extracted — the extended fields
-      // (Q8C, kill_zone, news_status, equal_highs_lows, trap_signature,
-      // failed_auction, intermarket_correlation) were being silently discarded after
-      // Alpha computed them. These fields carry Alpha's assessment of price location,
-      // weekly narrative, intermarket correlation, trap signatures, and liquidity
-      // context — critical inputs for the Mid-Trade Monitor and learning loops.
-      // SSOT owner: coordinator-alpha (sole parse point for LLM response).
+      // CCIP-2026-0516A: Extract Alpha's answer_sheet (free-form reasoning architecture).
+      // The answer_sheet now contains Alpha's honest free-form reasoning rather than
+      // Q1-Q12 checklist fields. Parse all fields with backward-compat for old schema.
       const rawAnswerSheet = parsed.answer_sheet;
       const answerSheet: AlphaDecision['answer_sheet'] = (
         rawAnswerSheet &&
-        typeof rawAnswerSheet === 'object' &&
-        typeof rawAnswerSheet.Q1_trend_alignment === 'string' &&
-        typeof rawAnswerSheet.Q6_entry_trigger === 'string'
+        typeof rawAnswerSheet === 'object'
       ) ? {
-        Q1_trend_alignment: rawAnswerSheet.Q1_trend_alignment,
-        Q2_structure_level: rawAnswerSheet.Q2_structure_level || '',
-        Q3_prior_rejections: rawAnswerSheet.Q3_prior_rejections || '',
-        Q4_momentum_stage: rawAnswerSheet.Q4_momentum_stage || '',
-        Q5_failure_mode: rawAnswerSheet.Q5_failure_mode || '',
-        Q5_failure_probability: typeof rawAnswerSheet.Q5_failure_probability === 'number' ? rawAnswerSheet.Q5_failure_probability : 0,
-        Q5B_objective_alignment: rawAnswerSheet.Q5B_objective_alignment || '',
-        Q6_entry_trigger: rawAnswerSheet.Q6_entry_trigger,
-        Q7_confluence_count: typeof rawAnswerSheet.Q7_confluence_count === 'string' ? rawAnswerSheet.Q7_confluence_count : undefined,
-        Q7_confluence_confirmed: typeof rawAnswerSheet.Q7_confluence_confirmed === 'string' ? rawAnswerSheet.Q7_confluence_confirmed : undefined,
+        // New free-form fields (CCIP-2026-0516A)
+        hypothesis_buy: rawAnswerSheet.hypothesis_buy && typeof rawAnswerSheet.hypothesis_buy === 'object' ? rawAnswerSheet.hypothesis_buy as any : undefined,
+        hypothesis_sell: rawAnswerSheet.hypothesis_sell && typeof rawAnswerSheet.hypothesis_sell === 'object' ? rawAnswerSheet.hypothesis_sell as any : undefined,
+        sweep_map_direction: typeof rawAnswerSheet.sweep_map_direction === 'string' ? rawAnswerSheet.sweep_map_direction : (typeof rawAnswerSheet.Q_SWEEP_MAP_DIRECTION === 'string' ? rawAnswerSheet.Q_SWEEP_MAP_DIRECTION : undefined),
+        winning_hypothesis: typeof rawAnswerSheet.winning_hypothesis === 'string' ? rawAnswerSheet.winning_hypothesis : undefined,
+        win_reason: typeof rawAnswerSheet.win_reason === 'string' ? rawAnswerSheet.win_reason : undefined,
+        losing_hypothesis_disqualifier: typeof rawAnswerSheet.losing_hypothesis_disqualifier === 'string' ? rawAnswerSheet.losing_hypothesis_disqualifier : undefined,
+        contradictions_fired: Array.isArray(rawAnswerSheet.contradictions_fired) ? rawAnswerSheet.contradictions_fired : undefined,
+        contradictions_scanned_count: typeof rawAnswerSheet.contradictions_scanned_count === 'number' ? rawAnswerSheet.contradictions_scanned_count : undefined,
+        contradictions_unresolved_count: typeof rawAnswerSheet.contradictions_unresolved_count === 'number' ? rawAnswerSheet.contradictions_unresolved_count : undefined,
+        reconciliation_ledger_complete: typeof rawAnswerSheet.reconciliation_ledger_complete === 'boolean' ? rawAnswerSheet.reconciliation_ledger_complete : undefined,
+        market_analysis: typeof rawAnswerSheet.market_analysis === 'string' ? rawAnswerSheet.market_analysis : undefined,
+        direction_thesis: typeof rawAnswerSheet.direction_thesis === 'string' ? rawAnswerSheet.direction_thesis : undefined,
+        invalidation_thesis: typeof rawAnswerSheet.invalidation_thesis === 'string' ? rawAnswerSheet.invalidation_thesis : undefined,
+        reward_thesis: typeof rawAnswerSheet.reward_thesis === 'string' ? rawAnswerSheet.reward_thesis : undefined,
+        risk_assessment: typeof rawAnswerSheet.risk_assessment === 'string' ? rawAnswerSheet.risk_assessment : undefined,
+        session_context: typeof rawAnswerSheet.session_context === 'string' ? rawAnswerSheet.session_context : null,
+        failure_scenario: typeof rawAnswerSheet.failure_scenario === 'string' ? rawAnswerSheet.failure_scenario : undefined,
+        failure_probability: typeof rawAnswerSheet.failure_probability === 'number' ? rawAnswerSheet.failure_probability : (typeof rawAnswerSheet.Q5_failure_probability === 'number' ? rawAnswerSheet.Q5_failure_probability : undefined),
+        // Sweep/liquidity
+        sweep_reclaim_status: typeof rawAnswerSheet.sweep_reclaim_status === 'string' ? rawAnswerSheet.sweep_reclaim_status : (typeof rawAnswerSheet.Q_SWEEP_RECLAIM_STATUS === 'string' ? rawAnswerSheet.Q_SWEEP_RECLAIM_STATUS : undefined),
+        trapped_fuel: typeof rawAnswerSheet.trapped_fuel === 'string' ? rawAnswerSheet.trapped_fuel : (typeof rawAnswerSheet.Q_TRAPPED_FUEL === 'string' ? rawAnswerSheet.Q_TRAPPED_FUEL : undefined),
+        liquidity_sweep_read: typeof rawAnswerSheet.liquidity_sweep_read === 'string' ? rawAnswerSheet.liquidity_sweep_read : undefined,
+        // Trap-aware geometry
+        trap_map_invalidation_side: typeof rawAnswerSheet.trap_map_invalidation_side === 'string' ? rawAnswerSheet.trap_map_invalidation_side : null,
+        trap_map_reward_side: typeof rawAnswerSheet.trap_map_reward_side === 'string' ? rawAnswerSheet.trap_map_reward_side : null,
+        sl_sweep_risk_acknowledged: typeof rawAnswerSheet.sl_sweep_risk_acknowledged === 'string' ? rawAnswerSheet.sl_sweep_risk_acknowledged : null,
+        entry_sweep_alignment: typeof rawAnswerSheet.entry_sweep_alignment === 'string' ? rawAnswerSheet.entry_sweep_alignment : null,
+        tp_sweep_alignment: typeof rawAnswerSheet.tp_sweep_alignment === 'string' ? rawAnswerSheet.tp_sweep_alignment : null,
+        trap_reconciliation_complete: typeof rawAnswerSheet.trap_reconciliation_complete === 'boolean' ? rawAnswerSheet.trap_reconciliation_complete : null,
+        // RR profitability
+        rr_planned_ratio: typeof rawAnswerSheet.rr_planned_ratio === 'number' ? rawAnswerSheet.rr_planned_ratio : null,
+        breakeven_win_rate_implied: typeof rawAnswerSheet.breakeven_win_rate_implied === 'number' ? rawAnswerSheet.breakeven_win_rate_implied : null,
+        rr_profitability_check: typeof rawAnswerSheet.rr_profitability_check === 'string' ? rawAnswerSheet.rr_profitability_check : null,
+        rr_profitability_resolution: typeof rawAnswerSheet.rr_profitability_resolution === 'string' ? rawAnswerSheet.rr_profitability_resolution : null,
+        // Entry sharpness
+        m5_expected_mae_pips: typeof rawAnswerSheet.m5_expected_mae_pips === 'number' ? rawAnswerSheet.m5_expected_mae_pips : null,
+        m5_mae_vs_risk_ratio: typeof rawAnswerSheet.m5_mae_vs_risk_ratio === 'number' ? rawAnswerSheet.m5_mae_vs_risk_ratio : null,
+        entry_sharpness_check: typeof rawAnswerSheet.entry_sharpness_check === 'string' ? rawAnswerSheet.entry_sharpness_check : null,
+        // SL reconciliation
+        sl_distance_pips: typeof rawAnswerSheet.sl_distance_pips === 'number' ? rawAnswerSheet.sl_distance_pips : null,
+        sl_distance_vs_m5_atr_ratio: typeof rawAnswerSheet.sl_distance_vs_m5_atr_ratio === 'number' ? rawAnswerSheet.sl_distance_vs_m5_atr_ratio : null,
+        sl_distance_vs_mae_forecast_ratio: typeof rawAnswerSheet.sl_distance_vs_mae_forecast_ratio === 'number' ? rawAnswerSheet.sl_distance_vs_mae_forecast_ratio : null,
+        sl_pool_clearance_pips: typeof rawAnswerSheet.sl_pool_clearance_pips === 'number' ? rawAnswerSheet.sl_pool_clearance_pips : null,
+        sl_placement_verdict: typeof rawAnswerSheet.sl_placement_verdict === 'string' ? rawAnswerSheet.sl_placement_verdict : null,
+        // TP geometry
+        tp1_omitted: typeof rawAnswerSheet.tp1_omitted === 'boolean' ? rawAnswerSheet.tp1_omitted : null,
+        tp1_omission_reason: typeof rawAnswerSheet.tp1_omission_reason === 'string' ? rawAnswerSheet.tp1_omission_reason : null,
+        tp1_partial_value_pips: typeof rawAnswerSheet.tp1_partial_value_pips === 'number' ? rawAnswerSheet.tp1_partial_value_pips : null,
+        tp1_partial_value_ratio: typeof rawAnswerSheet.tp1_partial_value_ratio === 'number' ? rawAnswerSheet.tp1_partial_value_ratio : null,
+        tp2_omitted: typeof rawAnswerSheet.tp2_omitted === 'boolean' ? rawAnswerSheet.tp2_omitted : null,
+        tp2_omission_reason: typeof rawAnswerSheet.tp2_omission_reason === 'string' ? rawAnswerSheet.tp2_omission_reason : null,
+        // M5 hierarchy
+        m5_micro_leg_state: typeof rawAnswerSheet.m5_micro_leg_state === 'string' ? rawAnswerSheet.m5_micro_leg_state : null,
+        // Legacy backward-compat fields (old Q-field schema responses from historical records)
+        Q_SWEEP_RECLAIM_STATUS: typeof rawAnswerSheet.Q_SWEEP_RECLAIM_STATUS === 'string' ? rawAnswerSheet.Q_SWEEP_RECLAIM_STATUS : undefined,
+        Q_SWEEP_MAP_DIRECTION: typeof rawAnswerSheet.Q_SWEEP_MAP_DIRECTION === 'string' ? rawAnswerSheet.Q_SWEEP_MAP_DIRECTION : undefined,
+        Q_TRAPPED_FUEL: typeof rawAnswerSheet.Q_TRAPPED_FUEL === 'string' ? rawAnswerSheet.Q_TRAPPED_FUEL : undefined,
+        Q5_failure_probability: typeof rawAnswerSheet.Q5_failure_probability === 'number' ? rawAnswerSheet.Q5_failure_probability : undefined,
+        Q6_entry_trigger: typeof rawAnswerSheet.Q6_entry_trigger === 'string' ? rawAnswerSheet.Q6_entry_trigger : undefined,
+        Q1_trend_alignment: typeof rawAnswerSheet.Q1_trend_alignment === 'string' ? rawAnswerSheet.Q1_trend_alignment : undefined,
+        Q2_structure_level: typeof rawAnswerSheet.Q2_structure_level === 'string' ? rawAnswerSheet.Q2_structure_level : undefined,
+        Q4_momentum_stage: typeof rawAnswerSheet.Q4_momentum_stage === 'string' ? rawAnswerSheet.Q4_momentum_stage : undefined,
+        Q5_failure_mode: typeof rawAnswerSheet.Q5_failure_mode === 'string' ? rawAnswerSheet.Q5_failure_mode : undefined,
         Q7_confluence_judgment: typeof rawAnswerSheet.Q7_confluence_judgment === 'string' ? rawAnswerSheet.Q7_confluence_judgment : undefined,
-        Q8_move_position_pct: typeof rawAnswerSheet.Q8_move_position_pct === 'number' ? rawAnswerSheet.Q8_move_position_pct : 0,
-        Q8B_session_range_pct: typeof rawAnswerSheet.Q8B_session_range_pct === 'number' ? rawAnswerSheet.Q8B_session_range_pct : 0,
         Q8C_price_location_zone: typeof rawAnswerSheet.Q8C_price_location_zone === 'string' ? rawAnswerSheet.Q8C_price_location_zone : undefined,
         kill_zone: typeof rawAnswerSheet.kill_zone === 'string' ? rawAnswerSheet.kill_zone : undefined,
-        news_status: typeof rawAnswerSheet.news_status === 'string' ? rawAnswerSheet.news_status : undefined,
-        equal_highs_lows: typeof rawAnswerSheet.equal_highs_lows === 'string' ? rawAnswerSheet.equal_highs_lows : undefined,
-        trap_signature: typeof rawAnswerSheet.trap_signature === 'string' ? rawAnswerSheet.trap_signature : undefined,
-        failed_auction: typeof rawAnswerSheet.failed_auction === 'string' ? rawAnswerSheet.failed_auction : undefined,
         intermarket_correlation: typeof rawAnswerSheet.intermarket_correlation === 'string' ? rawAnswerSheet.intermarket_correlation : undefined,
         Q9_sl_wick_proximity: typeof rawAnswerSheet.Q9_sl_wick_proximity === 'string' ? rawAnswerSheet.Q9_sl_wick_proximity : undefined,
-        // CCIP-2026-0323A: Q10 entry conviction — SCALP ONLY. Parsed but never used as a hard block.
-        // The prompt instructs Alpha to self-enforce: FORCED → cannot use execute_now.
-        // We extract it here for audit/logging. Enforcement is prompt-level, not code-level.
         Q10_entry_conviction: (['SNIPER', 'ACCEPTABLE', 'FORCED'].includes(rawAnswerSheet.Q10_entry_conviction as string))
-          ? (rawAnswerSheet.Q10_entry_conviction as 'SNIPER' | 'ACCEPTABLE' | 'FORCED')
-          : undefined,
-        // CCIP-2026-0323B: Q11 zone entry quality — MICRO_INTRADAY and INTRADAY ONLY.
-        // Captures Alpha's zone-precision self-assessment: PRECISE (near edge), MID_ZONE,
-        // or DEEP_ZONE (far edge, near invalidation). Parsed for audit/logging.
-        // Code-layer backstop below corrects DEEP_ZONE + execute_now to wait_pullback.
+          ? (rawAnswerSheet.Q10_entry_conviction as 'SNIPER' | 'ACCEPTABLE' | 'FORCED') : undefined,
         Q11_zone_entry_quality: (['PRECISE', 'MID_ZONE', 'DEEP_ZONE'].includes(rawAnswerSheet.Q11_zone_entry_quality as string))
-          ? (rawAnswerSheet.Q11_zone_entry_quality as 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE')
-          : undefined,
-        // CCIP-2026-0324C: liquidity_sweep_read extraction.
-        // MANDATORY when sweepFacts.sweep_detected was true. Validated below.
-        liquidity_sweep_read: typeof rawAnswerSheet.liquidity_sweep_read === 'string'
-          ? rawAnswerSheet.liquidity_sweep_read
-          : undefined,
-        // CCIP-2026-0325A: Q12 market phase — mandatory field. Extracted for audit and learning.
-        // Missing = governance violation (logged below, not a trade block).
-        Q12_market_phase: typeof rawAnswerSheet.Q12_market_phase === 'string'
-          ? rawAnswerSheet.Q12_market_phase
-          : undefined,
-        // CCIP-2026-0325A: Session boundary prices — named prices Alpha reasoned from.
-        // Accept number, null, or string "UNKNOWN". Silently drop if not present.
-        session_high: (rawAnswerSheet.session_high !== undefined && rawAnswerSheet.session_high !== '')
-          ? rawAnswerSheet.session_high
-          : undefined,
-        session_low: (rawAnswerSheet.session_low !== undefined && rawAnswerSheet.session_low !== '')
-          ? rawAnswerSheet.session_low
-          : undefined,
-        prior_session_high: (rawAnswerSheet.prior_session_high !== undefined && rawAnswerSheet.prior_session_high !== '')
-          ? rawAnswerSheet.prior_session_high
-          : undefined,
-        prior_session_low: (rawAnswerSheet.prior_session_low !== undefined && rawAnswerSheet.prior_session_low !== '')
-          ? rawAnswerSheet.prior_session_low
-          : undefined,
-        // CCIP-2026-0325A: session_sweep_status — mandatory for London/NY forex sessions.
-        // Extracted for audit trail. No code-layer hard gate — prompt-level enforcement.
-        session_sweep_status: typeof rawAnswerSheet.session_sweep_status === 'string'
-          ? rawAnswerSheet.session_sweep_status
-          : undefined,
-        // CCIP-2026-0422B: Sweep-reclaim lifecycle fields — previously extracted for audit logging
-        // only (discarded after the console.log block). Now preserved in the structured object so
-        // the CCIP-0422B-GATE upgrade logic and downstream consumers can use them.
-        Q_SWEEP_RECLAIM_STATUS: typeof rawAnswerSheet.Q_SWEEP_RECLAIM_STATUS === 'string'
-          ? rawAnswerSheet.Q_SWEEP_RECLAIM_STATUS
-          : undefined,
-        Q_TRAPPED_FUEL: typeof rawAnswerSheet.Q_TRAPPED_FUEL === 'string'
-          ? rawAnswerSheet.Q_TRAPPED_FUEL
-          : undefined,
-        Q4B_realtime_participant_read: typeof rawAnswerSheet.Q4B_realtime_participant_read === 'string'
-          ? rawAnswerSheet.Q4B_realtime_participant_read
-          : undefined,
-        Q_PRICED_IN: typeof rawAnswerSheet.Q_PRICED_IN === 'string'
-          ? rawAnswerSheet.Q_PRICED_IN
-          : undefined,
-        Q_LIQUIDITY_CASCADE: typeof rawAnswerSheet.Q_LIQUIDITY_CASCADE === 'string'
-          ? rawAnswerSheet.Q_LIQUIDITY_CASCADE
-          : undefined,
-        Q_WHO_IS_TRAPPED: typeof rawAnswerSheet.Q_WHO_IS_TRAPPED === 'string'
-          ? rawAnswerSheet.Q_WHO_IS_TRAPPED
-          : undefined,
-        Q_WHAT_DIRECTION_WHEN_THEY_RUN: typeof rawAnswerSheet.Q_WHAT_DIRECTION_WHEN_THEY_RUN === 'string'
-          ? rawAnswerSheet.Q_WHAT_DIRECTION_WHEN_THEY_RUN
-          : undefined,
+          ? (rawAnswerSheet.Q11_zone_entry_quality as 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE') : undefined,
       } : undefined;
-
-      // CCIP-2026-0404A: Enum fallback logging for answer_sheet fields.
-      // When Alpha returns a value that doesn't match the expected enum, the field silently
-      // becomes undefined. This logs governance violations so we can detect prompt drift.
-      if (rawAnswerSheet && typeof rawAnswerSheet === 'object') {
-        const Q1_VALID = ['ALIGNED', 'CONFLICT', 'COUNTER_TREND'];
-        if (rawAnswerSheet.Q1_trend_alignment && !Q1_VALID.includes(rawAnswerSheet.Q1_trend_alignment)) {
-          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q1_trend_alignment "${rawAnswerSheet.Q1_trend_alignment}" is not a valid enum value — answer_sheet field stored as-is.`);
-        }
-        const Q8C_VALID = ['DISCOUNT', 'EQUILIBRIUM', 'PREMIUM'];
-        if (rawAnswerSheet.Q8C_price_location_zone && !Q8C_VALID.includes(rawAnswerSheet.Q8C_price_location_zone)) {
-          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q8C_price_location_zone "${rawAnswerSheet.Q8C_price_location_zone}" is not a valid enum value.`);
-        }
-        const KILL_ZONE_VALID = ['LONDON_OPEN', 'NY_OPEN', 'NY_PM', 'PRE_KILL_ZONE', 'OUTSIDE_KILL_ZONE'];
-        if (rawAnswerSheet.kill_zone && !KILL_ZONE_VALID.includes(rawAnswerSheet.kill_zone)) {
-          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: kill_zone "${rawAnswerSheet.kill_zone}" is not a valid enum value.`);
-        }
-        const NEWS_STATUS_VALID = ['HARD_BLACKOUT', 'POST_NEWS_VOLATILITY', 'TIER2_PROXIMITY', 'CLEAR', 'UNKNOWN'];
-        if (rawAnswerSheet.news_status && !NEWS_STATUS_VALID.includes(rawAnswerSheet.news_status)) {
-          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: news_status "${rawAnswerSheet.news_status}" is not a valid enum value.`);
-        }
-        const IM_CORR_VALID = ['CONFLUENT', 'DIVERGENT', 'UNKNOWN'];
-        if (rawAnswerSheet.intermarket_correlation && !IM_CORR_VALID.includes(rawAnswerSheet.intermarket_correlation)) {
-          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: intermarket_correlation "${rawAnswerSheet.intermarket_correlation}" is not a valid enum value.`);
-        }
-        const Q5B_VALID = ['SERVES', 'MARGINAL', 'DOES_NOT_SERVE'];
-        if (rawAnswerSheet.Q5B_objective_alignment && !Q5B_VALID.includes(rawAnswerSheet.Q5B_objective_alignment)) {
-          console.warn(`[Alpha Coordinator] CCIP-2026-0404A: Q5B_objective_alignment "${rawAnswerSheet.Q5B_objective_alignment}" is not a valid enum value.`);
-        }
-      }
 
       // CCIP-2026-0328B: Q10 and Q11 entry mode corrections REMOVED.
       // Alpha has full authority over entry_mode. Q10_entry_conviction=FORCED and
@@ -5005,25 +4885,29 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // Action: advisory violation log only. Trade is NOT blocked or modified.
       // SSOT: alpha-identity.ts defines the 15-point rule. This guard enforces observability.
       if ((action === 'BUY' || action === 'SELL') && answerSheet) {
-        const q5Prob = typeof answerSheet.Q5_failure_probability === 'number' ? answerSheet.Q5_failure_probability : null;
+        const failProb = typeof answerSheet.failure_probability === 'number'
+          ? answerSheet.failure_probability
+          : typeof answerSheet.Q5_failure_probability === 'number'
+            ? answerSheet.Q5_failure_probability
+            : null;
         const rawConf = parsed.trade_confidence ?? parsed.confidence;
         const confVal = typeof rawConf === 'number' ? rawConf : null;
-        if (q5Prob !== null && confVal !== null) {
-          const gap = confVal - q5Prob;
+        if (failProb !== null && confVal !== null) {
+          const gap = confVal - failProb;
           if (gap <= 10 && gap >= -20) {
             const hasCoherence = typeof parsed.thesis_coherence_statement === 'string' &&
               parsed.thesis_coherence_statement.length > 20;
             if (!hasCoherence) {
               logViolation({
-                violationType: 'Q5_CONFIDENCE_GAP_NARROW_NO_COHERENCE',
+                violationType: 'FAILURE_PROB_CONFIDENCE_GAP_NARROW',
                 symbol: marketContext.symbol,
                 attemptedOperation: 'answer_sheet_validation',
                 callLocation: 'coordinator-alpha/parseDecision',
                 blocked: false,
-                errorDetails: { q5Prob, confVal, gap, userId: userId || 'unknown' },
+                errorDetails: { failProb, confVal, gap, userId: userId || 'unknown' },
               }).catch(() => {});
               console.warn(
-                `[Alpha Coordinator] CCIP-2026-0324E: Q5 failure gap=${gap}pts (prob=${q5Prob}, conf=${confVal}) without coherence statement. ` +
+                `[Alpha Coordinator] CCIP-2026-0324E: failure_probability gap=${gap}pts (prob=${failProb}, conf=${confVal}) without coherence statement. ` +
                 `Alpha may not have priced failure risk into confidence. Symbol=${symbol}.`
               );
             }
