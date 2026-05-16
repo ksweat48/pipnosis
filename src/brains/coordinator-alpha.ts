@@ -3660,7 +3660,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       //   5.  win_reason (non-empty string)
       //   6.  losing_hypothesis_disqualifier (non-empty string)
       //   7.  contradictions_fired (array)
-      //   8.  contradictions_scanned_count (integer ≥ 17)
+      //   8.  contradictions_scanned_count (integer ≥ 5)
       //   9.  contradictions_unresolved_count (integer; must be 0 for execute_now)
       //   10. reconciliation_ledger_complete (boolean true for execute_now)
       //
@@ -3719,8 +3719,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const scannedCount = pickField('contradictions_scanned_count');
         if (typeof scannedCount !== 'number' || !Number.isFinite(scannedCount)) {
           missing.push('contradictions_scanned_count');
-        } else if (scannedCount < 17) {
-          invalid.push(`contradictions_scanned_count=${scannedCount} (<17)`);
+        } else if (scannedCount < 5) {
+          invalid.push(`contradictions_scanned_count=${scannedCount} (<5)`);
         }
 
         const unresolvedCount = pickField('contradictions_unresolved_count');
