@@ -27,6 +27,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   AlertTriangle,
+  ArrowUpRight,
+  ArrowDownRight,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -119,6 +121,16 @@ function ArmedCard({ row }: { row: HuntReadinessRow }) {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-white tracking-wide">{row.symbol}</span>
+                {row.direction_lean === 'BUY' && (
+                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                    <ArrowUpRight className="w-2.5 h-2.5" />BUY
+                  </span>
+                )}
+                {row.direction_lean === 'SELL' && (
+                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-red-300 bg-red-500/15 border border-red-500/30 px-1.5 py-0.5 rounded">
+                    <ArrowDownRight className="w-2.5 h-2.5" />SELL
+                  </span>
+                )}
                 <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">
                   ARMED
                 </span>
