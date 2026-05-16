@@ -149,30 +149,28 @@ SESSION AFFINITY (CCIP-2026-0501A — GBPUSD SESSION DYNAMICS): Cable is a Londo
     },
   },
 
-  // ── YEN PAIRS ──────────────────────────────────────────────────────────────
+  // ── USD/JPY (USDJPY) ───────────────────────────────────────────────────────
   {
-    group: 'YEN_PAIRS',
-    symbols: ['USDJPY', 'GBPJPY', 'EURJPY', 'AUDJPY'],
-    characterContext: `I am trading a Yen pair. Yen crosses share a distinctive behavioral character: fast, momentum-driven moves with sharp reversals when risk sentiment shifts. These pairs react strongly to global risk appetite — risk-off flows (JPY strengthening) and risk-on flows (JPY weakening) move Yen crosses in a way that can override local technical structure. Tokyo session produces genuine, observable directional movement on Yen pairs. Range sweeps before major directional moves are a recognized behavioral pattern — the pair distributing liquidity before committing to a direction.
+    group: 'USDJPY',
+    symbols: ['USDJPY'],
+    characterContext: `I am trading USD/JPY (USDJPY). USDJPY is a momentum-driven pair with sharp reversals when risk sentiment shifts. It reacts strongly to global risk appetite — risk-off flows (JPY strengthening) and risk-on flows (JPY weakening) can override local technical structure. Tokyo session produces genuine, observable directional movement. Range sweeps before major directional moves are a recognized behavioral pattern — the pair distributing liquidity before committing to a direction.
 
-SL awareness: Yen pairs spike aggressively at structural levels and at session transitions. GBPJPY has the widest typical daily range and deepest structural sweeps of the group — what constitutes a safe stop distance on USDJPY is frequently inside the noise on GBPJPY. USDJPY is tighter-behaving than the crosses, but it is also highly sensitive to sudden risk-off flows that can generate fast, uninterrupted moves in either direction without warning.
+SL awareness: USDJPY spikes aggressively at structural levels and at session transitions. It is highly sensitive to sudden risk-off flows that can generate fast, uninterrupted moves in either direction without warning. Named structural levels on USDJPY are sweep magnets at every session transition — stops placed exactly at session highs/lows are positioned inside the instrument's recognized liquidity-hunt behavior.
 
-TP awareness: When Yen pairs move with momentum, they extend further than local structure alone suggests. Named session levels and key psychological round numbers are observed reference points. A Yen pair breakout with genuine risk-flow behind it does not respect intermediate local structure the way a ranging pair would.
+TP awareness: When USDJPY moves with momentum, it extends further than local structure alone suggests. Named session levels and key psychological round numbers are observed reference points. A USDJPY breakout with genuine risk-flow behind it does not respect intermediate local structure the way a ranging pair would.
 
-DRIFT & SPREAD DISCIPLINE: Yen crosses — particularly GBPJPY — have high pip velocity, meaning the distance price travels in the seconds between decision and fill is meaningful. A planned entry on a Yen cross is a zone; the fill is wherever the tape is at the moment of execution. Alpha sizes the stop so it tolerates several pips of decision-to-fill drift on top of the structural invalidation distance — a stop so tight that a normal few-pip drift consumes it is not a stop calibrated for this pair's velocity.
+SL NOISE FLOOR (CCIP-2026-0501A — USDJPY STOP SURVIVAL): USDJPY has a wide noise floor relative to other Forex majors (narrower than Gold but wider than EURUSD). Structural SL must be calibrated to USDJPY's specific noise characteristics — tighter than Yen crosses but wider than EUR or GBP majors. Named structural levels are sweep magnets at every session transition — stops placed exactly at session highs/lows are positioned inside the instrument's recognized liquidity-hunt behavior.
 
-SL NOISE FLOOR (CCIP-2026-0501A — YEN PAIRS STOP SURVIVAL): Yen pairs have the widest noise floors in Forex after Gold. GBPJPY specifically produces sweeps that routinely exceed what would be considered safe structural stop distance on USDJPY or EURJPY. A stop sized for USDJPY noise placed on GBPJPY is guaranteed to be taken out by normal price discovery. The structural SL must be calibrated per-pair, not per-group: USDJPY tolerates tighter structural stops than the crosses because its base-pair mechanics are calmer, while GBPJPY requires the widest noise-floor buffer of the group. Named structural levels on Yen pairs are sweep magnets at every session transition — stops placed exactly at session highs/lows are positioned inside the instrument's recognized liquidity-hunt behavior.
-
-SESSION AFFINITY (CCIP-2026-0501A — YEN PAIRS SESSION DYNAMICS): Yen pairs are the only Forex instruments with a native Asian session edge, and their behavior shifts materially across all three global sessions:
-  • Tokyo session: Yen pairs' native session. Genuine directional moves form here, driven by domestic participation and regional risk flows. USDJPY produces its cleanest structural reads during Tokyo; the crosses (GBPJPY, EURJPY, AUDJPY) trade with somewhat less clarity until London joins.
-  • Tokyo/London transition: Frequently sees a sweep of the Tokyo range as London participants test the Asian-set narrative. Sweep-reclaim with M15 body confirmation during this transition is a recognized Yen-pair behavioral trigger.
-  • London session: The crosses (GBPJPY, EURJPY, AUDJPY) find their highest-activity window here; USDJPY remains active but less dominant than during Tokyo or NY.
-  • London/NY overlap: Highest-volatility window for USDJPY specifically — US data and risk-flow convergence produce the widest moves of the day. GBPJPY's widest wicks print here. Execute_now inside overlap without confirmed sweep-reclaim is adverse selection.
-  • Late NY / Asian rollover: Position unwind and risk-sentiment checks; moves initiated here that survive into the next Tokyo session carry genuine conviction. Risk-off flows can produce fast, uninterrupted JPY-strengthening moves at any time during this window — a stop placed on a short-JPY position here must survive that possibility.`,
+SESSION AFFINITY (CCIP-2026-0501A — USDJPY SESSION DYNAMICS): USDJPY is the only Forex major with a native Asian session edge:
+  • Tokyo session: USDJPY's native session. Genuine directional moves form here, driven by domestic participation and regional risk flows. USDJPY produces its cleanest structural reads during Tokyo.
+  • Tokyo/London transition: Frequently sees a sweep of the Tokyo range as London participants test the Asian-set narrative. Sweep-reclaim with M15 body confirmation during this transition is a recognized USDJPY behavioral trigger.
+  • London session: USDJPY remains active but less dominant than during Tokyo or NY.
+  • London/NY overlap: Highest-volatility window for USDJPY — US data and risk-flow convergence produce the widest moves of the day.
+  • Late NY / Asian rollover: Position unwind and risk-sentiment checks; moves initiated here that survive into the next Tokyo session carry genuine conviction. Risk-off flows can produce fast, uninterrupted JPY-strengthening moves at any time during this window.`,
     styleNotes: {
-      SCALP: `On SCALP, Yen pairs have fast M5 candles with real pip velocity. A directional candle on GBPJPY covers the same distance in M5 that takes EURUSD several candles — the clock runs differently on this instrument. A confirmed M5 body close in direction carries genuine weight here. A few pips of entry precision changes the realized R:R meaningfully because the pip moves are large and the entry timing is what defines whether the stop is in front of or behind the structural anchor.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, the Tokyo session range is an observable, structural reference frame for Yen pairs. A break of an established range accompanied by an M15 body confirmation is a recognized behavioral pattern — the sweep of the range is the hunt, and the M15 body close after that sweep is the tell. A wick through the range that does not produce an M15 body confirmation is not yet a break; it is the hunt in progress.`,
-      INTRADAY: `On INTRADAY, Yen pairs are driven by macro risk flows at the H1 level. An H1 structural move on a Yen cross that aligns with the prevailing risk sentiment (risk-on or risk-off) carries more conviction than an H1 move that runs against the macro tone. H1 moves on Yen pairs that lack macro alignment are more likely to stall at prior session boundaries.`,
+      SCALP: `On SCALP, USDJPY has fast M5 candles with real pip velocity. A confirmed M5 body close in direction carries genuine weight here. A few pips of entry precision changes the realized R:R meaningfully because the pip moves are large and the entry timing is what defines whether the stop is in front of or behind the structural anchor.`,
+      MICRO_INTRADAY: `On MICRO_INTRADAY, the Tokyo session range is an observable, structural reference frame for USDJPY. A break of an established range accompanied by an M15 body confirmation is a recognized behavioral pattern — the sweep of the range is the hunt, and the M15 body close after that sweep is the tell. A wick through the range that does not produce an M15 body confirmation is not yet a break; it is the hunt in progress.`,
+      INTRADAY: `On INTRADAY, USDJPY is driven by macro risk flows at the H1 level. An H1 structural move that aligns with the prevailing risk sentiment (risk-on or risk-off) carries more conviction than an H1 move that runs against the macro tone. H1 moves that lack macro alignment are more likely to stall at prior session boundaries.`,
     },
   },
 
@@ -204,22 +202,6 @@ Per-index session bias: NAS100 — strongest at cash open and late-NY, most vola
     },
   },
 
-  // ── EUROPEAN INDICES ───────────────────────────────────────────────────────
-  {
-    group: 'EUROPEAN_INDICES',
-    symbols: ['UK100', 'GER40'],
-    characterContext: `I am trading a European equity index — FTSE (UK100) or DAX (GER40). European indices set their primary directional narrative during London hours, and that narrative is frequently challenged — and sometimes reversed — when US futures become active at the London/NY overlap. The London morning move is real; its survival to end-of-day is conditional on US alignment.
-
-SL awareness: European indices carry wide daily ranges during momentum sessions. GER40 (DAX) is typically more volatile than UK100 (FTSE) — structural levels on GER40 are pierced more aggressively and the stop distances required to absorb normal noise are proportionally wider. High-activity windows on both instruments see elevated wick behavior — stops placed at the most obvious prior levels during these windows are positioned in the sweep zone.
-
-TP awareness: Prior day close, prior session high/low, and round numbers are observed structural reference points. The London/NY overlap is a recognized inflection zone — a European index move that has run strongly without a pullback faces the highest probability of reversal or consolidation as new participants arrive. A move confirmed by multiple session participations is structurally sounder than a single-session move.`,
-    styleNotes: {
-      SCALP: `On SCALP, the high-activity windows on European indices are characterized by aggressive wicks — particularly in the first 15–30 minutes before the opening volatility has been absorbed. M5 wicks during the opening window are wider relative to bodies than at any other time on these instruments. A confirmed M5 body close after the opening wick has completed carries more directional weight than a position taken during the wick itself.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, European indices establish a range before the major session move resolves. A break of that established range confirmed on M15 is a recognized behavioral pattern — the range sweep is the liquidity hunt, and the M15 body close after that sweep is the signal. Alpha reads the current M15 structure for the directional edge present now.`,
-      INTRADAY: `On INTRADAY, H1 structural moves on European indices built during the London session are the primary reference. When an H1 move stalls at a major overlap window and a reversal candle forms, that is a recognized behavioral transition as new participants take a view. H1 moves that survive the overlap with continuation volume are structurally more confirmed than those that pause exactly at the overlap.`,
-    },
-  },
-
   // ── CRYPTO (BTC, ETH) ──────────────────────────────────────────────────────
   {
     group: 'CRYPTO',
@@ -248,51 +230,6 @@ Named prior-day and prior-week high/low are crypto's strongest structural anchor
     },
   },
 
-  // ── COMMODITY CURRENCIES (AUD, NZD, CAD) ───────────────────────────────────
-  {
-    group: 'COMMODITY_FX',
-    symbols: ['AUDUSD', 'NZDUSD', 'USDCAD'],
-    characterContext: `I am trading a commodity-linked currency pair. AUD/USD, NZD/USD, and USD/CAD are influenced by commodity prices and global risk sentiment — they do not move on Forex flows alone. AUD and NZD pairs see strong directional activity during Sydney and Tokyo session hours; those sessions are their natural environment. USD/CAD has a real-time correlation to oil prices — a sudden oil price move during the session is a direct input to USDCAD, not just a contextual factor.
-
-SL awareness: These pairs generally exhibit less wick-aggressive price action than Gold, Yen crosses, or Indices. The structural levels they form tend to be respected with more consistency than on high-volatility instruments. USD/CAD is the exception during CAD data releases and oil price shocks — USDCAD in these moments behaves more like an index or commodity than a Forex pair, with spike behavior that can exceed any prior technical anchor. Treating USDCAD as a calm pair during active oil or CAD news events is a misread of the instrument's current character.
-
-TP awareness: Session highs/lows and multi-day range boundaries are strong reference points on these instruments. AUDUSD and NZDUSD have historically shown strong reversals at multi-month range boundaries. USDCAD's commodity correlation means its directional moves are sometimes driven entirely by oil — a move with oil behind it has different extension characteristics than a purely technical USDCAD move.`,
-    styleNotes: {
-      SCALP: `On SCALP, AUD and NZD pairs offer clean M5 structure — particularly during their native Sydney and Tokyo sessions where domestic participation is highest. These pairs produce tradeable M5 setups across all sessions; Alpha reads the current live structure and ATR to assess the edge present now.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, the Sydney and Tokyo transitions are natural inflection points for AUD and NZD pairs. An M15 structural move initiated during these sessions reflects domestic and regional participation. A USDCAD M15 move initiated during a CAD news window is a different instrument in that moment — the normal M15 structure reads do not apply when the fundamental driver is overriding the technical one.`,
-    },
-  },
-
-  // ── CHF PAIRS ──────────────────────────────────────────────────────────────
-  {
-    group: 'CHF_PAIRS',
-    symbols: ['USDCHF', 'EURCHF'],
-    characterContext: `I am trading a Swiss Franc pair. CHF has a split character: in normal conditions it is a moderate-pace, well-structured pair that respects technical levels with reasonable consistency. Under conditions of financial stress, geopolitical tension, or SNB intervention, CHF pairs become a completely different instrument — the SNB has a documented history of interventions that produced moves of hundreds to over a thousand pips in minutes with no prior warning and no technical setup that predicted them.
-
-SL awareness: In normal conditions, structural levels on CHF pairs are respected with reasonable consistency — the instrument does not have the wick-hunt aggression of Gold or Yen crosses. The risk on CHF pairs is not the normal day-to-day wick — it is the tail event. A structural stop on USDCHF or EURCHF provides containment under normal conditions and provides no containment at all if an SNB event or major risk-off flow occurs. That is the instrument's character. It cannot be read out of the setup — it is simply what CHF pairs are.
-
-TP awareness: CHF pairs trend cleanly during sustained macro environments. Named structural levels and psychological round numbers are reliable references in trending conditions. During choppy, range-bound conditions CHF pairs lack directional follow-through and produce more false breaks per unit of move than they do in trending environments.`,
-    styleNotes: {
-      SCALP: `On SCALP, USDCHF and EURCHF M5 candles in normal conditions are relatively orderly. The wick behavior is not as aggressive as Gold or Yen crosses during normal sessions. The SNB tail risk on CHF pairs is not a scalp concern — it is a position-level concern. For M5 timeframe purposes, these pairs behave like moderate-volatility instruments in the absence of macro stress events.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, CHF pairs produce their most reliable structural moves during European session hours when Swiss and European participation is highest. Swiss economic data and SNB commentary are the primary discretionary inputs that can override technical structure on these instruments — their presence changes the instrument's character for the duration of the event.`,
-    },
-  },
-
-  // ── EUR CROSSES ────────────────────────────────────────────────────────────
-  {
-    group: 'EUR_CROSSES',
-    symbols: ['EURGBP', 'EURAUD', 'EURNZD', 'EURCAD'],
-    characterContext: `I am trading a EUR cross pair. EUR crosses are driven by relative strength between two currencies rather than a single macro driver — they reflect the simultaneous view on EUR and on the counter currency. This dual-currency character means EUR crosses can move in the opposite direction to what the Euro alone would suggest, because the counter currency is moving faster. The wider spread on cross pairs compared to majors is a real cost that directly affects the minimum viable R:R on these instruments — a setup that is marginally positive on a major may be marginally negative on a cross once spread is accounted for.
-
-SL awareness: EUR crosses generally exhibit less wick-aggressive behavior than Yen crosses or Gold. EURAUD and EURNZD are exceptions — when commodity sentiment on AUD or NZD is strong, these two pairs can move sharply and non-technically, driven by the counter currency rather than by EUR. A EUR cross setup that looks technically clean can be overridden by a commodity-flow event on the counter side that has nothing to do with the technical pattern being read.
-
-TP awareness: Range boundaries are powerful reference points on these instruments. Confirmed body closes beyond multi-day range boundaries on EUR crosses have historically been followed by measured continuation moves. H4 and D1 structural levels carry more observable weight on these instruments than shorter-timeframe anchors — the pairs move slowly enough that the meaningful context lives at higher timeframes.`,
-    styleNotes: {
-      SCALP: `On SCALP, EUR cross pairs are among the most challenging instruments for M5 setups. The wider spread means the noise-to-profit ratio on a short scalp target is less favorable than on a major. The slower pace of these pairs means M5 setups can look technically complete but then simply stall because there is no participant urgency to move price to the target within a scalp timeframe. A setup that is clean on EURUSD may be technically identical on EURGBP but not carry the same execution quality because the market does not need to go there quickly.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, the most reliable structural reads on EUR crosses come from periods when both constituent currencies have active participants. EURGBP's highest-quality M15 structure occurs during London hours when both EUR and GBP flows are present. EURAUD and EURNZD produce their most directional M15 moves during periods of cross-currency flow — when commodity sentiment is moving AUD or NZD with conviction, the EUR cross inherits that movement regardless of what the technical setup suggests.`,
-      INTRADAY: `On INTRADAY, H4 and D1 structure is the dominant read on EUR crosses. H1 setups on EUR crosses that align with the H4 directional narrative carry more weight than H1 setups that run counter to the H4 picture. The pairs move slowly enough that positioning against the H4 structure on a H1 signal frequently results in a long wait with no directional progress before the H4 reasserts itself.`,
-    },
-  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
