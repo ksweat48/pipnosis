@@ -111,12 +111,12 @@ class UserRiskPreferenceService {
       return { success: false, userId, newMaxRiskPercent: maxRiskPercent, error: 'Missing userId' };
     }
 
-    if (maxRiskPercent < 1 || maxRiskPercent > 10) {
+    if (maxRiskPercent < 1 || maxRiskPercent > 100) {
       return {
         success: false,
         userId,
         newMaxRiskPercent: maxRiskPercent,
-        error: 'Risk percent must be between 1% and 10%'
+        error: 'Risk percent must be between 1% and 100%'
       };
     }
 

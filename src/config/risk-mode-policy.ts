@@ -1,8 +1,8 @@
 /**
  * Risk Policy Configuration (SSOT)
  *
- * Simplified to single STANDARD risk policy: 1-10% per trade, 20% max total exposure.
- * Risk is now user-controlled via dollar amounts rather than abstract modes.
+ * Users control their own risk. No platform-imposed caps on per-trade risk,
+ * total exposure, or daily drawdown. Warnings are advisory only.
  *
  * Legacy RiskMode type kept for backward compatibility but deprecated.
  */
@@ -25,7 +25,7 @@ export const STANDARD_RISK_POLICY: RiskPolicyEnvelope = {
   minPercent: TRADING_CONSTANTS.RISK_PERCENTAGES.MIN_PER_TRADE * 100,
   maxPercent: TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100,
   defaultPercent: TRADING_CONSTANTS.RISK_PERCENTAGES.DEFAULT_PER_TRADE * 100,
-  description: 'Standard risk - 1-10% per trade, user controls via dollar amounts',
+  description: 'User-controlled risk - no platform caps, user decides their own risk',
 };
 
 export const RISK_MODE_POLICIES: Record<RiskMode, RiskPolicyEnvelope> = {

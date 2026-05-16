@@ -74,12 +74,12 @@ export const TRADING_CONSTANTS = {
     DEFAULT_BASE_RISK: 0.01,      // 1% - Conservative baseline (SSOT)
     MIN_PER_TRADE: 0.01,          // 1% - Minimum allowed
     DEFAULT_PER_TRADE: 0.02,      // 2% - Recommended baseline
-    MAX_PER_TRADE: 0.10,          // 10% - Maximum allowed
-    MAX_TOTAL_EXPOSURE: 0.20,     // 20% - Total portfolio risk cap
-    MAX_DAILY_DRAWDOWN: 0.08,     // 8% - Daily loss limit
-    DRAWDOWN_RISK_REDUCTION_THRESHOLD: 0.03,
-    DRAWDOWN_RISK_REDUCTION_FACTOR: 0.5,
-    DAILY_LOSS_CRITICAL_REMAINING: 0.02,
+    MAX_PER_TRADE: 1.00,          // 100% - User controls their own risk (uncapped)
+    MAX_TOTAL_EXPOSURE: 1.00,     // 100% - No portfolio exposure cap (user decides)
+    MAX_DAILY_DRAWDOWN: 1.00,     // 100% - No daily drawdown cap (user decides)
+    DRAWDOWN_RISK_REDUCTION_THRESHOLD: 1.00,
+    DRAWDOWN_RISK_REDUCTION_FACTOR: 1.0,
+    DAILY_LOSS_CRITICAL_REMAINING: 0.00,
   },
 
   LOT_SIZES: {
