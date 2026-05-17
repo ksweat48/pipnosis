@@ -1120,7 +1120,7 @@ export function PositionsPage() {
 
                             const tp1Estimated = trade.tp1_pnl == null;
                             const tp2Estimated = trade.tp2_pnl == null;
-                            const tp2Hit = trade.tp2_hit === true;
+                            const tp2Hit = trade.tp2_hit === true || trade.close_reason === 'take_profit_2';
 
                             return (
                               <div className="flex flex-col items-end gap-0.5 min-w-[140px]">
