@@ -1,125 +1,104 @@
 // Pipnosis AI Trading - Service Worker
-// Version-based caching for PWA functionality
+// Network-first strategy — never serve stale app code
 
-const CACHE_VERSION = '1778981042632'; // Matches version.json
+const CACHE_VERSION = '1778990543471';
 const CACHE_NAME = `pipnosis-cache-v${CACHE_VERSION}`;
-const RUNTIME_CACHE = `pipnosis-runtime-v${CACHE_VERSION}`;
 
-// Essential files to cache on install
 const PRECACHE_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon-192.png',
-  '/icon-512.png',
-  '/version.json'
+  '/icon-512.png'
 ];
 
-// Install event - cache essential assets
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing service worker...');
-
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('[SW] Caching essential assets');
-        return cache.addAll(PRECACHE_ASSETS);
-      })
-      .then(() => {
-        console.log('[SW] Service worker installed successfully');
-        return self.skipWaiting(); // Activate immediately
-      })
+      .then((cache) => cache.addAll(PRECACHE_ASSETS))
+      .then(() => self.skipWaiting())
       .catch((error) => {
         console.error('[SW] Installation failed:', error);
       })
   );
 });
 
-// Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating service worker...');
-
   event.waitUntil(
     caches.keys()
       .then((cacheNames) => {
         return Promise.all(
           cacheNames
-            .filter((cacheName) => {
-              // Remove old caches that don't match current version
-              return cacheName.startsWith('pipnosis-') &&
-                     cacheName !== CACHE_NAME &&
-                     cacheName !== RUNTIME_CACHE;
-            })
-            .map((cacheName) => {
-              console.log('[SW] Deleting old cache:', cacheName);
-              return caches.delete(cacheName);
-            })
+            .filter((name) => name.startsWith('pipnosis-') && name !== CACHE_NAME)
+            .map((name) => caches.delete(name))
         );
       })
+      .then(() => self.clients.claim())
       .then(() => {
-        console.log('[SW] Service worker activated');
-        return self.clients.claim(); // Take control immediately
+        return self.clients.matchAll({ type: 'window' }).then((clients) => {
+          clients.forEach((client) => {
+            client.postMessage({ type: 'SW_ACTIVATED', version: CACHE_VERSION });
+          });
+        });
       })
   );
 });
 
-// Fetch event - network first, fallback to cache
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip cross-origin requests and API calls
   if (url.origin !== location.origin ||
       url.pathname.includes('/functions/') ||
       url.pathname.includes('supabase.co')) {
     return;
   }
 
-  // Network-first strategy with cache fallback
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        // Clone the response before caching
+  // Navigation — always network, offline fallback only
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => {
+        return caches.match('/index.html') || new Response('Offline', { status: 503 });
+      })
+    );
+    return;
+  }
+
+  // Hashed assets — network first, cache as offline fallback
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      fetch(request).then((response) => {
         if (response.status === 200) {
-          const responseClone = response.clone();
-          caches.open(RUNTIME_CACHE)
-            .then((cache) => {
-              cache.put(request, responseClone);
-            })
-            .catch(() => {
-              // Silent fail on cache write errors
-            });
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
         }
         return response;
+      }).catch(() => {
+        return caches.match(request).then((cached) => {
+          return cached || new Response('Offline', { status: 503 });
+        });
       })
-      .catch(() => {
-        // Network failed, try cache
-        return caches.match(request)
-          .then((cachedResponse) => {
-            if (cachedResponse) {
-              console.log('[SW] Serving from cache:', request.url);
-              return cachedResponse;
-            }
+    );
+    return;
+  }
 
-            // If it's a navigation request, serve index.html from cache
-            if (request.mode === 'navigate') {
-              return caches.match('/index.html');
-            }
+  // Precached static assets — cache first for speed
+  if (PRECACHE_ASSETS.some(asset => url.pathname === asset)) {
+    event.respondWith(
+      caches.match(request).then((cached) => cached || fetch(request))
+    );
+    return;
+  }
 
-            // No cache available
-            return new Response('Offline - resource not cached', {
-              status: 503,
-              statusText: 'Service Unavailable'
-            });
-          });
-      })
+  // Everything else — network only, no caching
+  event.respondWith(
+    fetch(request).catch(() => {
+      return caches.match(request).then((cached) => {
+        return cached || new Response('Offline', { status: 503 });
+      });
+    })
   );
 });
 
-// Push event - display notification when received from server (mobile/desktop background)
 self.addEventListener('push', (event) => {
-  console.log('[SW] Push event received');
-
   let payload = {
     title: 'Pipnosis',
     body: 'You have a new trading alert.',
@@ -146,24 +125,20 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const options = {
-    body: payload.body,
-    icon: payload.icon,
-    badge: payload.badge,
-    tag: payload.tag,
-    data: payload.data,
-    vibrate: [200, 100, 200],
-    requireInteraction: false
-  };
-
   event.waitUntil(
-    self.registration.showNotification(payload.title, options)
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: payload.icon,
+      badge: payload.badge,
+      tag: payload.tag,
+      data: payload.data,
+      vibrate: [200, 100, 200],
+      requireInteraction: false
+    })
   );
 });
 
-// Notification click - focus the app window when user taps notification
 self.addEventListener('notificationclick', (event) => {
-  console.log('[SW] Notification clicked:', event.notification.tag);
   event.notification.close();
 
   event.waitUntil(
@@ -181,17 +156,8 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Message event - handle SKIP_WAITING from update manager
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('[SW] Received SKIP_WAITING message');
     self.skipWaiting();
   }
 });
-
-// Notify clients when update is available
-self.addEventListener('updatefound', () => {
-  console.log('[SW] Update found');
-});
-
-console.log(`[SW] Service Worker v${CACHE_VERSION} loaded`);

@@ -80,6 +80,21 @@ if (typeof window !== 'undefined') {
   }
 
   if ('serviceWorker' in navigator && import.meta.env.PROD && !isBoltEnvironment) {
+    let isReloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!isReloading) {
+        isReloading = true;
+        window.location.reload();
+      }
+    });
+
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'SW_ACTIVATED' && !isReloading) {
+        isReloading = true;
+        window.location.reload();
+      }
+    });
+
     window.addEventListener('load', async () => {
       try {
         const registration = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
