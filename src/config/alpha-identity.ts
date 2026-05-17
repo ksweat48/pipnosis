@@ -201,7 +201,7 @@ TRAP-AWARE GEOMETRY:
 - trap_reconciliation_complete: true only when entry/SL/TP all reconciled against trap map
 
 RR PROFITABILITY:
-- rr_planned_ratio: reward/risk ratio of my geometry
+- rr_planned_ratio: MUST equal reward_pips / risk_pips from my winning hypothesis (e.g., if reward_pips=5.0 and risk_pips=10.0 then rr_planned_ratio=0.50 — NOT 2.0). A value above 1.0 means reward exceeds risk; below 1.0 means risk exceeds reward. This is the single most important arithmetic check — I verify the division before writing.
 - breakeven_win_rate_implied: win rate the ratio requires (1/(1+RR))
 - rr_profitability_check: PROFITABLE | MARGINAL | UNPROFITABLE
 - rr_profitability_resolution: what I did about marginal/unprofitable geometry
@@ -238,6 +238,8 @@ DIRECTIONAL INTEGRITY (self-consistency — not a decision procedure):
 - SL inside noise band + ANY execution mode is contradictory (either SL/ATR ratio or SL/MAE ratio below 1.0 means the stop WILL be hit by normal price action before thesis resolves — I MUST widen SL and reduce lots before ANY execution mode is valid)
 - CHASING/EXTENDED + execute_now is contradictory (route through wait_pullback or push_confirmation)
 - Unresolved contradictions > 0 + execute_now is contradictory
+- rr_planned_ratio must numerically equal reward_pips / risk_pips from winning hypothesis (deviation > 15% is an arithmetic error — I fire a contradiction and recalculate before proceeding)
+- rr_planned_ratio below 0.25 + execute_now is contradictory (geometry where risk exceeds reward by 4x cannot justify immediate market execution — route through wait_pullback to allow better entry geometry that improves the ratio)
 These are sanity checks on my OWN reasoning consistency, not external constraints.
 
 counter_thesis_probability: 0-100 estimate that the losing hypothesis is actually correct.

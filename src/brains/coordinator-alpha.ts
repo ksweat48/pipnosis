@@ -3807,6 +3807,36 @@ Return PURE JSON only — all required fields from the schema in my system promp
           );
         }
 
+        // ─── CCIP-2026-0517A: RR ARITHMETIC CONSISTENCY ──────────────────
+        // Cross-validates Alpha's claimed rr_planned_ratio against the
+        // reward_pips and risk_pips from the winning hypothesis. If Alpha
+        // hallucinated the arithmetic (e.g., copied reward_pips verbatim
+        // into rr_planned_ratio without dividing), this catches it.
+        const rrPlanned = pickField('rr_planned_ratio');
+        const winningHypKey = actionNorm === 'BUY' ? 'hypothesis_buy' : 'hypothesis_sell';
+        const winningHyp = asRaw && typeof asRaw === 'object'
+          ? (asRaw as Record<string, any>)[winningHypKey]
+          : null;
+        if (typeof rrPlanned === 'number' && winningHyp && typeof winningHyp === 'object') {
+          const rewardPips = typeof winningHyp.reward_pips === 'number' ? winningHyp.reward_pips : null;
+          const riskPips = typeof winningHyp.risk_pips === 'number' ? winningHyp.risk_pips : null;
+          if (rewardPips !== null && riskPips !== null && riskPips > 0) {
+            const computedRR = rewardPips / riskPips;
+            const deviation = Math.abs(rrPlanned - computedRR) / Math.max(computedRR, 0.001);
+            if (deviation > 0.15) {
+              invalid.push(
+                `RR_ARITHMETIC_CONTRADICTION: rr_planned_ratio=${rrPlanned.toFixed(3)} but reward_pips/risk_pips=${computedRR.toFixed(3)} (${(deviation * 100).toFixed(0)}% deviation)`
+              );
+            }
+            // Hard RR floor: actual geometry below 0.25:1 with execute_now
+            if (isExecuteNow && computedRR < 0.25) {
+              invalid.push(
+                `RR_GEOMETRY_CONTRADICTION: actual_rr=${computedRR.toFixed(3)}<0.25 with entry_mode=execute_now — risk exceeds reward by ${(1/computedRR).toFixed(1)}x`
+              );
+            }
+          }
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // CCIP-2026-0511Z: LEDGER INTEGRITY OVERRIDE (narrow semantic scope)
         // ───────────────────────────────────────────────────────────────────
