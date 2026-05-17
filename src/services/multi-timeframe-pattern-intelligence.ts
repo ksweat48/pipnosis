@@ -238,17 +238,43 @@ class MultiTimeframePatternIntelligence {
     lines.push('=== MULTI-TIMEFRAME PATTERN GEOMETRY (raw readings) ===');
     lines.push('');
 
-    const tfLine = (label: string, scan: PatternIntelligenceResult['htfScan']) => {
-      if (scan.primaryPattern) {
-        lines.push(`${label} ${scan.timeframe}: ${scan.primaryPattern.patternType}`);
-      } else {
-        lines.push(`${label} ${scan.timeframe}: no_primary_pattern_detected`);
-      }
+    const dirCode = (dir: string | undefined): string => {
+      if (dir === 'bullish') return '+1';
+      if (dir === 'bearish') return '-1';
+      return '0';
     };
 
-    tfLine('HTF', result.htfScan);
-    tfLine('MTF', result.mtfScan);
-    tfLine('LTF', result.ltfScan);
+    const scans = [
+      { label: 'HTF', scan: result.htfScan },
+      { label: 'MTF', scan: result.mtfScan },
+      { label: 'LTF', scan: result.ltfScan },
+    ];
+
+    let directionAgreement = 0;
+    const directions: number[] = [];
+
+    for (const { label, scan } of scans) {
+      if (scan.primaryPattern) {
+        const dc = dirCode(scan.primaryPattern.direction);
+        directions.push(dc === '+1' ? 1 : dc === '-1' ? -1 : 0);
+        lines.push(`${label} ${scan.timeframe}: ${scan.primaryPattern.patternType} | dir: ${dc} | cat: ${scan.primaryPattern.category}`);
+      } else {
+        directions.push(0);
+        lines.push(`${label} ${scan.timeframe}: no_primary_pattern_detected`);
+      }
+    }
+
+    // Count agreement: how many non-zero directions match the majority
+    const nonZero = directions.filter(d => d !== 0);
+    if (nonZero.length > 0) {
+      const sum = nonZero.reduce((a, b) => a + b, 0);
+      const majorityDir = sum > 0 ? 1 : sum < 0 ? -1 : 0;
+      directionAgreement = majorityDir !== 0
+        ? nonZero.filter(d => d === majorityDir).length
+        : 0;
+    }
+
+    lines.push(`pattern_tf_direction_agreement: ${directionAgreement}/${scans.length}`);
     lines.push('');
 
     if (result.liquidityTargets.length > 0) {
