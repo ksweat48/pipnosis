@@ -1,7 +1,7 @@
 // Pipnosis AI Trading - Service Worker
 // Network-first strategy — never serve stale app code
 
-const CACHE_VERSION = '1778990543471';
+const CACHE_VERSION = '1778991284697';
 const CACHE_NAME = `pipnosis-cache-v${CACHE_VERSION}`;
 
 const PRECACHE_ASSETS = [
