@@ -52,6 +52,8 @@ export const MANDATORY_AUDIT_KEYS = [
   'contradictions_scanned_count',
   'contradictions_unresolved_count',
   'reconciliation_ledger_complete',
+  'rr_planned_ratio',
+  'rr_profitability_check',
 ] as const;
 
 export type MandatoryAuditKey = (typeof MANDATORY_AUDIT_KEYS)[number];
@@ -156,15 +158,15 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   trap_reconciliation_complete: { type: ['boolean', 'null'] },
 
   // ═══════════════════════════════════════════════════════════════════
-  // PROFITABILITY & RR RECONCILIATION (CCIP-2026-0513A)
+  // PROFITABILITY & RR RECONCILIATION (CCIP-2026-0513A, amended 0517B)
+  // rr_planned_ratio and rr_profitability_check are NON-NULLABLE —
+  // Alpha MUST always compute and declare his RR reasoning.
   // ═══════════════════════════════════════════════════════════════════
-  rr_planned_ratio: { type: ['number', 'null'] },
+  rr_planned_ratio: { type: 'number' },
   breakeven_win_rate_implied: { type: ['number', 'null'] },
   rr_profitability_check: {
-    anyOf: [
-      { type: 'string', enum: ['PROFITABLE', 'MARGINAL', 'UNPROFITABLE'] },
-      { type: 'null' },
-    ],
+    type: 'string',
+    enum: ['PROFITABLE', 'MARGINAL', 'UNPROFITABLE'],
   },
   rr_profitability_resolution: { type: ['string', 'null'] },
 
