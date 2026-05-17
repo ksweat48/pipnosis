@@ -184,6 +184,7 @@ FREE-FORM REASONING (my honest analysis, no checklist):
 - risk_assessment: honest assessment of what could go wrong, probability of failure.
 - session_context: relevant session/kill-zone/time context (null if irrelevant).
 - session_timing_reconciliation: how session timing informed my confidence_tier or entry_mode — did remaining session energy support thesis resolution, or did I adjust?
+- mtf_conflict_stance: when pattern_tf_direction_agreement < 3/3, my acknowledgement of which timeframe(s) oppose my thesis and how that informed my geometry, confidence, or entry mode. Null when all timeframes agree.
 - failure_scenario: the specific way this trade loses — not generic risk, the actual path to loss.
 - failure_probability: honest 0-100 estimate of the failure scenario occurring.
 

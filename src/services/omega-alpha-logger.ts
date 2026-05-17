@@ -235,6 +235,12 @@ class OmegaAlphaLogger {
       insertData.trade_style = decision.resolvedStyle;
     }
 
+    // CCIP-2026-0517B: Persist Alpha's MTF conflict reasoning to dedicated column for audit queries.
+    const answerSheet = (decision as any).answer_sheet;
+    if (answerSheet?.mtf_conflict_stance) {
+      insertData.mtf_conflict_stance = answerSheet.mtf_conflict_stance;
+    }
+
     if (decision.patternIntelligence) {
       insertData.htf_intent = decision.patternIntelligence.htfIntent;
       insertData.mtf_intent = decision.patternIntelligence.mtfIntent;

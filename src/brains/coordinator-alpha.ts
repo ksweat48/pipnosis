@@ -406,6 +406,7 @@ export interface AlphaDecision {
     reward_thesis?: string;
     risk_assessment?: string;
     session_context?: string | null;
+    mtf_conflict_stance?: string | null;
     failure_scenario?: string;
     failure_probability?: number;
     // Sweep / liquidity
