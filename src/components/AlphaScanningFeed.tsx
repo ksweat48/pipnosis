@@ -613,25 +613,41 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
                         </div>
                       )}
 
-                      {/* CCIP-2026-0508C/D: 10 mandatory audit fields compliance panel */}
+                      {/* CCIP-2026-0518A: Devil's advocate audit fields compliance panel */}
                       {(() => {
                         const as = result.answer_sheet || {};
                         const checks: Array<{ key: string; label: string; ok: boolean; display: string }> = [
                           {
-                            key: 'hypothesis_buy',
-                            label: 'Hypothesis BUY',
-                            ok: as.hypothesis_buy != null && typeof as.hypothesis_buy === 'object',
-                            display: typeof as.hypothesis_buy === 'object' && as.hypothesis_buy !== null
-                              ? (as.hypothesis_buy.structural_case || JSON.stringify(as.hypothesis_buy).slice(0, 120))
-                              : (typeof as.hypothesis_buy === 'string' ? as.hypothesis_buy.slice(0, 120) : '—'),
+                            key: 'trade_geometry',
+                            label: 'Trade Geometry',
+                            ok: as.trade_geometry != null && typeof as.trade_geometry === 'object',
+                            display: typeof as.trade_geometry === 'object' && as.trade_geometry !== null
+                              ? `${(as.trade_geometry as any).direction} E:${(as.trade_geometry as any).entry} SL:${(as.trade_geometry as any).sl} TP:${(as.trade_geometry as any).tp}`
+                              : '—',
                           },
                           {
-                            key: 'hypothesis_sell',
-                            label: 'Hypothesis SELL',
-                            ok: as.hypothesis_sell != null && typeof as.hypothesis_sell === 'object',
-                            display: typeof as.hypothesis_sell === 'object' && as.hypothesis_sell !== null
-                              ? (as.hypothesis_sell.structural_case || JSON.stringify(as.hypothesis_sell).slice(0, 120))
-                              : (typeof as.hypothesis_sell === 'string' ? as.hypothesis_sell.slice(0, 120) : '—'),
+                            key: 'contradicting_evidence',
+                            label: 'Contradicting Evidence',
+                            ok: Array.isArray(as.contradicting_evidence) && as.contradicting_evidence.length > 0,
+                            display: Array.isArray(as.contradicting_evidence)
+                              ? `${as.contradicting_evidence.length} items`
+                              : '—',
+                          },
+                          {
+                            key: 'thesis_survival_argument',
+                            label: 'Survival Argument',
+                            ok: typeof as.thesis_survival_argument === 'string' && as.thesis_survival_argument.trim().length > 0,
+                            display: typeof as.thesis_survival_argument === 'string'
+                              ? as.thesis_survival_argument.slice(0, 120)
+                              : '—',
+                          },
+                          {
+                            key: 'conviction_after_challenge',
+                            label: 'Conviction After Challenge',
+                            ok: typeof as.conviction_after_challenge === 'boolean',
+                            display: typeof as.conviction_after_challenge === 'boolean'
+                              ? (as.conviction_after_challenge ? 'YES' : 'NO')
+                              : '—',
                           },
                           {
                             key: 'sweep_map_direction',
@@ -641,25 +657,6 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
                                 String(as.sweep_map_direction ?? as.Q_SWEEP_MAP_DIRECTION ?? '').trim().toUpperCase().split(' ')[0].replace(/[—-].*/, '').trim()
                               ),
                             display: as.sweep_map_direction ?? as.Q_SWEEP_MAP_DIRECTION ?? '—',
-                          },
-                          {
-                            key: 'winning_hypothesis',
-                            label: 'Winning Hypothesis',
-                            ok: typeof as.winning_hypothesis === 'string' && as.winning_hypothesis.trim().length > 0,
-                            display: as.winning_hypothesis || '—',
-                          },
-                          {
-                            key: 'win_reason',
-                            label: 'Win Reason',
-                            ok: typeof as.win_reason === 'string' && as.win_reason.trim().length > 0,
-                            display: as.win_reason || '—',
-                          },
-                          {
-                            key: 'losing_hypothesis_disqualifier',
-                            label: 'Losing Disqualifier',
-                            ok: typeof as.losing_hypothesis_disqualifier === 'string' &&
-                              as.losing_hypothesis_disqualifier.trim().length > 0,
-                            display: as.losing_hypothesis_disqualifier || '—',
                           },
                           {
                             key: 'contradictions_fired',

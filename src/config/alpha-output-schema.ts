@@ -40,14 +40,18 @@ import { VALID_CONFIDENCE_TIERS } from './confidence-tier';
 /**
  * Mandatory fields the coordinator validates for completeness.
  * These are the hard-gated fields that drive execution integrity.
+ *
+ * CCIP-2026-0518A: Devil's Advocate Architecture replaces dual-hypothesis.
+ * Alpha forms one directional thesis, then stress-tests it against contradicting
+ * evidence in the raw data. The system validates that Alpha addressed known
+ * warnings/conflicts present in his context.
  */
 export const MANDATORY_AUDIT_KEYS = [
-  'hypothesis_buy',
-  'hypothesis_sell',
+  'trade_geometry',
   'sweep_map_direction',
-  'winning_hypothesis',
-  'win_reason',
-  'losing_hypothesis_disqualifier',
+  'contradicting_evidence',
+  'thesis_survival_argument',
+  'conviction_after_challenge',
   'contradictions_fired',
   'contradictions_scanned_count',
   'contradictions_unresolved_count',
@@ -66,44 +70,44 @@ export type MandatoryAuditKey = (typeof MANDATORY_AUDIT_KEYS)[number];
  */
 const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   // ═══════════════════════════════════════════════════════════════════
-  // DUAL-HYPOTHESIS AUDITION — Alpha reasons both sides on every scan
+  // TRADE GEOMETRY — Alpha's chosen directional trade plan
+  // CCIP-2026-0518A: Single trade plan (replaces dual-hypothesis stubs)
   // ═══════════════════════════════════════════════════════════════════
-  hypothesis_buy: {
+  trade_geometry: {
     type: 'object',
     additionalProperties: false,
-    required: ['thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips'],
+    required: ['direction', 'thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips'],
     properties: {
+      direction: { type: 'string', enum: ['BUY', 'SELL'] },
       thesis: { type: 'string' },
-      entry: { type: ['number', 'null'] },
-      sl: { type: ['number', 'null'] },
-      tp: { type: ['number', 'null'] },
-      probability: { type: ['number', 'null'] },
-      reward_pips: { type: ['number', 'null'] },
-      risk_pips: { type: ['number', 'null'] },
-    },
-  },
-  hypothesis_sell: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['thesis', 'entry', 'sl', 'tp', 'probability', 'reward_pips', 'risk_pips'],
-    properties: {
-      thesis: { type: 'string' },
-      entry: { type: ['number', 'null'] },
-      sl: { type: ['number', 'null'] },
-      tp: { type: ['number', 'null'] },
-      probability: { type: ['number', 'null'] },
-      reward_pips: { type: ['number', 'null'] },
-      risk_pips: { type: ['number', 'null'] },
+      entry: { type: 'number' },
+      sl: { type: 'number' },
+      tp: { type: 'number' },
+      probability: { type: 'number' },
+      reward_pips: { type: 'number' },
+      risk_pips: { type: 'number' },
     },
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // RECONCILIATION / WINNER SELECTION — integrity enforcement
+  // DEVIL'S ADVOCATE — stress-test against own thesis
+  // CCIP-2026-0518A: Alpha must confront contradicting evidence in raw data
+  // ═══════════════════════════════════════════════════════════════════
+  contradicting_evidence: {
+    type: 'array',
+    items: { type: 'string' },
+  },
+  thesis_survival_argument: { type: 'string' },
+  conviction_after_challenge: { type: 'boolean' },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // SWEEP / LIQUIDITY CONTEXT
   // ═══════════════════════════════════════════════════════════════════
   sweep_map_direction: { type: 'string' },
-  winning_hypothesis: { type: 'string' },
-  win_reason: { type: 'string' },
-  losing_hypothesis_disqualifier: { type: 'string' },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // SELF-CONSISTENCY / RECONCILIATION
+  // ═══════════════════════════════════════════════════════════════════
   contradictions_fired: {
     type: 'array',
     items: { type: 'string' },

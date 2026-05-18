@@ -387,15 +387,15 @@ export interface AlphaDecision {
     reasoning: string;
   };
   answer_sheet?: {
-    // CCIP-2026-0516A: Free-form reasoning architecture
-    // Dual hypothesis
-    hypothesis_buy?: { thesis: string; entry: number | null; sl: number | null; tp: number | null; probability: number | null; reward_pips: number | null; risk_pips: number | null };
-    hypothesis_sell?: { thesis: string; entry: number | null; sl: number | null; tp: number | null; probability: number | null; reward_pips: number | null; risk_pips: number | null };
-    // Winner selection / reconciliation
+    // CCIP-2026-0518A: Devil's advocate architecture
+    // Trade geometry (single directional plan)
+    trade_geometry?: { direction: string; thesis: string; entry: number; sl: number; tp: number; probability: number; reward_pips: number; risk_pips: number };
+    // Devil's advocate stress-test
+    contradicting_evidence?: string[];
+    thesis_survival_argument?: string;
+    conviction_after_challenge?: boolean;
+    // Sweep / reconciliation
     sweep_map_direction?: string;
-    winning_hypothesis?: string;
-    win_reason?: string;
-    losing_hypothesis_disqualifier?: string;
     contradictions_fired?: string[];
     contradictions_scanned_count?: number;
     contradictions_unresolved_count?: number;
@@ -2812,8 +2812,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
     //   - Alpha's own prompt mandates the internal dual audit.
     //   - The schema REQUIRES the five dual-reasoning fields — missing any of them
     //     is a transport-layer rejection.
-    //   - hypothesis_buy / hypothesis_sell / winning_hypothesis / win_reason /
-    //     losing_hypothesis_disqualifier remain mandatory answer_sheet keys.
+    //   - trade_geometry / contradicting_evidence / thesis_survival_argument /
+    //     conviction_after_challenge remain mandatory answer_sheet keys.
     //
     // Why this restores caching:
     //   - The system message is now byte-identical across all symbols in a scan
@@ -3642,45 +3642,31 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // CCIP-2026-0508C (+ 0508D extension): MANDATORY AUDIT FIELDS — HARD GATE
+      // CCIP-2026-0518A: MANDATORY AUDIT FIELDS — HARD GATE
       // ═══════════════════════════════════════════════════════════════════
       // This is an OUTPUT-SCHEMA COMPLETENESS GATE, not new trading logic.
-      // Alpha's prompt (CCIP-2026-0508A + CCIP-2026-0508B) already mandates a
-      // dual-direction audition and a contradiction reconciliation ledger.
-      // On 2026-05-08 Alpha shipped a US30 SELL that completely skipped both
-      // (hypothesis_buy=null, hypothesis_sell=null, contradictions_fired=null)
-      // and lost −$427 exactly as the prompt upgrades were meant to prevent.
+      // Alpha's prompt mandates a devil's advocate stress-test and a
+      // contradiction reconciliation ledger. If any mandatory field is
+      // missing/invalid on a directional output, the coordinator rewrites
+      // to NO_TRADE. On a NO_TRADE output incompleteness is audited.
       //
-      // CCIP-2026-0508D (2026-05-08): The 10 mandatory fields are now required
-      // on EVERY decision — BUY, SELL, AND NO_TRADE. The dual-direction audit
-      // is the reasoning contract; a NO_TRADE emitted without the audit is
-      // just as opaque as an unaudited execution and leaves no trail for
-      // reinforcement. NO_TRADE outputs missing the 10 fields are flagged with
-      // block_reason and decision_origin=SYSTEM_GATE_0508D so the governance
-      // audit can surface every non-compliant reasoning instance.
-      //
-      // This gate enforces the CONTRACT Alpha already agreed to: if any of the
-      // ten mandatory answer_sheet fields is missing/invalid on a directional
-      // output, the coordinator rewrites to NO_TRADE. On a NO_TRADE output the
-      // action stays NO_TRADE but the incompleteness is loudly audited. Alpha
-      // cannot opt out of completing the audit under any output. Improving
-      // Alpha's BRAIN is upstream; this is the structural backstop.
-      //
-      // Fields enforced:
-      //   1.  hypothesis_buy (non-null object)
-      //   2.  hypothesis_sell (non-null object)
-      //   3.  Q_SWEEP_MAP_DIRECTION (BUY_FAVORED | SELL_FAVORED | BALANCED | INVERTED)
-      //   4.  winning_hypothesis (BUY | SELL | NONE)
-      //   5.  win_reason (non-empty string)
-      //   6.  losing_hypothesis_disqualifier (non-empty string)
-      //   7.  contradictions_fired (array)
-      //   8.  contradictions_scanned_count (integer ≥ 5)
-      //   9.  contradictions_unresolved_count (integer; must be 0 for execute_now)
-      //   10. reconciliation_ledger_complete (boolean true for execute_now)
+      // Fields enforced (CCIP-2026-0518A):
+      //   1.  trade_geometry (non-null object with entry/sl/tp/reward_pips/risk_pips)
+      //   2.  contradicting_evidence (non-empty array)
+      //   3.  thesis_survival_argument (non-empty string)
+      //   4.  conviction_after_challenge (boolean)
+      //   5.  sweep_map_direction (BUY_FAVORED | SELL_FAVORED | BALANCED | INVERTED)
+      //   6.  contradictions_fired (array)
+      //   7.  contradictions_scanned_count (integer >= 5)
+      //   8.  contradictions_unresolved_count (integer; must be 0 for execute_now)
+      //   9.  reconciliation_ledger_complete (boolean true for execute_now)
+      //   10. rr_planned_ratio (number)
+      //   11. rr_profitability_check (PROFITABLE | MARGINAL | UNPROFITABLE)
       //
       // Direction-integrity cross-checks (hard-block):
-      //   A. winning_hypothesis=BUY with action=SELL (or inverse) → reject
-      //   B. Q_SWEEP_RECLAIM_STATUS contains NO_RECLAIM / wait_pullback text
+      //   A. trade_geometry.direction !== action → reject
+      //   B. conviction_after_challenge=false + execute_now → reject
+      //   C. Q_SWEEP_RECLAIM_STATUS contains NO_RECLAIM / wait_pullback text
       //      while entry_mode=execute_now → reject
       // ═══════════════════════════════════════════════════════════════════
       try {
@@ -3696,10 +3682,45 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const missing: string[] = [];
         const invalid: string[] = [];
 
-        const hBuy = pickField('hypothesis_buy');
-        const hSell = pickField('hypothesis_sell');
-        if (hBuy == null || typeof hBuy !== 'object') missing.push('hypothesis_buy');
-        if (hSell == null || typeof hSell !== 'object') missing.push('hypothesis_sell');
+        // CCIP-2026-0518A: trade_geometry replaces dual-hypothesis objects
+        const tradeGeom = pickField('trade_geometry');
+        if (tradeGeom == null || typeof tradeGeom !== 'object') {
+          missing.push('trade_geometry');
+        } else {
+          const geom = tradeGeom as Record<string, unknown>;
+          if (typeof geom.entry !== 'number' || typeof geom.sl !== 'number' || typeof geom.tp !== 'number') {
+            invalid.push('trade_geometry has null/missing entry/sl/tp');
+          }
+          if (typeof geom.reward_pips !== 'number' || typeof geom.risk_pips !== 'number') {
+            invalid.push('trade_geometry has null/missing reward_pips/risk_pips');
+          }
+          if (typeof geom.direction === 'string' && geom.direction !== actionNorm) {
+            invalid.push(`DIRECTION_MISMATCH: trade_geometry.direction=${geom.direction} vs action=${actionNorm}`);
+          }
+        }
+
+        // CCIP-2026-0518A: Devil's advocate — contradicting_evidence must be non-empty array
+        const contradictingEvidence = pickField('contradicting_evidence');
+        if (!Array.isArray(contradictingEvidence) || contradictingEvidence.length === 0) {
+          missing.push('contradicting_evidence');
+        }
+
+        // CCIP-2026-0518A: thesis_survival_argument must be non-empty string
+        const survivalArg = pickField('thesis_survival_argument');
+        if (typeof survivalArg !== 'string' || survivalArg.trim().length === 0) {
+          missing.push('thesis_survival_argument');
+        }
+
+        // CCIP-2026-0518A: conviction_after_challenge must be boolean
+        const conviction = pickField('conviction_after_challenge');
+        if (typeof conviction !== 'boolean') {
+          missing.push('conviction_after_challenge');
+        }
+
+        // CCIP-2026-0518A: conviction_after_challenge=false + execute_now is contradictory
+        if (conviction === false && entryMode === 'execute_now') {
+          invalid.push('CONVICTION_CONTRADICTION: conviction_after_challenge=false with entry_mode=execute_now');
+        }
 
         const sweepMapDir = pickField('sweep_map_direction') || pickField('Q_SWEEP_MAP_DIRECTION');
         const validSweepMapDir = ['BUY_FAVORED', 'SELL_FAVORED', 'BALANCED', 'INVERTED'];
@@ -3708,24 +3729,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
           else invalid.push(`sweep_map_direction=${String(sweepMapDir)}`);
         }
 
-        const winning = pickField('winning_hypothesis');
-        const validWinning = ['BUY', 'SELL', 'NONE'];
-        const winningNorm =
-          typeof winning === 'string' ? winning.trim().toUpperCase() : '';
-        if (!validWinning.includes(winningNorm)) {
-          if (winning == null || winning === '') missing.push('winning_hypothesis');
-          else invalid.push(`winning_hypothesis=${String(winning)}`);
-        }
+        // Derive winningNorm from trade_geometry.direction for downstream compatibility
+        const winningNorm = actionNorm;
 
-        const winReason = pickField('win_reason');
-        if (typeof winReason !== 'string' || winReason.trim().length === 0) {
-          missing.push('win_reason');
-        }
-
-        const loserDisq = pickField('losing_hypothesis_disqualifier');
-        if (typeof loserDisq !== 'string' || loserDisq.trim().length === 0) {
-          missing.push('losing_hypothesis_disqualifier');
-        }
+        // CCIP-2026-0518A: losing_hypothesis_disqualifier retired (replaced by contradicting_evidence)
 
         const contradictionsFired = pickField('contradictions_fired');
         if (!Array.isArray(contradictionsFired)) missing.push('contradictions_fired');
@@ -3754,12 +3761,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const isDirectional = actionNorm === 'BUY' || actionNorm === 'SELL';
         const isExecuteNow = entryMode === 'execute_now';
 
-        // Direction-integrity A: winning_hypothesis must match executing action
-        if (isDirectional && (winningNorm === 'BUY' || winningNorm === 'SELL')) {
-          if (winningNorm !== actionNorm) {
-            invalid.push(`DIRECTION_MISMATCH: winning_hypothesis=${winningNorm} vs action=${actionNorm}`);
-          }
-        }
+        // Direction-integrity A: trade_geometry.direction must match executing action
+        // (already checked above via tradeGeom validation; winningNorm === actionNorm by definition)
 
         // Direction-integrity B: sweep-reclaim self-contradiction against execute_now
         const sweepReclaim = pickField('sweep_reclaim_status') || pickField('Q_SWEEP_RECLAIM_STATUS');
@@ -3783,8 +3786,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
           if (typeof unresolvedCount === 'number' && unresolvedCount > 0) {
             invalid.push(`contradictions_unresolved_count=${unresolvedCount}>0 for execute_now`);
           }
-          if (winningNorm === 'NONE') {
-            invalid.push(`winning_hypothesis=NONE for directional execute_now`);
+          if (conviction === false) {
+            invalid.push(`conviction_after_challenge=false for directional execute_now`);
           }
         }
 
@@ -3823,17 +3826,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
         // ─── CCIP-2026-0517A: RR ARITHMETIC CONSISTENCY ──────────────────
         // Cross-validates Alpha's claimed rr_planned_ratio against the
-        // reward_pips and risk_pips from the winning hypothesis. If Alpha
-        // hallucinated the arithmetic (e.g., copied reward_pips verbatim
-        // into rr_planned_ratio without dividing), this catches it.
+        // reward_pips and risk_pips from trade_geometry. If Alpha
+        // hallucinated the arithmetic, this catches it.
         const rrPlanned = pickField('rr_planned_ratio');
-        const winningHypKey = actionNorm === 'BUY' ? 'hypothesis_buy' : 'hypothesis_sell';
-        const winningHyp = asRaw && typeof asRaw === 'object'
-          ? (asRaw as Record<string, any>)[winningHypKey]
+        const tradeGeomForRR = tradeGeom && typeof tradeGeom === 'object'
+          ? (tradeGeom as Record<string, unknown>)
           : null;
-        if (typeof rrPlanned === 'number' && winningHyp && typeof winningHyp === 'object') {
-          const rewardPips = typeof winningHyp.reward_pips === 'number' ? winningHyp.reward_pips : null;
-          const riskPips = typeof winningHyp.risk_pips === 'number' ? winningHyp.risk_pips : null;
+        if (typeof rrPlanned === 'number' && tradeGeomForRR) {
+          const rewardPips = typeof tradeGeomForRR.reward_pips === 'number' ? tradeGeomForRR.reward_pips : null;
+          const riskPips = typeof tradeGeomForRR.risk_pips === 'number' ? tradeGeomForRR.risk_pips : null;
           if (rewardPips !== null && riskPips !== null && riskPips > 0) {
             const computedRR = rewardPips / riskPips;
             const deviation = Math.abs(rrPlanned - computedRR) / Math.max(computedRR, 0.001);
@@ -3860,9 +3861,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // old Q-missing downgrade path (CCIP-2026-0511Y) is structurally
         // unreachable and has been retired.
         //
-        // This validator now only polices the two semantic contradictions
-        // strict-mode cannot express:
-        //   1. winning_hypothesis !== action (direction integrity)
+        // This validator only polices semantic contradictions strict-mode
+        // cannot express:
+        //   1. trade_geometry.direction !== action (direction integrity)
         //   2. contradictions_unresolved_count > 0 while ledger claims true
         //
         // Entry mode choices (wait_pullback, push_confirmation) are NOT
@@ -3873,16 +3874,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // ═══════════════════════════════════════════════════════════════════
         const unresolvedResolved =
           typeof unresolvedCount === 'number' && unresolvedCount === 0;
-        const winnerMatchesAction =
-          isDirectional &&
-          (winningNorm === 'BUY' || winningNorm === 'SELL') &&
-          winningNorm === actionNorm;
-        const ledgerIntegrityOK = unresolvedResolved && winnerMatchesAction;
+        const ledgerIntegrityOK = unresolvedResolved;
 
         if (isDirectional && ledgerComplete === true && !ledgerIntegrityOK) {
           const reasons: string[] = [];
           if (!unresolvedResolved) reasons.push(`unresolved=${String(unresolvedCount)}`);
-          if (!winnerMatchesAction) reasons.push(`winner=${winningNorm}!=action=${actionNorm}`);
           if (asRaw && typeof asRaw === 'object') {
             (asRaw as Record<string, unknown>).reconciliation_ledger_complete = false;
           }
@@ -3902,7 +3898,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
             errorDetails: {
               action: actionNorm,
               entry_mode: entryMode,
-              winning_hypothesis: winningNorm,
               unresolved_count: unresolvedCount,
               userId: userId || 'unknown',
             },
@@ -4676,16 +4671,13 @@ Return PURE JSON only — all required fields from the schema in my system promp
         ? tierToNumber(confidenceTier)
         : (parsed.trade_confidence ?? parsed.confidence ?? 0);
 
-      // CCIP-2026-0516: Use Alpha's winning hypothesis probability directly.
-      // Alpha outputs probability on each hypothesis (0-100, higher = more confident).
-      // The winning hypothesis probability IS Alpha's actual confidence in the trade.
-      // Fallback chain: winning hypothesis probability → (100 - failure_probability) → tier midpoint.
-      const winningHyp = action === 'BUY' ? 'hypothesis_buy' : 'hypothesis_sell';
-      const winningProbRaw = parsed?.answer_sheet?.[winningHyp]?.probability;
+      // CCIP-2026-0518A: Use trade_geometry.probability as Alpha's confidence.
+      // Fallback chain: trade_geometry.probability → (100 - failure_probability) → tier midpoint.
+      const tradeGeomProb = parsed?.answer_sheet?.trade_geometry?.probability;
       const failureProbRaw = parsed?.answer_sheet?.failure_probability ?? parsed?.answer_sheet?.Q5_failure_probability;
       let tradeConfidenceContinuous: number;
-      if (typeof winningProbRaw === 'number' && winningProbRaw > 0 && winningProbRaw <= 100) {
-        tradeConfidenceContinuous = Math.round(winningProbRaw);
+      if (typeof tradeGeomProb === 'number' && tradeGeomProb > 0 && tradeGeomProb <= 100) {
+        tradeConfidenceContinuous = Math.round(tradeGeomProb);
       } else if (typeof failureProbRaw === 'number' && failureProbRaw >= 0) {
         tradeConfidenceContinuous = Math.round(Math.max(0, Math.min(100, 100 - failureProbRaw)));
       } else {
@@ -4697,7 +4689,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
         `[Alpha Parse] symbol=${symbol} action=${parsed.action} ` +
         `confidence_tier=${rawTier ?? 'MISSING'} ` +
         `continuous=${tradeConfidenceContinuous} ` +
-        `(source: ${typeof winningProbRaw === 'number' ? `${winningHyp}.probability=${winningProbRaw}` : typeof failureProbRaw === 'number' ? `100-failure_probability=${failureProbRaw}` : 'tier_midpoint'})`
+        `(source: ${typeof tradeGeomProb === 'number' ? `trade_geometry.probability=${tradeGeomProb}` : typeof failureProbRaw === 'number' ? `100-failure_probability=${failureProbRaw}` : 'tier_midpoint'})`
       );
 
       // CCIP-2026-0413: Detect schema violation — Alpha output a number instead of a tier.
@@ -4919,13 +4911,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
         rawAnswerSheet &&
         typeof rawAnswerSheet === 'object'
       ) ? {
-        // New free-form fields (CCIP-2026-0516A)
-        hypothesis_buy: rawAnswerSheet.hypothesis_buy && typeof rawAnswerSheet.hypothesis_buy === 'object' ? rawAnswerSheet.hypothesis_buy as any : undefined,
-        hypothesis_sell: rawAnswerSheet.hypothesis_sell && typeof rawAnswerSheet.hypothesis_sell === 'object' ? rawAnswerSheet.hypothesis_sell as any : undefined,
+        // CCIP-2026-0518A: Devil's advocate architecture
+        trade_geometry: rawAnswerSheet.trade_geometry && typeof rawAnswerSheet.trade_geometry === 'object' ? rawAnswerSheet.trade_geometry as any : undefined,
+        contradicting_evidence: Array.isArray(rawAnswerSheet.contradicting_evidence) ? rawAnswerSheet.contradicting_evidence : undefined,
+        thesis_survival_argument: typeof rawAnswerSheet.thesis_survival_argument === 'string' ? rawAnswerSheet.thesis_survival_argument : undefined,
+        conviction_after_challenge: typeof rawAnswerSheet.conviction_after_challenge === 'boolean' ? rawAnswerSheet.conviction_after_challenge : undefined,
         sweep_map_direction: typeof rawAnswerSheet.sweep_map_direction === 'string' ? rawAnswerSheet.sweep_map_direction : (typeof rawAnswerSheet.Q_SWEEP_MAP_DIRECTION === 'string' ? rawAnswerSheet.Q_SWEEP_MAP_DIRECTION : undefined),
-        winning_hypothesis: typeof rawAnswerSheet.winning_hypothesis === 'string' ? rawAnswerSheet.winning_hypothesis : undefined,
-        win_reason: typeof rawAnswerSheet.win_reason === 'string' ? rawAnswerSheet.win_reason : undefined,
-        losing_hypothesis_disqualifier: typeof rawAnswerSheet.losing_hypothesis_disqualifier === 'string' ? rawAnswerSheet.losing_hypothesis_disqualifier : undefined,
         contradictions_fired: Array.isArray(rawAnswerSheet.contradictions_fired) ? rawAnswerSheet.contradictions_fired : undefined,
         contradictions_scanned_count: typeof rawAnswerSheet.contradictions_scanned_count === 'number' ? rawAnswerSheet.contradictions_scanned_count : undefined,
         contradictions_unresolved_count: typeof rawAnswerSheet.contradictions_unresolved_count === 'number' ? rawAnswerSheet.contradictions_unresolved_count : undefined,
