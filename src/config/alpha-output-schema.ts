@@ -204,7 +204,8 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // TP GEOMETRY (TP1 omission, partial value, M5 anchoring)
+  // TP GEOMETRY (TP1 omission, partial value, M5 anchoring, kill guarantee)
+  // CCIP-2026-0518D: tp_crowd_awareness records where crowd TPs cluster
   // ═══════════════════════════════════════════════════════════════════
   tp1_omitted: { type: ['boolean', 'null'] },
   tp1_omission_reason: { type: ['string', 'null'] },
@@ -212,6 +213,7 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   tp1_partial_value_ratio: { type: ['number', 'null'] },
   tp2_omitted: { type: ['boolean', 'null'] },
   tp2_omission_reason: { type: ['string', 'null'] },
+  tp_crowd_awareness: { type: ['string', 'null'] },
 
   // ═══════════════════════════════════════════════════════════════════
   // M5-PRIMARY HIERARCHY — directional authority record
