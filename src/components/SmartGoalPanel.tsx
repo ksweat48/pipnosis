@@ -9,7 +9,7 @@
  *   - Style is fixed to the only entry in TRADE_STYLES (micro)
  *   - User picks dollar amount to risk per trade
  *
- * RISK POLICY: Risk up to 10% per trade, 20% total exposure
+ * RISK POLICY: User controls their own risk per trade (uncapped)
  * - Dollar amount determines position sizing
  * - Alpha Brain handles everything else intelligently
  *
@@ -31,6 +31,7 @@ import { InsufficientCreditsModal } from './InsufficientCreditsModal';
 import { TOKENOMICS } from '../config/tokenomics-constants';
 import { clubMembershipService, type UserMembership } from '../services/club-membership-service';
 import { getMembershipCTA } from '../utils/membershipCTA';
+import { userRiskPreferenceService } from '../services/user-risk-preference-service';
 
 const STYLE_ICONS = {
   Zap,
@@ -55,7 +56,6 @@ export const SmartGoalPanel: React.FC = () => {
   const [multiTradeEnabled, setMultiTradeEnabled] = useState(false);
   const [selectedAssetClasses, setSelectedAssetClasses] = useState<AssetClass[]>(['forex', 'crypto', 'indices', 'gold']);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([...DEFAULT_WATCHLIST]);
-  const [customInstructions, setCustomInstructions] = useState('');
   const [pendingSymbol, setPendingSymbol] = useState<string | null>(null);
   const [pendingCardSignal, setPendingCardSignal] = useState<Record<string, unknown> | null>(null);
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
@@ -69,7 +69,6 @@ export const SmartGoalPanel: React.FC = () => {
     // "Focus on X" pre-population continues to work from card hand-offs.
     const symbolParam = searchParams.get('symbol');
     if (symbolParam) {
-      setCustomInstructions(`Focus on ${symbolParam}`);
       try {
         const raw = sessionStorage.getItem('im_card_signal');
         if (raw) {
@@ -251,6 +250,12 @@ export const SmartGoalPanel: React.FC = () => {
     setError('');
 
     try {
+      // Sync user's max risk preference to match their chosen dollar risk.
+      // This ensures the professional risk manager respects the amount they typed.
+      const chosenRiskPercent = (dollarRisk / accountBalance) * 100;
+      userRiskPreferenceService.updateUserMaxRiskPercent(user.id, Math.ceil(chosenRiskPercent))
+        .catch(() => {});
+
       // SSOT GOVERNANCE (CCIP-MULTI-TRADE-2026-03-02): Re-read multiTradeMode from DB at the
       // moment the session starts.  The in-component state may be stale if the realtime
       // subscription has not yet fired after a Settings change.  The DB is the authoritative
@@ -356,7 +361,7 @@ export const SmartGoalPanel: React.FC = () => {
         dollarRisk,
         selectedAssetClasses.length < 4 ? selectedAssetClasses : undefined,
         symbolsToPass,
-        customInstructions || undefined,
+        undefined,
         pendingCardSignal || undefined
       );
 
@@ -531,7 +536,7 @@ export const SmartGoalPanel: React.FC = () => {
                 <strong>Account Balance:</strong> ${accountBalance.toLocaleString()}
               </div>
               <div className="text-xs text-gray-400">
-                Choose your risk (up to 10% of balance)
+                Choose your risk per trade
               </div>
             </div>
 
@@ -612,7 +617,7 @@ export const SmartGoalPanel: React.FC = () => {
                 onChange={(e) => setCustomAmount(e.target.value)}
                 placeholder="Or enter custom amount..."
                 min="50"
-                max={accountBalance * 0.10}
+                max={accountBalance}
                 className="w-full px-4 py-4 bg-gray-800/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all duration-300"
               />
             </div>
@@ -694,23 +699,6 @@ export const SmartGoalPanel: React.FC = () => {
                 </div>
               </div>
 
-              {/* Custom Instructions */}
-              <div>
-                <label className="text-sm font-medium text-gray-300 mb-2 block">
-                  Custom Instructions
-                </label>
-                <textarea
-                  value={customInstructions}
-                  onChange={(e) => setCustomInstructions(e.target.value.slice(0, 200))}
-                  placeholder="e.g., 'Focus on high-probability setups only' or 'Be aggressive with entries'"
-                  maxLength={200}
-                  rows={3}
-                  className="w-full px-3 py-2 bg-gray-800/50 border border-gray-600/50 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all resize-none"
-                />
-                <div className="text-xs text-gray-500 mt-1">
-                  {customInstructions.length}/200 characters
-                </div>
-              </div>
             </div>
 
             {customAmount && amountValidation && !amountValidation.valid && (
