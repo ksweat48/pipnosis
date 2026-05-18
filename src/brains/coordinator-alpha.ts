@@ -231,6 +231,7 @@ export interface MarketContext {
   atr: number | ATRValue; // Accept both during migration period
   atr20?: number | ATRValue;  // Short-term ATR (typically M5 or M15) for volatility regime detection
   atr100?: number | ATRValue; // Long-period ATR for volatility regime detection (H4-scale reference, currently not populated)
+  _h1_excluded_stale?: boolean;
 }
 
 export interface GoalContext {
@@ -2132,6 +2133,17 @@ ${primaryTfConfig.label} STRUCTURAL EVIDENCE (pre-computed from same window):
     let htfCandlePrompt = '';
 
     {
+      if (marketContext._h1_excluded_stale) {
+        console.warn(`[Alpha Coordinator] H1 EXCLUDED — stale data flagged by orchestrator freshness gate. Proceeding on M5 + M15 only.`);
+        htfCandlePrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${htfConfig.label} BACKGROUND CONTEXT (${marketContext.symbol})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${htfConfig.label} candles excluded — data staleness detected by freshness gate. Background context only — non-blocking. Proceed on M5 + M15.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+      } else {
       try {
         const mds = MarketDataService.getInstance();
         const htfCandles = await mds.getCandles(marketContext.symbol, htfConfig.timeframe, htfConfig.candleCount);
@@ -2246,6 +2258,7 @@ ${htfConfig.label} BACKGROUND CONTEXT (${marketContext.symbol})
 ${htfConfig.label} candle fetch failed. Background context only — non-blocking. Proceed on M5 + M15.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
+      }
       }
     }
 

@@ -37,6 +37,7 @@ import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
 import { getMTFConfig, getStyleMTFConfig, resolveCanonicalStyle, TIMEFRAME_MS, TIMEFRAME_SECONDS, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
+import { marketDataService } from './market-data-service';
 import { getStyleATRTimeframe } from '../config/style-execution-envelopes';
 
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
@@ -283,7 +284,129 @@ class AlphaOmegaOrchestrator {
       }
     }
 
-    // FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
+    // ═══════════════════════════════════════════════════════════════════
+    // CCIP-2026-0518A: HTF CANDLE FRESHNESS HARD GATE
+    // Validates that EVERY timeframe Alpha will consume has sufficiently fresh
+    // candle data. The M5 gate (above) only checks the entry timeframe.
+    // This gate prevents Alpha from reasoning on stale H1/M15 data that could
+    // be hours or days old while appearing current in the prompt.
+    //
+    // THRESHOLDS:
+    //   M15: max 20 minutes (1.33x the timeframe)
+    //   H1:  max 150 minutes (2.5 hours — allows for delayed writes + market close gaps)
+    //
+    // BEHAVIOR:
+    //   M15 stale → HARD BLOCK (M15 is required for direction confirmation)
+    //   H1 stale  → EXCLUDE from prompt (Alpha proceeds on M5 + M15 only)
+    //
+    // D1 is exempt: PDH/PDL are static reference levels (yesterday's fact).
+    // ═══════════════════════════════════════════════════════════════════
+    {
+      const HTF_FRESHNESS_THRESHOLDS: Record<string, number> = {
+        'M15': 20 * 60,   // 20 minutes
+        'H1': 150 * 60,   // 2.5 hours
+      };
+
+      const htfFreshnessResults: Record<string, { ageSeconds: number; fresh: boolean }> = {};
+      const mds = marketDataService;
+
+      for (const [tf, maxAgeSeconds] of Object.entries(HTF_FRESHNESS_THRESHOLDS)) {
+        try {
+          const candles = await mds.getCandles(marketState.symbol, tf, 1);
+          if (!candles || candles.length === 0) {
+            htfFreshnessResults[tf] = { ageSeconds: Infinity, fresh: false };
+            continue;
+          }
+          const latestCandle = candles[0];
+          const openTimeMs = latestCandle.open_time
+            ? new Date(latestCandle.open_time).getTime()
+            : 0;
+          const tfMs = TIMEFRAME_MS[tf as Timeframe] ?? 0;
+          const closeTimeMs = openTimeMs > 0 && tfMs > 0 ? openTimeMs + tfMs : 0;
+          const ageSeconds = closeTimeMs > 0
+            ? Math.max(0, Math.round((Date.now() - closeTimeMs) / 1000))
+            : Infinity;
+          htfFreshnessResults[tf] = { ageSeconds, fresh: ageSeconds <= maxAgeSeconds };
+        } catch (err) {
+          htfFreshnessResults[tf] = { ageSeconds: Infinity, fresh: false };
+        }
+      }
+
+      // M15 is mandatory — HARD BLOCK if stale
+      const m15Result = htfFreshnessResults['M15'];
+      if (m15Result && !m15Result.fresh) {
+        const abortReason = `HTF_FRESHNESS_ABORT: M15 candles are ${Number.isFinite(m15Result.ageSeconds) ? Math.round(m15Result.ageSeconds / 60) + ' minutes' : 'unavailable'} old (max 20 min). Alpha cannot reason about direction without fresh M15 data.`;
+        console.error(`[Alpha+Omega] ${abortReason}`);
+
+        try {
+          const { supabase } = await import('../lib/supabase');
+          await supabase.from('server_monitoring_alerts').insert({
+            alert_type: 'htf_candle_staleness',
+            severity: 'critical',
+            symbol: marketState.symbol,
+            message: abortReason,
+            metadata: { timeframe: 'M15', age_seconds: m15Result.ageSeconds, threshold_seconds: HTF_FRESHNESS_THRESHOLDS['M15'] },
+            resolved: false
+          }).then(() => {});
+        } catch (alertErr) { /* non-blocking */ }
+
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: marketState.price,
+          stopLoss: proposedSL,
+          takeProfit: proposedTP,
+          confidence: 0,
+          reasoning: abortReason,
+          omega_summary: 'Execution aborted — M15 direction candles stale. Alpha requires fresh multi-timeframe data.',
+          abort_reason: 'STALE_HTF_DATA',
+          pre_alpha_abort: true,
+          htf_freshness: htfFreshnessResults
+        } as any;
+      }
+
+      // H1 stale → flag for exclusion (Alpha proceeds on M5 + M15)
+      const h1Result = htfFreshnessResults['H1'];
+      if (h1Result && !h1Result.fresh) {
+        const h1AgeMinutes = Number.isFinite(h1Result.ageSeconds) ? Math.round(h1Result.ageSeconds / 60) : 'unknown';
+        console.warn(`[Alpha+Omega] HTF_LAYER_EXCLUDED: H1 candles ${h1AgeMinutes} minutes old (max 150 min). H1 will be omitted from Alpha's prompt.`);
+
+        // Store the exclusion flag on the snapshot so coordinator-alpha can check it
+        (snapshot as any)._h1_excluded_stale = true;
+        (snapshot as any)._h1_age_seconds = h1Result.ageSeconds;
+
+        try {
+          const { supabase } = await import('../lib/supabase');
+          await supabase.from('server_monitoring_alerts').insert({
+            alert_type: 'htf_candle_staleness',
+            severity: 'warning',
+            symbol: marketState.symbol,
+            message: `H1 candles ${h1AgeMinutes} min old — excluded from Alpha prompt. Trading on M5 + M15 only.`,
+            metadata: { timeframe: 'H1', age_seconds: h1Result.ageSeconds, threshold_seconds: HTF_FRESHNESS_THRESHOLDS['H1'] },
+            resolved: false
+          }).then(() => {});
+        } catch (alertErr) { /* non-blocking */ }
+      }
+
+      // Log freshness audit
+      try {
+        const { supabase } = await import('../lib/supabase');
+        await supabase.from('scan_freshness_audit').insert({
+          symbol: marketState.symbol,
+          scan_started_at: new Date(signalTimestamp).toISOString(),
+          candle_ages_by_tf: {
+            [entryTimeframe]: (snapshot as any)._m5_age_seconds ?? 0,
+            ...Object.fromEntries(Object.entries(htfFreshnessResults).map(([tf, r]) => [tf, r.ageSeconds]))
+          },
+          current_price_age_seconds: Math.round((Date.now() - (snapshot.createdAt ?? Date.now())) / 1000),
+          verdict: (m15Result?.fresh && (h1Result?.fresh !== false)) ? 'FRESH' : h1Result && !h1Result.fresh ? 'H1_EXCLUDED' : 'FRESH',
+          reason: h1Result && !h1Result.fresh ? `H1 excluded (${Math.round((h1Result.ageSeconds || 0) / 60)} min old)` : null,
+          user_id: userId ?? null
+        });
+      } catch (auditErr) { /* non-blocking */ }
+    }
+
+    // FRESHNESS HARD GATE: Check realtime price freshness — HARD BLOCK if stale.
     // Runs AFTER snapshot is built so the snapshot price can serve as Tier-4 fallback,
     // preventing false blocks at session startup before realtime_prices DB writes arrive.
     const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(
@@ -319,15 +442,28 @@ class AlphaOmegaOrchestrator {
     }
 
     if (!preCheck.shouldProceed) {
+      console.error(`[Alpha+Omega] HARD BLOCK: Price freshness check failed — ${preCheck.reason} (NO ADVISORY MODE)`);
       if (userId) {
         freshnessBlockLogger.logOmegaBlock(
           marketState.symbol,
           entryTimeframe,
           FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED,
-          { symbol: marketState.symbol, reason: preCheck.reason || 'advisory staleness', refreshAttempted: false, wasAutoRefreshed: false, advisory: true },
+          { symbol: marketState.symbol, reason: preCheck.reason || 'price freshness failed', refreshAttempted: false, wasAutoRefreshed: false },
           userId
         );
       }
+      return {
+        action: 'NO_TRADE',
+        decision: 'NO_TRADE',
+        entry: marketState.price,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        confidence: 0,
+        reasoning: `HARD BLOCK - PRICE FRESHNESS: ${preCheck.reason}`,
+        omega_summary: 'Execution blocked — price data not fresh enough to proceed. No advisory mode.',
+        abort_reason: 'STALE_DATA',
+        pre_alpha_abort: true
+      } as any;
     }
 
     // CCIP-STALENESS-FIX-2026-02-20: Price Drift Guard
@@ -538,7 +674,8 @@ class AlphaOmegaOrchestrator {
       // For SCALP: M5 snapshot.atr (deliberate — M1 ATR is too noisy for stop sizing).
       // For MICRO_INTRADAY/INTRADAY: same as entry snapshot.
       // When snapshot.atr is an ATRValue object it retains timeframe metadata for traceability.
-      atr20: atrSnapshot.atr
+      atr20: atrSnapshot.atr,
+      _h1_excluded_stale: (snapshot as any)._h1_excluded_stale === true
     };
 
     // CCIP-ALPHA-GOV-001: SSOT spread table — used pre-Alpha (Alpha hasn't run yet).

@@ -675,22 +675,20 @@ async function assess(
   sessionMinutesRemaining: number | null,
 ): Promise<HuntAssessment> {
   const { data: primaryRows, error: pErr } = await supabase
-    .from('forex_candles')
-    .select('open, high, low, close, close_time')
-    .eq('symbol', symbol)
-    .eq('timeframe', PRIMARY_TF)
-    .order('close_time', { ascending: false })
-    .limit(60);
+    .rpc('get_best_candles', {
+      p_symbol: symbol,
+      p_timeframe: PRIMARY_TF,
+      p_limit: 60
+    });
   if (pErr || !primaryRows || primaryRows.length < 20) {
     return notReady(symbol, style, session, `Insufficient ${PRIMARY_TF} candles`, sessionMinutesRemaining);
   }
   const { data: controlRows } = await supabase
-    .from('forex_candles')
-    .select('open, high, low, close, close_time')
-    .eq('symbol', symbol)
-    .eq('timeframe', CONTROL_TF)
-    .order('close_time', { ascending: false })
-    .limit(30);
+    .rpc('get_best_candles', {
+      p_symbol: symbol,
+      p_timeframe: CONTROL_TF,
+      p_limit: 30
+    });
 
   const primary = [...primaryRows].reverse() as CandleRow[];
   const control = controlRows ? [...controlRows].reverse() as CandleRow[] : [];
