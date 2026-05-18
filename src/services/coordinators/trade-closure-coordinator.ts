@@ -315,7 +315,9 @@ class TradeClosureCoordinator {
 
     await this.logToAudit(request, trade, pnl, 'emergency');
 
-    const { error: updateError } = await supabase
+    // CCIP-2026-0518C: Only close if trade is still open — prevents double-deduction
+    // when the DB trigger already closed it and updated balance.
+    const { data: updatedRows, error: updateError } = await supabase
       .from('goal_session_trades')
       .update({
         status: 'closed',
@@ -324,7 +326,9 @@ class TradeClosureCoordinator {
         close_reason: request.closeReason,
         closed_at: new Date().toISOString(),
       })
-      .eq('id', request.tradeId);
+      .eq('id', request.tradeId)
+      .in('status', ['open', 'pending', 'soft_closing'])
+      .select('id');
 
     if (updateError) {
       console.error(`[TradeClosureCoordinator] EMERGENCY CLOSE FAILED:`, updateError);
@@ -332,6 +336,19 @@ class TradeClosureCoordinator {
         success: false,
         tradeId: request.tradeId,
         error: `Emergency close failed: ${updateError.message}`,
+        usedEmergencyRecovery: true,
+      };
+    }
+
+    // If no rows were updated, the trade was already closed (by DB trigger or another path)
+    if (!updatedRows || updatedRows.length === 0) {
+      console.warn(`[TradeClosureCoordinator] Emergency recovery: trade ${request.tradeId} already closed by another path. Skipping balance update.`);
+      return {
+        success: true,
+        tradeId: request.tradeId,
+        pnl,
+        closePrice: request.currentPrice,
+        closeReason: request.closeReason,
         usedEmergencyRecovery: true,
       };
     }
@@ -351,7 +368,6 @@ class TradeClosureCoordinator {
           updated_at: new Date().toISOString(),
         })
         .eq('id', request.userId);
-
     }
 
     await notificationCoordinator.sendSystemNotification({
