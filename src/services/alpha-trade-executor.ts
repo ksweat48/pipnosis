@@ -954,6 +954,35 @@ class AlphaTradeExecutor {
       };
     }
 
+    // CCIP-2026-0518B: Pre-execution deviation gate.
+    // If Alpha stated max_entry_deviation_pips and the first price fetch already
+    // exceeds that tolerance, reject immediately without attempting requotes.
+    const pipInfoEarly = getCurrencyPipInfo(decision.symbol);
+    const maxDevPips = (decision as any).max_entry_deviation_pips as number | undefined;
+    if (maxDevPips && maxDevPips > 0 && pipInfoEarly.pipValue > 0) {
+      const initialDriftPrice = Math.abs(adjustedEntry - decision.entry);
+      const initialDriftPips = initialDriftPrice / pipInfoEarly.pipValue;
+      if (initialDriftPips > maxDevPips) {
+        logger.error(
+          LogCategory.RISK_MANAGEMENT,
+          '[AlphaTradeExecutor] PRE_EXECUTION_DEVIATION: Market already beyond Alpha\'s max_entry_deviation_pips — trade rejected. CCIP-2026-0518B.',
+          {
+            symbol: decision.symbol,
+            plannedEntry: decision.entry,
+            marketPrice: adjustedEntry,
+            driftPips: Math.round(initialDriftPips * 10) / 10,
+            maxDeviationPips: maxDevPips,
+            action: decision.action,
+          }
+        );
+        return {
+          success: false,
+          error: `PRE_EXECUTION_DEVIATION: Market price ${adjustedEntry} is ${initialDriftPips.toFixed(1)}p from planned entry ${decision.entry} ` +
+                 `(Alpha max tolerance: ${maxDevPips}p). Trade rejected — entry opportunity has passed.`
+        };
+      }
+    }
+
     // CCIP-ALPHA-GOV-LEVELS: Alpha's SL and TP are structural levels set by Alpha's professional judgment.
     // They are executed exactly as issued. Fill price differences do not shift these levels.
     //
@@ -1080,6 +1109,78 @@ class AlphaTradeExecutor {
                `(stop distance ${plannedStopPips}p). ${classification.crossedSl ? 'Fill crossed SL. ' : ''}${classification.crossedTp ? 'Fill crossed TP. ' : ''}` +
                `Trade blocked — geometry structurally invalid. Retries: ${retryCount}.`
       };
+    }
+
+    // CCIP-2026-0518B: Post-fill noise-band survival check.
+    // Alpha's SL levels are immutable (CCIP-ALPHA-GOV-LEVELS), so when fill price
+    // deviates from planned entry the effective SL distance shrinks. If the remaining
+    // distance is < 1× M5 ATR the trade sits inside the noise band and will likely
+    // stop out on random price movement. Block rather than execute a doomed position.
+    const actualSLDistance = Math.abs(adjustedEntry - decision.stopLoss);
+    const actualSLDistancePips = reasoningPipSize > 0 ? actualSLDistance / reasoningPipSize : 0;
+    const answerSheet = (decision as any).answer_sheet;
+    const alphaSLPips = answerSheet?.sl_distance_pips as number | undefined;
+    const alphaSlVsAtr = answerSheet?.sl_distance_vs_m5_atr_ratio as number | undefined;
+
+    if (alphaSLPips && alphaSlVsAtr && alphaSlVsAtr > 0 && actualSLDistancePips > 0) {
+      const m5AtrPips = alphaSLPips / alphaSlVsAtr;
+      const actualSlVsAtr = actualSLDistancePips / m5AtrPips;
+
+      if (actualSlVsAtr < 1.0) {
+        logger.error(
+          LogCategory.RISK_MANAGEMENT,
+          '[AlphaTradeExecutor] NOISE_BAND_COLLAPSED: Fill slippage shrunk SL below 1× ATR — trade blocked. CCIP-2026-0518B.',
+          {
+            symbol: decision.symbol,
+            plannedEntry,
+            actualEntry: adjustedEntry,
+            plannedSLDistancePips: alphaSLPips,
+            actualSLDistancePips: Math.round(actualSLDistancePips * 10) / 10,
+            m5AtrPips: Math.round(m5AtrPips * 10) / 10,
+            plannedSlVsAtr: Math.round(alphaSlVsAtr * 100) / 100,
+            actualSlVsAtr: Math.round(actualSlVsAtr * 100) / 100,
+            driftPips: finalDevPips,
+            action: decision.action,
+          }
+        );
+
+        try {
+          await this.db.from('alpha_execution_drift_events').insert({
+            user_id: userId,
+            session_id: sessionId,
+            decision_id: (decision as any).decision_id ?? null,
+            symbol: decision.symbol,
+            alpha_style: styleUpper,
+            direction: decision.action as 'BUY' | 'SELL',
+            planned_entry: plannedEntry,
+            actual_fill: adjustedEntry,
+            planned_stop: decision.stopLoss,
+            planned_take_profit: decision.takeProfit,
+            planned_stop_pips: plannedStopPips,
+            drift_pips: finalDevPips,
+            drift_ratio: Math.round(classification.ratio * 1000) / 1000,
+            tier: classification.tier,
+            outcome: 'blocked',
+            retry_count: retryCount,
+            decision_timestamp: decisionTimestamp,
+            fill_timestamp: new Date().toISOString(),
+            metadata: {
+              block_reason: 'NOISE_BAND_COLLAPSED',
+              actual_sl_vs_atr: Math.round(actualSlVsAtr * 100) / 100,
+              m5_atr_pips: Math.round(m5AtrPips * 10) / 10,
+              ccip: 'CCIP-2026-0518B',
+            },
+          });
+        } catch {
+          // Non-blocking audit
+        }
+
+        return {
+          success: false,
+          error: `NOISE_BAND_COLLAPSED: Fill at ${adjustedEntry} shrunk SL distance from ${alphaSLPips.toFixed(1)}p to ${actualSLDistancePips.toFixed(1)}p ` +
+                 `(${Math.round(actualSlVsAtr * 100)}% of ATR, minimum 100%). Trade blocked — SL inside noise band.`
+        };
+      }
     }
 
     if (finalDev > 1e-8) {

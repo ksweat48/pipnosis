@@ -4985,6 +4985,40 @@ Return PURE JSON only — all required fields from the schema in my system promp
           ? (rawAnswerSheet.Q11_zone_entry_quality as 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE') : undefined,
       } : undefined;
 
+      // CCIP-2026-0518B: Coordinator-level SL/ATR arithmetic verification.
+      // Independently computes sl_distance_pips and sl_distance_vs_m5_atr_ratio from raw data
+      // and corrects the answer_sheet if Alpha's self-report deviates beyond 20% tolerance.
+      // This ensures the executor's noise-band survival check uses ground-truth data.
+      if ((action === 'BUY' || action === 'SELL') && answerSheet && typeof parsed.entry === 'number' && typeof parsed.stopLoss === 'number') {
+        const pipInfoVerify = getCurrencyPipInfo(symbol);
+        const computedSLDistance = Math.abs(parsed.entry - parsed.stopLoss);
+        const computedSLPips = pipInfoVerify.pipValue > 0 ? computedSLDistance / pipInfoVerify.pipValue : 0;
+        const rawATR = extractATRValue(marketContext.atr);
+        const computedATRPips = (pipInfoVerify.pipValue > 0 && rawATR > 0) ? rawATR / pipInfoVerify.pipValue : 0;
+        const computedSlVsAtr = computedATRPips > 0 ? computedSLPips / computedATRPips : 0;
+
+        if (computedSLPips > 0) {
+          const alphaSLPips = answerSheet.sl_distance_pips;
+          const alphaSlVsAtr = answerSheet.sl_distance_vs_m5_atr_ratio;
+
+          if (typeof alphaSLPips === 'number' && Math.abs(alphaSLPips - computedSLPips) / computedSLPips > 0.2) {
+            console.warn(`[Alpha Coordinator] CCIP-2026-0518B: sl_distance_pips corrected ${alphaSLPips.toFixed(1)} → ${computedSLPips.toFixed(1)} (${symbol})`);
+            answerSheet.sl_distance_pips = Math.round(computedSLPips * 10) / 10;
+          } else if (!alphaSLPips) {
+            answerSheet.sl_distance_pips = Math.round(computedSLPips * 10) / 10;
+          }
+
+          if (computedSlVsAtr > 0) {
+            if (typeof alphaSlVsAtr === 'number' && Math.abs(alphaSlVsAtr - computedSlVsAtr) / computedSlVsAtr > 0.2) {
+              console.warn(`[Alpha Coordinator] CCIP-2026-0518B: sl_distance_vs_m5_atr_ratio corrected ${alphaSlVsAtr.toFixed(2)} → ${computedSlVsAtr.toFixed(2)} (${symbol})`);
+              answerSheet.sl_distance_vs_m5_atr_ratio = Math.round(computedSlVsAtr * 100) / 100;
+            } else if (!alphaSlVsAtr) {
+              answerSheet.sl_distance_vs_m5_atr_ratio = Math.round(computedSlVsAtr * 100) / 100;
+            }
+          }
+        }
+      }
+
       // CCIP-2026-0328B: Q10 and Q11 entry mode corrections REMOVED.
       // Alpha has full authority over entry_mode. Q10_entry_conviction=FORCED and
       // Q11_zone_entry_quality=DEEP_ZONE are audit observations that Alpha already
