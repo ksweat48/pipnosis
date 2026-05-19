@@ -170,6 +170,13 @@ class GoalSessionLiveEngine {
   private consecutiveStaleDataCycles = 0;
   private readonly MAX_STALE_DATA_RETRIES = 3;
 
+  // CCIP-2026-0519B: EXECUTION-FAILURE-HALT — count consecutive scan cycles where
+  // Alpha found trades but ALL execution attempts failed (deviation blocks, validation
+  // errors, etc). After MAX_CONSECUTIVE_EXECUTION_FAILURES, halt permanently to prevent
+  // infinite API-cost loops. Resets to 0 on any successful execution.
+  private consecutiveExecutionFailures = 0;
+  private readonly MAX_CONSECUTIVE_EXECUTION_FAILURES = 3;
+
   // CCIP-2026-0511V: Server-side session termination observers.
   // The close_goal_session_trade RPC atomically terminates the parent session
   // when all execution channels empty. The browser live engine must observe
@@ -2250,26 +2257,29 @@ class GoalSessionLiveEngine {
           logger.error(LogCategory.AI_TRADING, 'Error updating trade counter', { error });
         }
       } else {
-        // ✅ SSOT: Trade execution blocked by validation layer - log and provide feedback
+        // CCIP-2026-0519B: Execution blocked — HALT immediately.
+        // Do NOT continue to next winner. Do NOT allow re-scan. Fail loud.
         const blockReason = executionResult.blockReason || executionResult.error || 'Unknown reason';
-        logger.warn(LogCategory.AI_TRADING, `⚠️ Trade execution blocked: ${blockReason}`, {
+        logger.error(LogCategory.AI_TRADING, `[CCIP-2026-0519B] EXECUTION BLOCKED — session halting. Reason: ${blockReason}`, {
           symbol: selectedSymbol,
           confidence: decision.confidence,
           action: decision.action,
           reason: blockReason
         });
 
-        // Send user notification about why trade was blocked
-        const isDeviationBlock = (executionResult.blockReason || '') === 'ENTRY_DEVIATION_EXCEEDS_STRUCTURAL_TOLERANCE';
+        const isDeviationBlock = (executionResult.blockReason || '') === 'ENTRY_DEVIATION_EXCEEDS_STRUCTURAL_TOLERANCE'
+          || blockReason.includes('PRE_EXECUTION_DEVIATION');
         const blockMessage = isDeviationBlock
-          ? `Setup cancelled on ${selectedSymbol}: price moved beyond Alpha's deviation limit before the order could fill. Alpha's structural levels no longer apply at the current price. No trade placed.`
-          : `Trade opportunity on ${selectedSymbol} was blocked:\n\nReason: ${blockReason}`;
+          ? `EXECUTION HALTED on ${selectedSymbol}: Price drifted unfavorably beyond Alpha's deviation tolerance. ` +
+            `Trade blocked. Session stopped to prevent re-scan loop. Start a new session when ready.`
+          : `EXECUTION HALTED on ${selectedSymbol}: ${blockReason}\n\n` +
+            `Session stopped to prevent infinite re-scan. Start a new session when ready.`;
         await this.sendAIMessage(blockMessage).catch(e => {
           logger.warn(LogCategory.AI_TRADING, 'Failed to send execution block notification', { error: e });
         });
 
-        // Continue to next winner on execution failure
-        continue;
+        // Break out of the winner loop — do not try next pair
+        break;
       }
 
       const selectionSummary = (allEvaluations || [])
@@ -2319,6 +2329,34 @@ class GoalSessionLiveEngine {
       );
 
       } // end for (const winner of selectedWinners)
+
+      // CCIP-2026-0519B: EXECUTION-FAILURE-HALT
+      // If Alpha found winners but NONE executed successfully, halt the session
+      // immediately to prevent infinite API-cost re-scan loops.
+      if (!tradeExecuted && selectedWinners.length > 0) {
+        this.consecutiveExecutionFailures++;
+        this.scanCompleteNoTrade = true;
+
+        logger.error(
+          LogCategory.AI_TRADING,
+          `[CCIP-2026-0519B] SESSION HALTED: Alpha found ${selectedWinners.length} winner(s) but execution was blocked. ` +
+          `Consecutive failures: ${this.consecutiveExecutionFailures}. Scanning permanently stopped.`,
+          {
+            failureCount: this.consecutiveExecutionFailures,
+            symbols: selectedWinners.map(w => w.symbol),
+          }
+        );
+
+        await this.logNotification(
+          'alert',
+          'Execution Failure — Session Halted',
+          `Alpha found trade(s) but execution was blocked. Session halted to prevent API cost loop. ` +
+          `Consecutive failures: ${this.consecutiveExecutionFailures}. Start a new session after reviewing the block reason.`,
+          'critical'
+        ).catch(() => {});
+      } else if (tradeExecuted) {
+        this.consecutiveExecutionFailures = 0;
+      }
 
     } catch (error) {
       console.error('[MULTI-SYMBOL] Error details:', error);

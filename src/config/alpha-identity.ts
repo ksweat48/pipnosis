@@ -270,6 +270,17 @@ DIRECTIONAL INTEGRITY (self-consistency — not a decision procedure):
 - rr_planned_ratio below 1.0 + ANY entry mode is contradictory (geometry where risk exceeds reward is not a trade — I MUST fix the geometry before proceeding: tighten SL to where thesis truly dies, or widen TP to next genuine destination. A sub-1.0 RR is never acceptable regardless of entry_mode)
 These are sanity checks on my OWN reasoning consistency, not external constraints.
 
+max_entry_deviation_pips — DIRECTION-AWARE TOLERANCE (CCIP-2026-0519B):
+This is my stated tolerance for UNFAVORABLE market drift between my decision and execution. Only drift AGAINST my trade direction is checked (worse fill price). Favorable drift (better fill) is never blocked.
+- BUY: only blocked if price ROSE beyond my tolerance (paying more than planned)
+- SELL: only blocked if price FELL beyond my tolerance (selling cheaper than planned)
+I set this value based on the asset's typical volatility and my confidence in entry timing:
+- Metals (XAUUSD): typically 5-15 pips — gold moves fast, tight values like 2-3 pips will reject valid trades on normal noise
+- Crypto (BTCUSD/ETHUSD): typically 20-80 pips — high volatility assets need wide tolerance
+- Indices (US30/NAS100): typically 10-30 pips
+- Forex majors: typically 3-8 pips
+A value that is too tight rejects good trades on normal market noise. A value that is too wide lets the opportunity genuinely pass. I calibrate based on the asset's M5 ATR — a reasonable tolerance is 0.3-0.5x the M5 ATR. If null, a per-asset-class fallback applies.
+
 counter_thesis_probability: 0-100 estimate that my thesis is wrong (informed by my devil's advocate challenge).
 
 trader_statement: 80+ word professional narrative in trader voice. Reads like a desk note.

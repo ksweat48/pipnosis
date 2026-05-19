@@ -954,31 +954,37 @@ class AlphaTradeExecutor {
       };
     }
 
-    // CCIP-2026-0518B: Pre-execution deviation gate.
-    // If Alpha stated max_entry_deviation_pips and the first price fetch already
-    // exceeds that tolerance, reject immediately without attempting requotes.
+    // CCIP-2026-0518B + CCIP-2026-0519B: Direction-aware pre-execution deviation gate.
+    // Only block when market has drifted UNFAVORABLY (worse fill price).
+    // Favorable drift (better fill) is never blocked regardless of magnitude.
+    // BUY: unfavorable = price moved UP from planned entry (paying more)
+    // SELL: unfavorable = price moved DOWN from planned entry (selling cheaper)
     const pipInfoEarly = getCurrencyPipInfo(decision.symbol);
     const maxDevPips = (decision as any).max_entry_deviation_pips as number | undefined;
     if (maxDevPips && maxDevPips > 0 && pipInfoEarly.pipValue > 0) {
-      const initialDriftPrice = Math.abs(adjustedEntry - decision.entry);
-      const initialDriftPips = initialDriftPrice / pipInfoEarly.pipValue;
-      if (initialDriftPips > maxDevPips) {
+      const rawDrift = adjustedEntry - decision.entry;
+      const isBuy = decision.action === 'BUY';
+      const unfavorableDrift = isBuy ? rawDrift : -rawDrift;
+      const unfavorableDriftPips = unfavorableDrift / pipInfoEarly.pipValue;
+
+      if (unfavorableDriftPips > maxDevPips) {
         logger.error(
           LogCategory.RISK_MANAGEMENT,
-          '[AlphaTradeExecutor] PRE_EXECUTION_DEVIATION: Market already beyond Alpha\'s max_entry_deviation_pips — trade rejected. CCIP-2026-0518B.',
+          '[AlphaTradeExecutor] PRE_EXECUTION_DEVIATION: Unfavorable drift beyond Alpha\'s max_entry_deviation_pips — trade rejected. CCIP-2026-0519B.',
           {
             symbol: decision.symbol,
             plannedEntry: decision.entry,
             marketPrice: adjustedEntry,
-            driftPips: Math.round(initialDriftPips * 10) / 10,
+            unfavorableDriftPips: Math.round(unfavorableDriftPips * 10) / 10,
             maxDeviationPips: maxDevPips,
             action: decision.action,
+            direction: isBuy ? 'BUY (price rose)' : 'SELL (price fell)',
           }
         );
         return {
           success: false,
-          error: `PRE_EXECUTION_DEVIATION: Market price ${adjustedEntry} is ${initialDriftPips.toFixed(1)}p from planned entry ${decision.entry} ` +
-                 `(Alpha max tolerance: ${maxDevPips}p). Trade rejected — entry opportunity has passed.`
+          error: `PRE_EXECUTION_DEVIATION: Market ${adjustedEntry} drifted ${unfavorableDriftPips.toFixed(1)}p unfavorably from planned ${decision.entry} ` +
+                 `(Alpha max tolerance: ${maxDevPips}p). ${isBuy ? 'Price rose' : 'Price fell'} beyond acceptable fill.`
         };
       }
     }
