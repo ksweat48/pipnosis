@@ -191,6 +191,8 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   // ═══════════════════════════════════════════════════════════════════
   sl_distance_pips: { type: ['number', 'null'] },
   sl_distance_vs_m5_atr_ratio: { type: ['number', 'null'] },
+  sl_distance_after_drift_pips: { type: ['number', 'null'] },
+  sl_post_drift_vs_atr_ratio: { type: ['number', 'null'] },
   sl_distance_vs_mae_forecast_ratio: { type: ['number', 'null'] },
   sl_pool_clearance_pips: { type: ['number', 'null'] },
   sl_placement_verdict: {
