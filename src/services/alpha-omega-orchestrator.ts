@@ -343,10 +343,9 @@ class AlphaOmegaOrchestrator {
           await supabase.from('server_monitoring_alerts').insert({
             alert_type: 'htf_candle_staleness',
             severity: 'critical',
-            symbol: marketState.symbol,
+            user_id: userId ?? null,
             message: abortReason,
-            metadata: { timeframe: 'M15', age_seconds: m15Result.ageSeconds, threshold_seconds: HTF_FRESHNESS_THRESHOLDS['M15'] },
-            resolved: false
+            details: { symbol: marketState.symbol, timeframe: 'M15', age_seconds: m15Result.ageSeconds, threshold_seconds: HTF_FRESHNESS_THRESHOLDS['M15'] }
           }).then(() => {});
         } catch (alertErr) { /* non-blocking */ }
 
@@ -380,10 +379,9 @@ class AlphaOmegaOrchestrator {
           await supabase.from('server_monitoring_alerts').insert({
             alert_type: 'htf_candle_staleness',
             severity: 'warning',
-            symbol: marketState.symbol,
+            user_id: userId ?? null,
             message: `H1 candles ${h1AgeMinutes} min old — excluded from Alpha prompt. Trading on M5 + M15 only.`,
-            metadata: { timeframe: 'H1', age_seconds: h1Result.ageSeconds, threshold_seconds: HTF_FRESHNESS_THRESHOLDS['H1'] },
-            resolved: false
+            details: { symbol: marketState.symbol, timeframe: 'H1', age_seconds: h1Result.ageSeconds, threshold_seconds: HTF_FRESHNESS_THRESHOLDS['H1'] }
           }).then(() => {});
         } catch (alertErr) { /* non-blocking */ }
       }
