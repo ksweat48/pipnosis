@@ -1782,8 +1782,10 @@ Record m5_structural_confirmation, m5_move_phase, m5_atr_traveled, directional_a
       // lot sizing). Its output is NOT shown to Alpha.
       // CCIP-2026-0512A RAW-DATA DOCTRINE: SL/TP AUTHORITY teaching sentence removed.
       // Alpha's sovereignty is codified in governance, not re-asserted in every prompt.
+      const noiseFloorPips = omega9Constraints?.noiseFloorPips ?? 0;
       stopLossDirective = `
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips)
+noise_floor: ${noiseFloorPips.toFixed(1)} pips
 `;
     }
 
