@@ -2257,29 +2257,18 @@ class GoalSessionLiveEngine {
           logger.error(LogCategory.AI_TRADING, 'Error updating trade counter', { error });
         }
       } else {
-        // CCIP-2026-0519B: Execution blocked — HALT immediately.
-        // Do NOT continue to next winner. Do NOT allow re-scan. Fail loud.
+        // CCIP-2026-0520A: Execution blocked on THIS pair — try next candidate.
+        // A single pair failure (deviation, validation, etc.) does NOT halt the session.
+        // Only after ALL winners in the list fail do we increment the failure counter.
         const blockReason = executionResult.blockReason || executionResult.error || 'Unknown reason';
-        logger.error(LogCategory.AI_TRADING, `[CCIP-2026-0519B] EXECUTION BLOCKED — session halting. Reason: ${blockReason}`, {
+        logger.warn(LogCategory.AI_TRADING, `[CCIP-2026-0520A] Execution blocked on ${selectedSymbol} — trying next candidate. Reason: ${blockReason}`, {
           symbol: selectedSymbol,
           confidence: decision.confidence,
           action: decision.action,
           reason: blockReason
         });
 
-        const isDeviationBlock = (executionResult.blockReason || '') === 'ENTRY_DEVIATION_EXCEEDS_STRUCTURAL_TOLERANCE'
-          || blockReason.includes('PRE_EXECUTION_DEVIATION');
-        const blockMessage = isDeviationBlock
-          ? `EXECUTION HALTED on ${selectedSymbol}: Price drifted unfavorably beyond Alpha's deviation tolerance. ` +
-            `Trade blocked. Session stopped to prevent re-scan loop. Start a new session when ready.`
-          : `EXECUTION HALTED on ${selectedSymbol}: ${blockReason}\n\n` +
-            `Session stopped to prevent infinite re-scan. Start a new session when ready.`;
-        await this.sendAIMessage(blockMessage).catch(e => {
-          logger.warn(LogCategory.AI_TRADING, 'Failed to send execution block notification', { error: e });
-        });
-
-        // Break out of the winner loop — do not try next pair
-        break;
+        continue;
       }
 
       const selectionSummary = (allEvaluations || [])
@@ -2330,30 +2319,35 @@ class GoalSessionLiveEngine {
 
       } // end for (const winner of selectedWinners)
 
-      // CCIP-2026-0519B: EXECUTION-FAILURE-HALT
-      // If Alpha found winners but NONE executed successfully, halt the session
-      // immediately to prevent infinite API-cost re-scan loops.
+      // CCIP-2026-0520A: EXECUTION-FAILURE-COUNTER
+      // If Alpha found winners but NONE executed successfully across the ENTIRE list,
+      // increment failure counter. Only halt after MAX_CONSECUTIVE_EXECUTION_FAILURES
+      // full cycles (not on the first failure). This prevents infinite API-cost loops
+      // while still allowing the next scan cycle to try fresh market conditions.
       if (!tradeExecuted && selectedWinners.length > 0) {
         this.consecutiveExecutionFailures++;
-        this.scanCompleteNoTrade = true;
 
-        logger.error(
-          LogCategory.AI_TRADING,
-          `[CCIP-2026-0519B] SESSION HALTED: Alpha found ${selectedWinners.length} winner(s) but execution was blocked. ` +
-          `Consecutive failures: ${this.consecutiveExecutionFailures}. Scanning permanently stopped.`,
-          {
-            failureCount: this.consecutiveExecutionFailures,
-            symbols: selectedWinners.map(w => w.symbol),
-          }
-        );
-
-        await this.logNotification(
-          'alert',
-          'Execution Failure — Session Halted',
-          `Alpha found trade(s) but execution was blocked. Session halted to prevent API cost loop. ` +
-          `Consecutive failures: ${this.consecutiveExecutionFailures}. Start a new session after reviewing the block reason.`,
-          'critical'
-        ).catch(() => {});
+        if (this.consecutiveExecutionFailures >= this.MAX_CONSECUTIVE_EXECUTION_FAILURES) {
+          this.scanCompleteNoTrade = true;
+          logger.error(
+            LogCategory.AI_TRADING,
+            `[CCIP-2026-0520A] SESSION HALTED: ${this.consecutiveExecutionFailures} consecutive full cycles with blocked execution. Stopping scan.`,
+            { failureCount: this.consecutiveExecutionFailures, symbols: selectedWinners.map(w => w.symbol) }
+          );
+          await this.logNotification(
+            'alert',
+            'Execution Failure — Session Halted',
+            `Alpha found trades on ${this.consecutiveExecutionFailures} consecutive scan cycles but execution was blocked every time. ` +
+            `Session halted to prevent API cost loop. Start a new session when ready.`,
+            'critical'
+          ).catch(() => {});
+        } else {
+          logger.warn(
+            LogCategory.AI_TRADING,
+            `[CCIP-2026-0520A] All ${selectedWinners.length} candidates blocked this cycle (${this.consecutiveExecutionFailures}/${this.MAX_CONSECUTIVE_EXECUTION_FAILURES}). Will retry next scan.`,
+            { failureCount: this.consecutiveExecutionFailures, symbols: selectedWinners.map(w => w.symbol) }
+          );
+        }
       } else if (tradeExecuted) {
         this.consecutiveExecutionFailures = 0;
       }

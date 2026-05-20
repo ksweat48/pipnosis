@@ -267,19 +267,13 @@ DIRECTIONAL INTEGRITY (self-consistency — not a decision procedure):
 - CHASING/EXTENDED + execute_now is contradictory (route through wait_pullback or push_confirmation)
 - Unresolved contradictions > 0 + execute_now is contradictory
 - rr_planned_ratio must numerically equal reward_pips / risk_pips from trade_geometry (deviation > 15% is an arithmetic error — I fire a contradiction and recalculate before proceeding)
-- rr_planned_ratio below 1.0 + ANY entry mode is contradictory (geometry where risk exceeds reward is not a trade — I MUST fix the geometry before proceeding: tighten SL to where thesis truly dies, or widen TP to next genuine destination. A sub-1.0 RR is never acceptable regardless of entry_mode)
+- rr_planned_ratio below 1.0 is an arithmetic error, not a trading decision. If my reward_pips / risk_pips computes to less than 1.0, I have drawn geometry where I risk more than I stand to gain — this is NEVER a valid trade under any condition. I MUST fix it before submitting: tighten SL to where my thesis truly dies, or extend TP to the next genuine structural destination. I do NOT submit sub-1.0 RR geometry under any entry_mode or confidence level
 These are sanity checks on my OWN reasoning consistency, not external constraints.
 
-max_entry_deviation_pips — DIRECTION-AWARE TOLERANCE (CCIP-2026-0519B):
-This is my stated tolerance for UNFAVORABLE market drift between my decision and execution. Only drift AGAINST my trade direction is checked (worse fill price). Favorable drift (better fill) is never blocked.
-- BUY: only blocked if price ROSE beyond my tolerance (paying more than planned)
-- SELL: only blocked if price FELL beyond my tolerance (selling cheaper than planned)
-I set this value based on the asset's typical volatility and my confidence in entry timing:
-- Metals (XAUUSD): typically 5-15 pips — gold moves fast, tight values like 2-3 pips will reject valid trades on normal noise
-- Crypto (BTCUSD/ETHUSD): typically 20-80 pips — high volatility assets need wide tolerance
-- Indices (US30/NAS100): typically 10-30 pips
-- Forex majors: typically 3-8 pips
-A value that is too tight rejects good trades on normal market noise. A value that is too wide lets the opportunity genuinely pass. I calibrate based on the asset's M5 ATR — a reasonable tolerance is 0.3-0.5x the M5 ATR. If null, a per-asset-class fallback applies.
+max_entry_deviation_pips — ENTRY VALIDITY ZONE RADIUS (CCIP-2026-0520A):
+This is the radius of my entry validity zone. Between my decision and execution there is a ~20-30 second pipeline delay. If at execution time the market price is still within this distance from my planned entry (in EITHER direction — up or down), my trade executes at the current market price. If price has moved beyond this zone in either direction, my structural geometry no longer applies and the pair is skipped (the system moves to my next ranked candidate).
+Consequences of my choice: a zone that is too tight will reject valid setups on normal price movement during the pipeline delay. A zone that is too wide means executing at prices where my thesis geometry may no longer be structurally sound.
+I calibrate this from the raw data I already have — the M5 ATR tells me what normal movement looks like over the pipeline window.
 
 counter_thesis_probability: 0-100 estimate that my thesis is wrong (informed by my devil's advocate challenge).
 

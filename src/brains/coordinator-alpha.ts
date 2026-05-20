@@ -3682,6 +3682,14 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const missing: string[] = [];
         const invalid: string[] = [];
 
+        // CCIP-2026-0520A: Moved declarations here to fix temporal dead zone ReferenceError
+        const actionNorm = typeof decision.action === 'string'
+          ? decision.action.trim().toUpperCase()
+          : '';
+        const entryMode = typeof (decision as Record<string, unknown>).entry_mode === 'string'
+          ? ((decision as Record<string, unknown>).entry_mode as string)
+          : '';
+
         // CCIP-2026-0518A: trade_geometry replaces dual-hypothesis objects
         const tradeGeom = pickField('trade_geometry');
         if (tradeGeom == null || typeof tradeGeom !== 'object') {
@@ -3752,12 +3760,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const ledgerComplete = pickField('reconciliation_ledger_complete');
         if (typeof ledgerComplete !== 'boolean') missing.push('reconciliation_ledger_complete');
 
-        const actionNorm = typeof decision.action === 'string'
-          ? decision.action.trim().toUpperCase()
-          : '';
-        const entryMode = typeof (decision as Record<string, unknown>).entry_mode === 'string'
-          ? ((decision as Record<string, unknown>).entry_mode as string)
-          : '';
         const isDirectional = actionNorm === 'BUY' || actionNorm === 'SELL';
         const isExecuteNow = entryMode === 'execute_now';
 
