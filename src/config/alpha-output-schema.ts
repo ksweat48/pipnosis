@@ -230,6 +230,14 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
       { type: 'null' },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MOVE MATURITY ASSESSMENT (CCIP-2026-0521A)
+  // Alpha records his assessment of the current M5 leg's exhaustion state
+  // ═══════════════════════════════════════════════════════════════════
+  m5_move_phase_code: { type: 'integer' },
+  m5_atr_traveled: { type: 'number' },
+  m5_move_maturity_assessment: { type: 'string' },
 };
 
 const ANSWER_SHEET_REQUIRED = Object.keys(ANSWER_SHEET_PROPERTIES);

@@ -3943,12 +3943,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // CCIP-2026-0517B: RR GEOMETRY REPAIR — send back to Alpha to fix
+        // CCIP-2026-0521A: RR GEOMETRY AUDIT (replaces 0517B repair gate)
         // ───────────────────────────────────────────────────────────────────
-        // If Alpha submitted a BUY/SELL with sub-1.0 RR (risk > reward), we
-        // do NOT kill the trade. We send it back to Alpha with a correction
-        // request: tighten SL or widen TP. One attempt. If still sub-1.0
-        // after repair, accept with a logged warning.
+        // Alpha owns his geometry per Autonomy Doctrine. Sub-1.0 RR is
+        // flagged for audit/learning but NEVER modified by infrastructure.
         // ═══════════════════════════════════════════════════════════════════
         if (isDirectional && decision.entry && decision.stopLoss && decision.takeProfit) {
           const rrRiskDist = Math.abs(decision.entry - decision.stopLoss);
@@ -3956,146 +3954,33 @@ Return PURE JSON only — all required fields from the schema in my system promp
           const rrActual = rrRiskDist > 0 ? rrRewardDist / rrRiskDist : 0;
 
           if (rrActual < 1.0 && rrRiskDist > 0) {
+            // CCIP-2026-0521A: RR Geometry Repair REMOVED per Alpha Autonomy Doctrine.
+            // Alpha owns his geometry. Sub-1.0 RR is flagged for audit but never modified.
+            (decision as Record<string, unknown>).rr_below_floor = true;
+            (decision as Record<string, unknown>).rr_actual = rrActual;
+
             console.warn(
-              `[Alpha Coordinator] CCIP-2026-0517B RR_GEOMETRY_REPAIR triggered: ` +
-              `${marketContext.symbol} RR=${rrActual.toFixed(3)} < 1.0 (risk=${rrRiskDist.toFixed(5)}, reward=${rrRewardDist.toFixed(5)}). ` +
-              `Sending back to Alpha for geometry correction.`
+              `[Alpha Coordinator] CCIP-2026-0521A: ${marketContext.symbol} sub-1.0 RR=${rrActual.toFixed(3)} ` +
+              `(risk=${rrRiskDist.toFixed(5)}, reward=${rrRewardDist.toFixed(5)}). ` +
+              `Geometry preserved — Alpha owns his output.`
             );
 
-            const originalSL = decision.stopLoss;
-            const originalTP = decision.takeProfit;
-            const originalTP1 = decision.tp1Price ?? null;
-            const originalTP2 = decision.tp2Price ?? null;
-
-            try {
-              const rrRepairMessages = [
-                ...buildAlphaMessages(),
-                {
-                  role: 'assistant' as const,
-                  content: JSON.stringify({
-                    action: decision.action,
-                    entry: decision.entry,
-                    stopLoss: decision.stopLoss,
-                    takeProfit: decision.takeProfit,
-                    tp1: decision.tp1Price ?? decision.takeProfit,
-                    tp2: decision.tp2Price ?? decision.takeProfit,
-                    confidence_tier: decision.confidence_tier,
-                    reasoning: decision.reasoning,
-                    entry_mode: decision.entry_mode,
-                  })
-                },
-                {
-                  role: 'user' as const,
-                  content:
-                    `Your geometry has RR = ${rrActual.toFixed(3)} which is below 1.0. Risk (${rrRiskDist.toFixed(5)}) exceeds reward (${rrRewardDist.toFixed(5)}). ` +
-                    `This is a negative-expectancy trade — you are risking more than you stand to gain. ` +
-                    `Fix the geometry: tighten your stopLoss closer to where the thesis truly dies (while staying beyond the noise band and trap pools), ` +
-                    `OR widen your takeProfit/tp2 to the next genuine structural destination that your thesis supports. ` +
-                    `The result MUST have reward_distance >= risk_distance (RR >= 1.0). ` +
-                    `Return ONLY a JSON object with these corrected fields: { "stopLoss": number, "takeProfit": number, "tp1": number | null, "tp2": number | null, "rr_planned_ratio": number, "sl_structural_reference": string }. ` +
-                    `Do NOT change direction, entry, or action. Keep the same thesis — just fix the geometry.`
-                }
-              ];
-
-              const rrRepairResponse = await openAIClient.chat(rrRepairMessages, {
-                ...alphaCallOptions,
-                max_completion_tokens: 1500,
-                requestType: 'alpha_coordination_rr_repair' as any,
-                response_format: undefined as any,
+            import('../lib/supabase').then(({ supabase }) => {
+              supabase.from('alpha_geometry_errors').insert({
+                symbol: marketContext.symbol,
+                direction: decision.action,
+                entry_price: decision.entry,
+                stop_loss: decision.stopLoss,
+                take_profit: decision.takeProfit,
+                rr_actual: rrActual,
+                risk_distance: rrRiskDist,
+                reward_distance: rrRewardDist,
+                user_id: userId || null,
+                action_taken: 'none_alpha_owns_geometry',
+              }).then(({ error }) => {
+                if (error) console.warn('[Alpha Coordinator] Geometry error log insert failed:', error.message);
               });
-
-              const rrRepairContent = rrRepairResponse.choices[0]?.message?.content || '{}';
-              const rrRepairParsed = tryParseLLMResponse(rrRepairContent);
-
-              if (rrRepairParsed && typeof rrRepairParsed === 'object') {
-                const rp = rrRepairParsed as Record<string, unknown>;
-                const newSL = typeof rp.stopLoss === 'number' ? rp.stopLoss : null;
-                const newTP = typeof rp.takeProfit === 'number' ? rp.takeProfit : null;
-                const newTP1 = typeof rp.tp1 === 'number' ? rp.tp1 : null;
-                const newTP2 = typeof rp.tp2 === 'number' ? rp.tp2 : null;
-
-                if (newSL !== null && newTP !== null) {
-                  const newRiskDist = Math.abs(decision.entry - newSL);
-                  const newRewardDist = Math.abs(newTP - decision.entry);
-                  const newRR = newRiskDist > 0 ? newRewardDist / newRiskDist : 0;
-
-                  // Validate geometry direction is still correct
-                  const geomValid = decision.action === 'BUY'
-                    ? (newSL < decision.entry && newTP > decision.entry)
-                    : (newSL > decision.entry && newTP < decision.entry);
-
-                  if (geomValid) {
-                    decision.stopLoss = newSL;
-                    decision.takeProfit = newTP;
-                    if (newTP1 !== null) decision.tp1Price = newTP1;
-                    if (newTP2 !== null) decision.tp2Price = newTP2;
-
-                    // Update answer_sheet RR fields
-                    if (decision.answer_sheet) {
-                      (decision.answer_sheet as Record<string, unknown>).rr_planned_ratio = newRR;
-                      (decision.answer_sheet as Record<string, unknown>).rr_profitability_check =
-                        newRR >= 1.5 ? 'PROFITABLE' : newRR >= 1.0 ? 'MARGINAL' : 'UNPROFITABLE';
-                      (decision.answer_sheet as Record<string, unknown>).rr_profitability_resolution =
-                        `Geometry repaired by coordinator: SL ${originalSL.toFixed(5)}->${newSL.toFixed(5)}, TP ${originalTP.toFixed(5)}->${newTP.toFixed(5)}, RR ${rrActual.toFixed(3)}->${newRR.toFixed(3)}`;
-                    }
-
-                    if (typeof rp.sl_structural_reference === 'string') {
-                      (decision as Record<string, unknown>).sl_structural_reference = rp.sl_structural_reference;
-                    }
-
-                    (decision as Record<string, unknown>).rr_geometry_repair_applied = true;
-                    (decision as Record<string, unknown>).rr_geometry_original = {
-                      stopLoss: originalSL,
-                      takeProfit: originalTP,
-                      tp1: originalTP1,
-                      tp2: originalTP2,
-                      rr: rrActual,
-                    };
-
-                    console.log(
-                      `[Alpha Coordinator] CCIP-2026-0517B RR_GEOMETRY_REPAIR SUCCESS: ` +
-                      `${marketContext.symbol} RR ${rrActual.toFixed(3)} -> ${newRR.toFixed(3)} ` +
-                      `(SL: ${originalSL.toFixed(5)}->${newSL.toFixed(5)}, TP: ${originalTP.toFixed(5)}->${newTP.toFixed(5)})`
-                    );
-
-                    // Log to Supabase for analytics
-                    import('../lib/supabase').then(({ supabase }) => {
-                      supabase.from('rr_geometry_repairs').insert({
-                        symbol: marketContext.symbol,
-                        direction: decision.action,
-                        entry_price: decision.entry,
-                        original_sl: originalSL,
-                        repaired_sl: newSL,
-                        original_tp: originalTP,
-                        repaired_tp: newTP,
-                        original_rr: rrActual,
-                        repaired_rr: newRR,
-                        repair_successful: newRR >= 1.0,
-                        user_id: userId || null,
-                      }).then(({ error }) => {
-                        if (error) console.warn('[Alpha Coordinator] RR repair log insert failed:', error.message);
-                      });
-                    }).catch(() => {});
-                  } else {
-                    console.warn(
-                      `[Alpha Coordinator] CCIP-2026-0517B RR_GEOMETRY_REPAIR REJECTED: ` +
-                      `repaired geometry has invalid direction (SL=${newSL}, Entry=${decision.entry}, TP=${newTP} for ${decision.action}). ` +
-                      `Keeping original geometry.`
-                    );
-                  }
-                } else {
-                  console.warn(
-                    `[Alpha Coordinator] CCIP-2026-0517B RR_GEOMETRY_REPAIR FAILED: ` +
-                    `repair response missing stopLoss or takeProfit. Keeping original geometry.`
-                  );
-                }
-              }
-            } catch (rrRepairErr) {
-              console.warn(
-                `[Alpha Coordinator] CCIP-2026-0517B RR_GEOMETRY_REPAIR ERROR: ${String(rrRepairErr)}. ` +
-                `Keeping original geometry (RR=${rrActual.toFixed(3)}).`
-              );
-            }
+            }).catch(() => {});
           }
         }
       } catch (gateErr) {

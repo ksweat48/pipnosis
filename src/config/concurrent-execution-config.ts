@@ -382,7 +382,7 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   },
 
   earlyExit: {
-    enabled: true,
+    enabled: false,
     // CCIP-2026-0318A-ADVISORY: Lowered 72→50 to align with ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE.
     // CCIP-2026-03-11 raised this to 72 to optimize scan speed by early-exiting after
     // a high-confidence signal. However at 72% the early-exit rarely triggered on ACCEPTABLE
