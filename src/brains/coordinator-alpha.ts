@@ -3983,6 +3983,50 @@ Return PURE JSON only — all required fields from the schema in my system promp
             }).catch(() => {});
           }
         }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // CCIP-2026-0521B: RR HALLUCINATION GATE (data-integrity correction)
+        // ───────────────────────────────────────────────────────────────────
+        // When Alpha's own answer_sheet admits rr_profitability_check =
+        // "UNPROFITABLE" AND the actual geometry confirms RR < 1.0 AND
+        // entry_mode = execute_now — this is an arithmetic hallucination.
+        // Alpha acknowledged bad geometry but still chose immediate entry.
+        // This is a semantic contradiction (not a directional override):
+        // re-route to wait_pullback so better entry geometry can form.
+        // ═══════════════════════════════════════════════════════════════════
+        if (isExecuteNow && isDirectional) {
+          const rrCheck = pickField('rr_profitability_check');
+          const rrCheckStr = typeof rrCheck === 'string' ? rrCheck.toUpperCase() : '';
+          const rrGeomFlag = (decision as Record<string, unknown>).rr_below_floor === true;
+          const rrActualVal = (decision as Record<string, unknown>).rr_actual;
+          const confirmedSubOne = typeof rrActualVal === 'number' && rrActualVal < 1.0;
+
+          if (rrCheckStr === 'UNPROFITABLE' && (rrGeomFlag || confirmedSubOne)) {
+            const dMut = decision as Record<string, unknown>;
+            dMut.entry_mode = 'wait_pullback';
+            dMut.rr_hallucination_gate_fired = true;
+            dMut.rr_hallucination_original_mode = 'execute_now';
+
+            console.warn(
+              `[Alpha Coordinator] CCIP-2026-0521B: RR HALLUCINATION GATE FIRED — ` +
+              `${marketContext.symbol} rr_profitability_check=UNPROFITABLE, actual_rr=${typeof rrActualVal === 'number' ? rrActualVal.toFixed(3) : 'unknown'}, ` +
+              `entry_mode forced execute_now→wait_pullback. Alpha acknowledged bad geometry but chose immediate entry — semantic contradiction corrected.`
+            );
+
+            import('../lib/supabase').then(({ supabase }) => {
+              supabase.from('ssot_violations').insert({
+                violation_type: 'RR_HALLUCINATION_GATE',
+                source_file: 'coordinator-alpha.ts',
+                description: `Alpha claimed UNPROFITABLE geometry (RR=${typeof rrActualVal === 'number' ? rrActualVal.toFixed(3) : '?'}) but chose execute_now — forced to wait_pullback`,
+                severity: 'high',
+                symbol: marketContext.symbol,
+                user_id: userId || null,
+              }).then(({ error }) => {
+                if (error) console.warn('[Alpha Coordinator] RR hallucination log insert failed:', error.message);
+              });
+            }).catch(() => {});
+          }
+        }
       } catch (gateErr) {
         console.error('[Alpha Coordinator] CCIP-2026-0508C gate evaluation error:', gateErr);
       }
