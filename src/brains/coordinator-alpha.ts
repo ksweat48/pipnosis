@@ -1722,19 +1722,14 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
 
     // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — only MICRO_INTRADAY.
-    // CCIP-2026-0512A RAW-DATA DOCTRINE: The HUNTER'S TP CONTRACT paragraph and the
-    // M5-exit-narrative teaching block were removed. They were telling Alpha *how* to
-    // think about TP placement. Alpha already knows how to trade. The prompt surfaces
-    // the timeframe facts and the required JSON audit fields only.
-    // CCIP-2026-0513F: M5-Primary Hierarchy. M5 is the battlefield, M15 is a
-    // one-line filter, M1 is optional sniper, H1 is background only. The
-    // timeframe stack is presented in authority order (highest authority first).
+    // CCIP-2026-0521C: CONTEXTUAL AUTHORITY — no timeframe hierarchy imposed.
+    // Alpha synthesizes all timeframes freely. SL/TP placed at M5 precision.
     const styleIdentityPrompt = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STYLE IDENTITY: MICRO_INTRADAY
+STYLE: MICRO_INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Timeframe authority: M5 (primary — SL/TP placed here) > M15 (filter) > M1 (optional sniper) > H1 (background context only).
-Record m5_structural_confirmation, m5_move_phase, m5_atr_traveled, directional_authority, m5_direction_call, m5_micro_leg_state, m15_filter_check, m1_sniper_used, h1_background_only in the JSON response — these are audit fields.
+SL/TP precision: M5. Directional decision: synthesize ALL timeframes (M5, M15, H1, D1).
+Record m5_move_phase, m5_atr_traveled, m5_micro_leg_state in the JSON response — these are audit fields.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
@@ -2095,10 +2090,8 @@ ${primaryTfConfig.label} EMA CONTEXT (raw readings):
         primaryTfCandlePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${primaryTfConfig.label} PRIMARY TIMEFRAME CANDLES (${marketContext.symbol}) — ENTRY ADVISORY PRIMARY SIGNAL
+${primaryTfConfig.label} CANDLES (${marketContext.symbol}) — 30 candles, newest last
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-THIS IS YOUR PRIMARY DATA for the entry_advisory verdict. Your trade lives on the ${primaryTfConfig.label} timeframe.
-Analyze these ${primaryTfConfig.label} candles FIRST before considering M1 micro-data.
 CANDLE FORMAT (columnar, pipe-delimited, oldest→newest): i|dir|O|H|L|C|body_p|upW_p|loW_p
 - i: index (1=oldest). dir: UP/DN/FLAT. O/H/L/C: OHLC prices. body_p: body size in pips. upW_p/loW_p: upper/lower wick in pips.
 - body_p, upW_p, loW_p are raw pip measurements.
@@ -2140,9 +2133,9 @@ ${primaryTfConfig.label} STRUCTURAL EVIDENCE (pre-computed from same window):
         htfCandlePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${htfConfig.label} BACKGROUND CONTEXT (${marketContext.symbol})
+${htfConfig.label} CANDLES (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${htfConfig.label} candles excluded — data staleness detected by freshness gate. Background context only — non-blocking. Proceed on M5 + M15.
+${htfConfig.label} candles excluded — data staleness detected by freshness gate. Data unavailable — non-blocking.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
       } else {
@@ -2158,9 +2151,9 @@ ${htfConfig.label} candles excluded — data staleness detected by freshness gat
           htfCandlePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${htfConfig.label} BACKGROUND CONTEXT (${marketContext.symbol})
+${htfConfig.label} CANDLES (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${htfConfig.label} candles unavailable. Background context only — non-blocking. Proceed on M5 + M15.
+${htfConfig.label} candles unavailable. Data unavailable — non-blocking.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         } else {
@@ -2255,9 +2248,9 @@ ${htfConfig.label} RAW READINGS (last ${htfConfig.candleCount} candles):
         htfCandlePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${htfConfig.label} BACKGROUND CONTEXT (${marketContext.symbol})
+${htfConfig.label} CANDLES (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${htfConfig.label} candle fetch failed. Background context only — non-blocking. Proceed on M5 + M15.
+${htfConfig.label} candle fetch failed. Data unavailable — non-blocking.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
       }
@@ -2367,9 +2360,9 @@ M15 RAW READINGS (last ${recentM15Dir.length} candles):
           m15DirectionPromptMicro = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M15 DIRECTION (${marketContext.symbol}) — DATA UNAVAILABLE
+M15 CANDLES (${marketContext.symbol}) — DATA UNAVAILABLE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WARNING: M15 direction candles unavailable (${m15DirCandles?.length ?? 0} found, need ≥5). M15 structural high/low cannot be computed. ATR-traveled in the move stage advisory is measured from M5 window only — treat conservatively.
+M15 candles unavailable (${m15DirCandles?.length ?? 0} found, need ≥5). Data unavailable — non-blocking.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.warn(`[Alpha Coordinator] M15 direction data insufficient for MICRO_INTRADAY (${m15DirCandles?.length ?? 0} candles)`);
@@ -2378,9 +2371,9 @@ WARNING: M15 direction candles unavailable (${m15DirCandles?.length ?? 0} found,
         m15DirectionPromptMicro = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M15 DIRECTION (${marketContext.symbol}) — FETCH ERROR
+M15 CANDLES (${marketContext.symbol}) — FETCH ERROR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WARNING: M15 direction fetch failed. M15 structural high/low unavailable. ATR-traveled is from M5 window only.
+M15 candle fetch failed. Data unavailable — non-blocking.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.warn('[Alpha Coordinator] M15 direction fetch failed for MICRO_INTRADAY (non-blocking):', error instanceof Error ? error.message : 'Unknown');
