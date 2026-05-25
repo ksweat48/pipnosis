@@ -103,7 +103,7 @@ import type { Omega9Constraints, DualArenaWalls } from '../types/omega9-constrai
 import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshness-gate';
 import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver';
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
-import { isCrypto, isIndex, isXAUUSD } from '../utils/currencyHelpers';
+import { isIndex, isXAUUSD } from '../utils/currencyHelpers';
 import type { ConflictInfo } from '../types/alpha-thesis';
 import { calculateSessionContext } from '../utils/marketHours';
 import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/entry';
@@ -140,7 +140,6 @@ import { computeMomentumTrajectory, formatMomentumTrajectoryForPrompt } from '..
  * Helper: Determine asset class from symbol
  */
 function getAssetClass(symbol: string): AssetClass {
-  if (isCrypto(symbol)) return 'CRYPTO';
   if (isIndex(symbol)) return 'INDEX';
   if (isXAUUSD(symbol)) return 'METAL';
   return 'FOREX';
@@ -919,7 +918,7 @@ ENTRY MODE OPTIONS:
 
   "entry_mode": "push_confirmation"
     → You require a candle CLOSE inside a specific zone before entry is confirmed.
-    → Zone should be tight (1-3 pip width for FX, proportional for indices/crypto).
+    → Zone should be tight (1-3 pip width for FX, proportional for indices).
     → Include a wait_condition block.
 
 For wait_pullback or push_confirmation, include:
@@ -1552,11 +1551,8 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
       console.log(`[Alpha Coordinator] 📊 Market ATR: ${atrValue.toFixed(5)} (${atrPercent.toFixed(3)}%)`);
 
       // Derive envelope-based TP ceiling for the feasibility RR check.
-      // ATR-multiple TP ceiling (ATR% × 12) produces a falsely low ceiling during low-vol
-      // sessions (e.g. Asian crypto: BTC M5 ATR = 0.02% → TP ceiling = 0.28%, far below
-      // the 0.50% SL floor → false RR_BELOW_TARGET advisory every scan).
-      // The execution envelope already encodes the correct TP max per asset class per style.
-      // Using it directly eliminates the ATR-compression artifact while preserving all other
+      // The execution envelope encodes the correct TP max per asset class per style.
+      // Using it directly eliminates ATR-compression artifacts while preserving all other
       // feasibility checks unchanged.
       const feasibilityEnvelope = getExecutionEnvelope(requestedStyle);
       const feasibilityEnvelopeAssetClass = assetClass as EnvelopeAssetClass;
@@ -1581,9 +1577,6 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
           maxTpAtrMultiple: 12,
           tpCeilingPercent: envelopeTpCeilingPercent,
           minSlPercentByAssetRisk: {
-            'CRYPTO:HIGH': 0.50,
-            'CRYPTO:MEDIUM': 1.00,
-            'CRYPTO:LOW': 2.00,
             'FOREX:HIGH': 0.05,
             'FOREX:MEDIUM': 0.08,
             'FOREX:LOW': 0.12,
@@ -2466,15 +2459,10 @@ M15 candle fetch failed. Data unavailable — non-blocking.
         // ROUND NUMBERS: Compute nearest round price levels for TP path audit.
         // For FX pairs: major round = 00-pip (X.XX00), minor round = 50-pip (X.XX50).
         // For indices/metals: nearest 100 and 50 levels.
-        // For crypto: nearest 100 and 50 levels (prices >> 1000).
         const isIndexOrMetal = ['US30', 'NAS100', 'XAUUSD', 'XAGUSD'].includes(marketContext.symbol);
-        const isCrypto = ['BTCUSD', 'ETHUSD'].includes(marketContext.symbol);
         let roundStep: number;
         let minorStep: number;
-        if (isCrypto) {
-          roundStep = 1000;
-          minorStep = 500;
-        } else if (isIndexOrMetal) {
+        if (isIndexOrMetal) {
           roundStep = marketContext.symbol === 'XAUUSD' || marketContext.symbol === 'XAGUSD' ? 50 : 100;
           minorStep = roundStep / 2;
         } else {
@@ -2770,7 +2758,7 @@ MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step b
   Step B: Verify SL distance >= minimum viable SL shown above (${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips for ${marketContext.symbol}). If my SL distance is below this floor, the position cannot survive the spread — widen the SL to the next structural level that clears this floor. If no structural anchor exists at or beyond the floor, I output NO_TRADE.
   Step C: Calculate my TP2 distance in pips — abs(tp2 - entry).
   Step D: Verify TP2 distance >= SL distance. If TP2 distance < SL distance, I have constructed a direction, not a trade. I select the next structural level further from entry that satisfies TP2 >= SL distance. If no such level exists after a genuine structural search, I output NO_TRADE with the specific structural reason.
-  ETHUSD example (Step B): Minimum SL = 7.5 pips. If my structural SL is at 7.1 pips, I widen to the next structural extreme that is >= 7.5 pips. I do NOT submit a 7.1 pip SL — it will be hard-blocked before execution.
+  EURUSD example (Step B): Minimum SL = 3.0 pips. If my structural SL is at 2.8 pips, I widen to the next structural extreme that is >= 3.0 pips. I do NOT submit a 2.8 pip SL — it will be hard-blocked before execution.
   Geometry example (Step D): SL is 57 pips. My TP2 must be >= 57 pips. A TP2 of 50 pips with a 57-pip SL = 0.88:1 = not a trade.
 
 - MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1 on TP2. REASONING ORDER IS FIXED — find TP2 first, then find TP1 inside.
@@ -4085,7 +4073,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       // Log Alpha's stop placement vs anchor (Enhanced Stop Tracking)
       if (decision.action !== 'NO_TRADE' && stopLossAnchor) {
-        // Use centralized pip calculation for consistency across all symbols (forex, crypto, indices)
+        // Use centralized pip calculation for consistency across all symbols (forex, metals, indices)
         const alphaSLPips = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
         const anchorSLPips = stopLossAnchor.stopLossPips;
         const deviation = alphaSLPips - anchorSLPips;
@@ -5770,16 +5758,14 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // CCIP-2026-0321A: Extract Alpha's per-trade deviation tolerance.
       // Alpha states max_entry_deviation_pips as an integer in the BUY/SELL output schema.
       // If missing or invalid, apply a per-asset-class fallback so execution never crashes.
-      // Fallbacks (reasoning pips): forex=20, crypto=200, metals=80, indices=50.
+      // Fallbacks (reasoning pips): forex=20, metals=80, indices=50.
       const rawDevPips = parsed.max_entry_deviation_pips;
       let alphaMaxDeviationPips: number | undefined;
       if (typeof rawDevPips === 'number' && Number.isFinite(rawDevPips) && rawDevPips > 0) {
         alphaMaxDeviationPips = Math.round(rawDevPips);
       } else {
         const sym = symbol.toUpperCase();
-        if (['BTCUSD', 'ETHUSD', 'LTCUSD', 'XRPUSD', 'BCHUSD'].some(c => sym.includes(c.replace('USD', '')))) {
-          alphaMaxDeviationPips = 200;
-        } else if (['XAUUSD', 'XAGUSD', 'GOLD'].some(m => sym.includes(m.replace('USD', '')))) {
+        if (['XAUUSD', 'XAGUSD', 'GOLD'].some(m => sym.includes(m.replace('USD', '')))) {
           alphaMaxDeviationPips = 80;
         } else if (['US30', 'NAS100', 'UK100', 'DE30', 'JP225'].some(i => sym.includes(i))) {
           alphaMaxDeviationPips = 50;

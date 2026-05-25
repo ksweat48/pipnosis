@@ -48,8 +48,7 @@
 #   timeout = 26
 #   schedule = "* * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
 
-# 🔄 HYBRID: MetaAPI + Binance 24/7 crypto support
-# Provides dual-source redundancy with 24/7 crypto polling
+# 🔄 HYBRID: MetaAPI price collection with retry logic
 # ENHANCED: 8s MetaAPI timeout, retry logic, health metrics logging
 [functions."hybrid-price-collector"]
   timeout = 35  # Increased from 26s to 35s for retry logic
@@ -166,12 +165,6 @@
   timeout = 60
   schedule = "*/5 * * * *"
 
-# 🔍 PRICE FEED WATCHDOG: Detects crypto tick-feed silence and self-heals via Kraken OHLC (every 5 min)
-# Fires when realtime_prices has received no ticks for > 3 minutes on BTCUSD or ETHUSD.
-# Backfills M1/M5/M15 directly from Kraken OHLC so charts never go dark.
-[functions."price-feed-watchdog"]
-  timeout = 60
-  schedule = "*/5 * * * *"
 
 # 💰 PHASE 3B: Daily PIP Utility Index Computation (runs daily at midnight UTC)
 # CALCULATION: Computes dynamic PIP utility value based on platform activity
@@ -219,7 +212,7 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://pipnosis.com https://*.netlify.app https://*.supabase.co wss://*.supabase.co https://api.openai.com https://fonts.googleapis.com https://fonts.gstatic.com https://*.agiliumtrade.ai wss://*.agiliumtrade.ai https://financialmodelingprep.com https://api.alternative.me https://api.coingecko.com https://api.kraken.com; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; child-src 'self' blob:;"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://pipnosis.com https://*.netlify.app https://*.supabase.co wss://*.supabase.co https://api.openai.com https://fonts.googleapis.com https://fonts.gstatic.com https://*.agiliumtrade.ai wss://*.agiliumtrade.ai https://financialmodelingprep.com https://api.alternative.me; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; child-src 'self' blob:;"
 
 [[headers]]
   for = "/*"

@@ -3,7 +3,7 @@
  *
  * The 8-indicator weighted calculator here produced DIFFERENT confidence scores than
  * Alpha's Omega Council pipeline, causing the dual-system problem where IM showed
- * ETHUSD at 75% but Alpha gave NO_TRADE.
+ * a symbol at 75% but Alpha gave NO_TRADE.
  *
  * Replaced by: src/services/alpha-preview-scanner.ts (runs the identical Alpha pipeline).
  * This file is kept for audit trail only. No new code should import from it.
@@ -1003,7 +1003,6 @@ export class RealTimeIntelligenceCalculator {
     const config = getSymbolConfig(symbol);
     if (!config) return 'FOREX';
     switch (config.category) {
-      case 'crypto': return 'CRYPTO';
       case 'metal': return 'METAL';
       case 'index': return 'INDEX';
       default: return 'FOREX';

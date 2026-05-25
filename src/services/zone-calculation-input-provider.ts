@@ -181,9 +181,7 @@ export class ZoneCalculationInputProvider {
       'USDCAD': 1.5,
       'NZDUSD': 1.8,
       'USDCHF': 1.5,
-      'XAUUSD': 3.0,
-      'BTCUSD': 10.0,
-      'ETHUSD': 2.0
+      'XAUUSD': 3.0
     };
 
     const pips = spreadPips[symbol] || 2.0; // Default 2 pips

@@ -12,7 +12,7 @@
  *
  * Architecture:
  * 1. Check if forex market is closed (via market-hours-checker SSOT)
- * 2. If closed + 5min grace period elapsed: auto-close all non-crypto positions
+ * 2. If closed + 5min grace period elapsed: auto-close all open positions
  * 3. Fetch all open positions from database
  * 4. Get current price for each symbol (via price-coordinator SSOT)
  * 5. Check if SL/TP/TP1/TP2 has been hit
@@ -21,8 +21,7 @@
  *
  * Market-Close Protocol (CCIP Governance):
  * - 5-minute grace period after market close for final price settlement
- * - Non-crypto positions auto-closed with close_reason='market_closed'
- * - Crypto (24/7) positions continue normal SL/TP monitoring
+ * - All positions auto-closed with close_reason='market_closed'
  * - Uses last known price from realtime_prices as exit price
  *
  * Response Time: Sub-10-second from SL/TP hit to closure execution
@@ -31,7 +30,6 @@
 import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
 import { isForexMarketOpen } from './_shared/market-hours-checker';
-import { isCryptoSymbol } from './_shared/crypto-symbol-checker';
 
 const supabase = getSupabaseAdmin();
 
@@ -302,7 +300,7 @@ async function logMonitoringCheck(
 }
 
 /**
- * Auto-close non-crypto positions when forex market is closed.
+ * Auto-close all positions when forex market is closed.
  * Uses 5-minute grace period after market close for price settlement.
  * Returns count of positions closed.
  */
@@ -310,17 +308,15 @@ async function enforceMarketCloseClosure(
   executionId: string,
   positions: OpenPosition[]
 ): Promise<{ marketClosuresExecuted: number; nonCryptoOpen: number }> {
-  const nonCryptoPositions = positions.filter(p => !isCryptoSymbol(p.symbol));
-
-  if (nonCryptoPositions.length === 0) {
+  if (positions.length === 0) {
     return { marketClosuresExecuted: 0, nonCryptoOpen: 0 };
   }
 
-  console.log(`[AutonomousMonitor:${executionId}] MARKET CLOSED: Found ${nonCryptoPositions.length} non-crypto position(s) to auto-close`);
+  console.log(`[AutonomousMonitor:${executionId}] MARKET CLOSED: Found ${positions.length} position(s) to auto-close`);
 
   let closed = 0;
 
-  for (const position of nonCryptoPositions) {
+  for (const position of positions) {
     try {
       const price = await getLastKnownPrice(position.symbol);
       if (!price) {
@@ -375,7 +371,7 @@ async function enforceMarketCloseClosure(
     }
   }
 
-  return { marketClosuresExecuted: closed, nonCryptoOpen: nonCryptoPositions.length };
+  return { marketClosuresExecuted: closed, nonCryptoOpen: positions.length };
 }
 
 /**
@@ -514,7 +510,7 @@ export const handler: Handler = async (event, context) => {
         };
       }
 
-      // Continue with remaining (crypto) positions for SL/TP monitoring
+      // Continue with remaining positions for SL/TP monitoring
       positions.length = 0;
       positions.push(...remainingPositions);
     }

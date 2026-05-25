@@ -21,7 +21,6 @@ import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
 import { globalToastManager } from './global-toast-manager';
 import { goalNotificationSystem } from './goal-notifications';
-import { is24HourSymbol } from '@/utils/marketHours';
 import { marketScheduleService } from './market-schedule-service';
 
 // Global shutdown flags
@@ -99,14 +98,8 @@ class WeekendProtectionService {
     return LLM_API_DISABLED;
   }
 
-  // Check if a specific symbol can be scanned (crypto always allowed, forex only during market hours)
-  canScanSymbol(symbol: string): boolean {
-    // Crypto can always be scanned (24/7 markets)
-    if (is24HourSymbol(symbol)) {
-      return true;
-    }
-
-    // Forex/Indices can only be scanned when systems are not disabled
+  // Check if a specific symbol can be scanned
+  canScanSymbol(_symbol: string): boolean {
     return !SCANNING_DISABLED && !LLM_API_DISABLED;
   }
 
@@ -172,28 +165,19 @@ class WeekendProtectionService {
     };
   }
 
-  async canOpenNewTrade(symbol?: string): Promise<{ allowed: boolean; reason?: string; holidayName?: string }> {
-    // CRYPTO BYPASS: 24/7 markets always allowed (delegates to symbol registry SSOT)
-    if (symbol && is24HourSymbol(symbol)) {
-      logger.debug(
-        LogCategory.POSITION_MONITOR,
-        `✅ ${symbol} bypass - 24/7 market (trades during holidays/weekends)`
-      );
-      return { allowed: true };
-    }
-
-    // FOREX/INDICES: Check market schedule (holidays, weekends, early close)
+  async canOpenNewTrade(_symbol?: string): Promise<{ allowed: boolean; reason?: string; holidayName?: string }> {
+    // Check market schedule (holidays, weekends, early close)
     const marketStatus = await marketScheduleService.getMarketStatus();
 
     if (marketStatus.status === 'holiday') {
       const holiday = await marketScheduleService.isHoliday();
       logger.info(
         LogCategory.POSITION_MONITOR,
-        `🚫 Forex/Index trading blocked - ${holiday?.name || 'Holiday'} (Crypto unaffected)`
+        `🚫 Trading blocked - ${holiday?.name || 'Holiday'}`
       );
       return {
         allowed: false,
-        reason: marketStatus.reason || `Forex market closed for ${holiday?.name || 'holiday'}`,
+        reason: marketStatus.reason || `Market closed for ${holiday?.name || 'holiday'}`,
         holidayName: holiday?.name
       };
     }
@@ -202,11 +186,11 @@ class WeekendProtectionService {
       const holiday = await marketScheduleService.isHoliday();
       logger.info(
         LogCategory.POSITION_MONITOR,
-        `🚫 Forex/Index early close - ${holiday?.name || 'Holiday'} (Crypto unaffected)`
+        `🚫 Early close - ${holiday?.name || 'Holiday'}`
       );
       return {
         allowed: false,
-        reason: marketStatus.reason || 'Forex market closed early for holiday',
+        reason: marketStatus.reason || 'Market closed early for holiday',
         holidayName: holiday?.name
       };
     }
@@ -216,22 +200,22 @@ class WeekendProtectionService {
     if (status.isWeekend) {
       logger.debug(
         LogCategory.POSITION_MONITOR,
-        `🚫 Forex/Index weekend closure (Crypto 24/7)`
+        `🚫 Weekend closure`
       );
       return {
         allowed: false,
-        reason: 'Forex market is closed for the weekend. Trading resumes Sunday 5:00 PM EST.'
+        reason: 'Market is closed for the weekend. Trading resumes Sunday 5:00 PM EST.'
       };
     }
 
     if (SCANNING_DISABLED || LLM_API_DISABLED) {
       logger.debug(
         LogCategory.POSITION_MONITOR,
-        `🚫 Forex systems paused for weekend (Crypto active)`
+        `🚫 Systems paused for weekend`
       );
       return {
         allowed: false,
-        reason: 'Forex systems paused for weekend. Market reopens Sunday 5:00 PM EST.'
+        reason: 'Systems paused for weekend. Market reopens Sunday 5:00 PM EST.'
       };
     }
 
@@ -281,8 +265,7 @@ class WeekendProtectionService {
       // CRITICAL FIX (CCIP-2026-03-04-B): Clear stale flags whenever the
       // market schedule reports forex as open (Mon–Fri during market hours).
       // Previously only the Sunday 5PM branch cleared the flags, so any app
-      // restart after Friday shutdown left SCANNING_DISABLED=true all week,
-      // filtering every non-crypto symbol and causing Alpha to find only ETHUSD.
+      // restart after Friday shutdown left SCANNING_DISABLED=true all week.
       if (isForexMarketOpen && (SCANNING_DISABLED || LLM_API_DISABLED)) {
         this.enableSystems();
         this.hasShutdownToday = false;
@@ -458,7 +441,7 @@ class WeekendProtectionService {
   }
 
   /**
-   * Close all open trades (excludes crypto - they trade 24/7)
+   * Close all open trades
    */
   private async closeAllOpenTrades(): Promise<number> {
     try {
@@ -471,24 +454,9 @@ class WeekendProtectionService {
         return 0;
       }
 
-      const forexTrades = trades.filter(t => !is24HourSymbol(t.symbol));
-      const cryptoTrades = trades.filter(t => is24HourSymbol(t.symbol));
-
-      if (cryptoTrades.length > 0) {
-        const symbols = cryptoTrades.map(t => t.symbol).join(', ');
-        logger.info(
-          LogCategory.POSITION_MONITOR,
-          `✅ Preserving ${cryptoTrades.length} crypto trade(s) - 24/7 markets unaffected by weekend: ${symbols}`
-        );
-      }
-
-      if (forexTrades.length === 0) {
-        return 0;
-      }
-
       let closedCount = 0;
 
-      for (const trade of forexTrades) {
+      for (const trade of trades) {
         try {
           // Get current price
           const { data: priceData } = await supabase
@@ -597,7 +565,7 @@ class WeekendProtectionService {
       const holiday = await marketScheduleService.isHoliday();
       return {
         isActive: true,
-        message: `Forex closed for ${holiday?.name || 'holiday'} (Crypto 24/7)`,
+        message: `Market closed for ${holiday?.name || 'holiday'}`,
         holidayName: holiday?.name
       };
     }
@@ -606,7 +574,7 @@ class WeekendProtectionService {
       const holiday = await marketScheduleService.isHoliday();
       return {
         isActive: true,
-        message: `Forex closed early - ${holiday?.name || 'Holiday'} (Crypto 24/7)`,
+        message: `Market closed early - ${holiday?.name || 'Holiday'}`,
         holidayName: holiday?.name
       };
     }
@@ -616,14 +584,14 @@ class WeekendProtectionService {
     if (status.isWeekend) {
       return {
         isActive: true,
-        message: 'Forex closed (Crypto 24/7)'
+        message: 'Market closed for the weekend'
       };
     }
 
     if (SCANNING_DISABLED || LLM_API_DISABLED) {
       return {
         isActive: true,
-        message: 'Forex shutdown - Reopens Sunday 5pm EST (Crypto active)'
+        message: 'Systems shutdown - Reopens Sunday 5pm EST'
       };
     }
 
@@ -633,7 +601,7 @@ class WeekendProtectionService {
 
       return {
         isActive: true,
-        message: `Forex market close in ${hours}h ${minutes}m (Crypto unaffected)`,
+        message: `Market close in ${hours}h ${minutes}m`,
         hoursUntilClose: hours,
         minutesUntilClose: minutes
       };

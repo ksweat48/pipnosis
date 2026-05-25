@@ -445,7 +445,6 @@ export async function fetchPreAggregatedCandles(
           //   Forex pairs (EURUSD, GBPUSD, etc.): 3% is extreme for any timeframe
           //   Gold (XAUUSD): 5% is conceivable on a high-volatility news day (M5)
           //   Indices (US30, NAS100): 10% intraday swings are possible during crashes
-          //   Crypto (BTCUSD, ETHUSD): 15% single-candle moves happen
           // Use 15% as a hard ceiling to catch only genuine data corruption
           const candleRange = candleData.high - candleData.low;
           const avgPrice = (candleData.open + candleData.close) / 2;
@@ -492,21 +491,6 @@ export async function fetchPreAggregatedCandles(
     }
 
     console.log(`Loaded ${candles.length} pre-aggregated candles from forex_candles for ${symbol} ${timeframe} (db: ${dbTimeframe})`);
-
-    // GAP DETECTION: Check for large gaps in crypto candle history and trigger background backfill
-    if (candles.length >= 2 && ['BTCUSD', 'ETHUSD'].includes(symbol.toUpperCase()) && ['M1', 'M5', 'M15'].includes(timeframe)) {
-      const tfMinutes = TIMEFRAME_MINUTES[timeframe] ?? 5;
-      const gapThresholdMs = tfMinutes * 10 * 60 * 1000;
-      let largestGapMs = 0;
-      for (let i = 1; i < candles.length; i++) {
-        const gapMs = (candles[i].time - candles[i - 1].time) * 1000;
-        if (gapMs > largestGapMs) largestGapMs = gapMs;
-      }
-      if (largestGapMs > gapThresholdMs) {
-        console.warn(`[CandleData] GAP DETECTED for ${symbol} ${timeframe}: largest gap ${Math.round(largestGapMs / 60000)}min — triggering watchdog backfill`);
-        triggerPriceFeedWatchdog();
-      }
-    }
 
     return candles;
   } catch (error) {

@@ -31,7 +31,7 @@ export interface ATRValue {
    * - EURUSD: 0.00045 (= 4.5 pips when divided by 0.0001)
    * - USDJPY: 0.04370 (= 4.37 pips when divided by 0.01)
    * - XAUUSD: 2.50 (= 25 pips when divided by 0.1)
-   * - BTCUSD: 800.00 (= 800 pips when divided by 1.0)
+   * - US30: 50.00 (= 50 pips when divided by 1.0)
    */
   value: number;
 
@@ -89,15 +89,6 @@ export const ATR_TYPICAL_RANGES = {
     H1: { min: 0.50, max: 5.00 },
     H4: { min: 1.00, max: 10.00 },
     D1: { min: 2.00, max: 20.00 }
-  },
-
-  // Crypto (BTCUSD, ETHUSD)
-  crypto: {
-    M5: { min: 10, max: 200 },
-    M15: { min: 20, max: 400 },
-    H1: { min: 50, max: 1000 },
-    H4: { min: 100, max: 2000 },
-    D1: { min: 200, max: 5000 }
   }
 } as const;
 

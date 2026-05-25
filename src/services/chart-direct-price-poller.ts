@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 🚨 CRITICAL INFRASTRUCTURE - DO NOT MODIFY WITHOUT EXPLICIT APPROVAL
+ * CRITICAL INFRASTRUCTURE - DO NOT MODIFY WITHOUT EXPLICIT APPROVAL
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Chart Direct Price Poller
@@ -10,16 +10,14 @@
  * Falls back to database polling if MetaAPI is unavailable.
  *
  * CRITICAL CONFIGURATION:
- * - Crypto: 1000ms (1 second) - Faster for 24/7 markets
- * - Forex: 3000ms (3 seconds) - Industry standard for 5-day markets
+ * - POLL_INTERVAL: 3000ms (3 seconds) - Industry standard for retail forex
  * - Market-optimized intervals prevent race conditions
  * - Balances real-time feel with API rate limits
  *
  * DO NOT CHANGE:
- * - CRYPTO_POLL_INTERVAL: 1000ms
- * - FOREX_POLL_INTERVAL: 3000ms
+ * - POLL_INTERVAL: 3000ms
  * - Visibility detection logic
- * - Fallback mechanism (MetaAPI → Database)
+ * - Fallback mechanism (MetaAPI -> Database)
  *
  * See: docs/CRITICAL_SYSTEMS.md for details
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -31,16 +29,8 @@ import { isSymbolMarketOpen, hasAnyOpenMarket } from '@/utils/marketHours';
 import { shouldDisableMetaAPI } from '@/lib/environment';
 import { circuitBreakerService } from './circuit-breaker-service';
 
-// CRITICAL: Optimized polling intervals for market characteristics
-const CRYPTO_POLL_INTERVAL = 1000;  // 1000ms (1 second) - faster for 24/7 markets
-const FOREX_POLL_INTERVAL = 3000;   // 3000ms (3 seconds) - industry standard for retail forex
-
-// Crypto symbols that get high-frequency updates
-const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
-
-function isCryptoSymbol(symbol: string): boolean {
-  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
-}
+// CRITICAL: Polling interval for all markets
+const POLL_INTERVAL = 3000;   // 3000ms (3 seconds) - industry standard for retail forex
 
 interface LivePrice {
   symbol: string;
@@ -49,7 +39,7 @@ interface LivePrice {
   timestamp: string;
   brokerTime?: string;
   midPrice: number;
-  source: string; // Can be 'metaapi', 'database', 'kraken-live', 'binance-live', 'coingecko-live', 'cryptocompare-live'
+  source: string; // Can be 'metaapi', 'database'
   dataQuality?: string; // 'LIVE' | 'RECENT_CACHE' | 'STALE_CACHE' | 'EMERGENCY_FALLBACK' | 'LAST_RESORT'
   fallbackLevel?: number; // 1 = live, 2-5 = various fallback levels
 }
@@ -85,14 +75,14 @@ class ChartDirectPricePoller {
   };
 
   private options: PollerOptions = {
-    interval: FOREX_POLL_INTERVAL, // Default to forex interval, will adjust dynamically
+    interval: POLL_INTERVAL,
     enabled: false
   };
 
   private trackedSymbols: Set<string> = new Set();
   private isVisible = true;
   private lastPriceCache = new Map<string, LivePrice>();
-  private currentInterval: number = FOREX_POLL_INTERVAL;
+  private currentInterval: number = POLL_INTERVAL;
 
   constructor() {
     this.setupVisibilityDetection();
@@ -162,21 +152,11 @@ class ChartDirectPricePoller {
   }
 
   private updatePollingInterval(): void {
-    // Check if any tracked symbol is crypto
-    const hasCrypto = Array.from(this.trackedSymbols).some(symbol => isCryptoSymbol(symbol));
-
-    const newInterval = hasCrypto ? CRYPTO_POLL_INTERVAL : FOREX_POLL_INTERVAL;
-
-    // Only restart polling if interval actually changed and poller is active
-    if (newInterval !== this.currentInterval) {
+    // All symbols use the same polling interval
+    if (this.currentInterval !== POLL_INTERVAL) {
       const wasActive = this.status.isActive;
-      this.currentInterval = newInterval;
-      this.options.interval = newInterval;
-
-      logger.info(
-        LogCategory.CHART,
-        `🔄 Polling interval: ${newInterval}ms (unified for all markets)`
-      );
+      this.currentInterval = POLL_INTERVAL;
+      this.options.interval = POLL_INTERVAL;
 
       // Restart polling with new interval if currently active
       if (wasActive) {
@@ -197,7 +177,7 @@ class ChartDirectPricePoller {
       return;
     }
 
-    // CRYPTO FIX: Check if ANY tracked symbol has an open market (crypto trades 24/7)
+    // Check if ANY tracked symbol has an open market
     const trackedSymbolsArray = Array.from(this.trackedSymbols);
     const hasOpenMarket = hasAnyOpenMarket(trackedSymbolsArray);
 
@@ -257,8 +237,7 @@ class ChartDirectPricePoller {
 
     logger.debug(LogCategory.CHART, `[DirectPoller] 🔄 Poll executing for ${this.trackedSymbols.size} symbols: ${Array.from(this.trackedSymbols).join(', ')}`);
 
-    // CRYPTO FIX: No blanket market check - symbols are checked individually in fetchFromMetaAPI
-    // This allows crypto (24/7) to continue polling even when forex markets are closed
+    // Symbols are checked individually in fetchFromMetaAPI based on market hours
 
     try {
       // Try MetaAPI direct first
@@ -310,7 +289,7 @@ class ChartDirectPricePoller {
     const results: LivePrice[] = [];
 
     for (const symbol of this.trackedSymbols) {
-      // CRYPTO FIX: Check if this specific symbol's market is open before fetching
+      // Check if this specific symbol's market is open before fetching
       if (!isSymbolMarketOpen(symbol)) {
         logger.debug(LogCategory.CHART, `[${symbol}] ⏸️ Market closed - skipping price fetch`);
         continue;
@@ -356,7 +335,7 @@ class ChartDirectPricePoller {
 
           const midPrice = (data.bid + data.ask) / 2;
 
-          // Use the actual source from API response (supports multi-source crypto feeds)
+          // Use the actual source from API response
           const actualSource = data.activeSource || data.source || 'metaapi';
 
           const brokerTime = data.brokerTime || data.broker_time || data.timestamp || undefined;
@@ -386,7 +365,7 @@ class ChartDirectPricePoller {
   private async fetchFromDatabase(): Promise<LivePrice[]> {
     const { supabase } = await import('@/lib/supabase');
 
-    // CRYPTO FIX: Only query symbols with open markets
+    // Only query symbols with open markets
     const allSymbols = Array.from(this.trackedSymbols);
     const symbolList = allSymbols.filter(symbol => isSymbolMarketOpen(symbol));
 

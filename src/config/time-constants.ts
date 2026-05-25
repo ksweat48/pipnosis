@@ -53,7 +53,6 @@ export const TIME_CONSTANTS = {
 export const TIME_MS = {
   POLLING: {
     FAST: 1000,
-    CRYPTO: 1000,
     STANDARD: 3000,
     FOREX: 3000,
     SLOW: 5000,
@@ -263,7 +262,6 @@ export const TIME_MS = {
   //   Total buffer         = 4 hours = 14 400 000 ms
   //
   // Do NOT apply this buffer to:
-  //   - Crypto pairs (BTCUSD, ETHUSD): they trade 24/7 in UTC, no broker offset.
   //   - Forming-candle period boundaries: use broker_time from realtime_prices
   //     as the anchor instead (see chart-candle-poller.ts CCIP-2026-04-02).
   //   - Server-side aggregators: probe latestBrokerTime from realtime_prices and

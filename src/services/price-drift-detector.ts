@@ -23,8 +23,6 @@ const DRIFT_THRESHOLDS_BY_ASSET: Record<string, { pips?: number; percent?: numbe
   USDCAD: { pips: 10 },
   NZDUSD: { pips: 10 },
   XAUUSD: { pips: 30 },
-  BTCUSD: { percent: 0.5 },
-  ETHUSD: { percent: 0.5 },
   US30: { percent: 0.3 },
   NAS100: { percent: 0.3 },
 };

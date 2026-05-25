@@ -190,10 +190,8 @@ class EmergencyPricePoller {
       }
 
       // Emergency/Direct mode - fetch from Netlify function (one symbol at a time)
-      const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
-      const CRYPTO_PAIRS = ['BTCUSD', 'ETHUSD'];
-      const ALL_TRADING_PAIRS = [...FOREX_PAIRS, ...CRYPTO_PAIRS];
-      logger.debug(LogCategory.SYSTEM, `Fetching prices for ${ALL_TRADING_PAIRS.length} symbols (${FOREX_PAIRS.length} forex + ${CRYPTO_PAIRS.length} crypto)...`);
+      const ALL_TRADING_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'GBPUSD', 'USDJPY'];
+      logger.debug(LogCategory.SYSTEM, `Fetching prices for ${ALL_TRADING_PAIRS.length} symbols...`);
 
       let successCount = 0;
       const pricePromises = ALL_TRADING_PAIRS.map(symbol => this.fetchPriceForSymbol(symbol));
@@ -217,7 +215,7 @@ class EmergencyPricePoller {
 
       if (successCount > 0) {
         this.errorCount = 0;
-        logger.debug(LogCategory.SYSTEM, `📊 Successfully polled ${successCount}/${FOREX_PAIRS.length} symbols`);
+        logger.debug(LogCategory.SYSTEM, `📊 Successfully polled ${successCount}/${ALL_TRADING_PAIRS.length} symbols`);
       } else {
         throw new Error('All symbol fetches failed');
       }

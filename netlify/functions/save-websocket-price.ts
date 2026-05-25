@@ -11,13 +11,10 @@ import { getSupabaseAdmin } from './_shared/supabase-admin';
 const supabase = getSupabaseAdmin();
 
 const VALID_SYMBOLS = [
-  'BTCUSD', 'ETHUSD',
   'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100'
 ];
 
 const PRICE_RANGES: Record<string, { min: number; max: number }> = {
-  BTCUSD: { min: 10000, max: 500000 },
-  ETHUSD: { min: 500, max: 50000 },
   XAUUSD: { min: 1000, max: 5000 },
   US30: { min: 20000, max: 60000 },
   EURUSD: { min: 0.5, max: 2.0 },

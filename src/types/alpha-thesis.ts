@@ -117,7 +117,7 @@ export type RegimeSignatureHash = string;
  * - Final confidence score
  */
 export interface AlphaMarketThesis {
-  /** Trading symbol (EURUSD, BTCUSD, etc) */
+  /** Trading symbol (EURUSD, XAUUSD, etc) */
   symbol: string;
 
   /** HTF timeframe context used for thesis generation */

@@ -291,10 +291,6 @@ export class ChartDataGuarantor {
     return transformed;
   }
 
-  private static isCryptoSymbol(symbol: string): boolean {
-    return ['BTCUSD', 'ETHUSD'].includes(symbol.toUpperCase());
-  }
-
   private static isForexWeekendGap(prevTime: Date, currTime: Date): boolean {
     const prevDay = prevTime.getUTCDay();
     const currDay = currTime.getUTCDay();
@@ -324,8 +320,6 @@ export class ChartDataGuarantor {
 
     const expectedIntervalMs = intervalSeconds * 1000;
     const gapThreshold = expectedIntervalMs * 1.5;
-    const isCrypto = symbol ? this.isCryptoSymbol(symbol) : false;
-
     const gaps: Array<{ start: string; end: string; count: number }> = [];
     let hasWeekdayGaps = false;
 
@@ -341,8 +335,7 @@ export class ChartDataGuarantor {
       const timeDiff = currTime.getTime() - prevTime.getTime();
 
       if (timeDiff > gapThreshold) {
-        // Crypto runs 24/7 — all gaps are real data gaps regardless of day
-        const isWeekendGap = !isCrypto && this.isForexWeekendGap(prevTime, currTime);
+        const isWeekendGap = this.isForexWeekendGap(prevTime, currTime);
 
         if (!isWeekendGap) {
           hasWeekdayGaps = true;

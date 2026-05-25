@@ -649,14 +649,12 @@ export const GoalSessionDashboard: React.FC = () => {
 
   /**
    * SSOT: Filter watchlist based on market hours
-   * Crypto (BTCUSD, ETHUSD) = 24/7
    * Forex/Indices = Only when Forex market is open
    */
   const getActiveWatchlist = (fullWatchlist: string[]): string[] => {
     const forexStatus = getForexMarketStatus();
     if (forexStatus.isOpen) return fullWatchlist;
-    const cryptoSymbols = ['BTCUSD', 'ETHUSD'];
-    return fullWatchlist.filter(symbol => cryptoSymbols.includes(symbol));
+    return [];
   };
 
   const activeWatchlist = useMemo(

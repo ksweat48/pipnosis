@@ -242,8 +242,6 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
 
     if (isSinglePair && watchlist.length > 0) return `Scanning ${watchlist[0]} only`;
     if (isFiltered) {
-      const cryptoOnly = watchlist.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
-      if (cryptoOnly) return `Scanning ${pairsCount} pairs (Crypto only - Forex markets closed)`;
       return `Scanning ${pairsCount} of ${totalPairs} pairs (some markets closed)`;
     }
     return `Scanning ${pairsCount} pairs for opportunities...`;

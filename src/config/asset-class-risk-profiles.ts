@@ -2,7 +2,7 @@
  * Asset-Class-Aware Risk Profiles
  *
  * Provides asset-class-specific risk configurations to prevent
- * applying forex assumptions to crypto, indices, and metals.
+ * applying forex assumptions to indices and metals.
  *
  * CRITICAL: Never reuse forex commonMovePips for BTC, NAS, SPX, etc.
  */
@@ -141,38 +141,6 @@ const INDICES_PROFILE: AssetClassRiskProfile = {
   }
 };
 
-const CRYPTO_PROFILE: AssetClassRiskProfile = {
-  category: 'crypto',
-  displayName: 'Cryptocurrencies (BTC, ETH)',
-
-  typicalStopRange: {
-    min: 200,
-    max: 500,
-    unit: 'points'
-  },
-
-  commonMove: {
-    min: 300,
-    max: 800,
-    unit: 'points'
-  },
-
-  sessionMoveBudget: {
-    min: 500,
-    max: 1500,
-    description: 'BTCUSD typical 4-hour range in points'
-  },
-
-  atrMultiplierForStop: {
-    min: 1.0,
-    max: 2.0
-  },
-
-  atrMultiplierForMove: {
-    min: 0.5,
-    max: 1.0
-  }
-};
 
 const ENERGY_PROFILE: AssetClassRiskProfile = {
   category: 'energy',
@@ -211,7 +179,6 @@ const ASSET_CLASS_PROFILES: Record<SymbolCategory, AssetClassRiskProfile> = {
   forex: FOREX_PROFILE,
   metal: METALS_PROFILE,
   index: INDICES_PROFILE,
-  crypto: CRYPTO_PROFILE,
   energy: ENERGY_PROFILE
 };
 

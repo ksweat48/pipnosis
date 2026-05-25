@@ -13,7 +13,7 @@
  */
 
 export type Session = 'London' | 'NewYork' | 'Asian' | 'Overlap';
-export type AssetClass = 'forex' | 'indices' | 'commodities' | 'crypto';
+export type AssetClass = 'forex' | 'indices' | 'commodities';
 export type MarketRegime = 'trending' | 'ranging' | 'volatile' | 'quiet';
 
 export interface IndicatorWeights {
@@ -77,11 +77,6 @@ const ASSET_MULTIPLIERS: Record<AssetClass, Partial<IndicatorWeights>> = {
     ema50: 1.2,
     vwap: 1.3,
   },
-  crypto: {
-    momentum: 1.4,
-    candlePattern: 1.2,
-    volumePressure: 1.1,
-  },
 };
 
 const REGIME_MULTIPLIERS: Record<MarketRegime, Partial<IndicatorWeights>> = {
@@ -133,7 +128,6 @@ function applyMultipliers(
 }
 
 function getAssetClass(symbol: string): AssetClass {
-  if (['BTCUSD', 'ETHUSD'].includes(symbol)) return 'crypto';
   if (['US30', 'NAS100'].includes(symbol)) return 'indices';
   if (symbol === 'XAUUSD') return 'commodities';
   return 'forex';

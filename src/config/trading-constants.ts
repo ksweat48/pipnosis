@@ -87,7 +87,6 @@ export const TRADING_CONSTANTS = {
     MAX_FOREX: 5.0,
     MAX_METAL: 10.0,
     MAX_INDEX: 1.0,
-    MAX_CRYPTO: 10.0,
     PRECISION: 2,
   },
 
@@ -111,7 +110,6 @@ export const TRADING_CONSTANTS = {
 
   PRICE_MOVEMENT: {
     MAX_VELOCITY_PERCENT_PER_SECOND: 0.01,
-    MAX_VELOCITY_CRYPTO_PER_SECOND: 0.005,
     SUSPICIOUS_CHANGE_THRESHOLD: 0.5,
   },
 
@@ -231,8 +229,6 @@ export const SPREAD_ESTIMATES: Record<string, number> = {
   US30:   3.0,
   NAS100: 2.0,
   US100:  2.0,
-  BTCUSD: 5.0,
-  ETHUSD: 1.0,  // 1 pip = $1. Real spread $0.50–$2.00 — 1.0 reflects the low-end baseline for scalp geometry. CCIP-2026-0426C.
 } as const;
 
 /**

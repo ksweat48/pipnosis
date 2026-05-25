@@ -1,5 +1,4 @@
 import { marketScheduleService } from '@/services/market-schedule-service';
-import { is24HourMarket } from '@/config/symbol-registry';
 
 export interface MarketStatus {
   isOpen: boolean;
@@ -253,19 +252,6 @@ export function getTimeframeLookbackHours(timeframe: string): number {
   return lookbackMap[timeframe] || 720; // Default to 30 days
 }
 
-/**
- * SSOT COMPLIANCE: Delegate to symbol-registry.ts for 24/7 market detection
- * Symbol registry is the authoritative source for marketSchedule configuration
- */
-export function isCryptoSymbol(symbol: string): boolean {
-  return is24HourMarket(symbol);
-}
-
-export function is24HourSymbol(symbol: string): boolean {
-  // SSOT: Delegate to symbol registry - it owns market schedule configuration
-  return is24HourMarket(symbol);
-}
-
 export interface SymbolMarketStatus {
   symbol: string;
   isOpen: boolean;
@@ -276,17 +262,6 @@ export interface SymbolMarketStatus {
 
 export function getSymbolMarketStatus(symbol: string): SymbolMarketStatus {
   const normalizedSymbol = symbol.toUpperCase();
-
-  if (is24HourSymbol(normalizedSymbol)) {
-    return {
-      symbol: normalizedSymbol,
-      isOpen: true,
-      status: 'Open',
-      is24Hour: true,
-      reason: 'Crypto markets are open 24/7'
-    };
-  }
-
   const forexStatus = getForexMarketStatus();
 
   return {
@@ -305,9 +280,6 @@ export function isSymbolMarketOpen(symbol: string): boolean {
 }
 
 export function isSymbolMarketOpenAt(symbol: string, unixTimestamp: number): boolean {
-  if (is24HourSymbol(symbol)) {
-    return true;
-  }
   return isMarketOpenAt(unixTimestamp);
 }
 
@@ -326,26 +298,18 @@ export function hasAnyOpenMarket(symbols: string[]): boolean {
 export function getAllMarketsStatus(symbols: string[]): {
   allOpen: boolean;
   allClosed: boolean;
-  cryptoOpen: boolean;
   forexOpen: boolean;
   openCount: number;
   closedCount: number;
 } {
-  const cryptoSymbols = symbols.filter(s => is24HourSymbol(s));
-  const forexSymbols = symbols.filter(s => !is24HourSymbol(s));
-
   const forexStatus = getForexMarketStatus();
-  const cryptoOpen = cryptoSymbols.length > 0;
-  const forexOpen = forexSymbols.length > 0 && forexStatus.isOpen;
-
-  const openCount = cryptoSymbols.length + (forexStatus.isOpen ? forexSymbols.length : 0);
+  const openCount = forexStatus.isOpen ? symbols.length : 0;
   const closedCount = symbols.length - openCount;
 
   return {
     allOpen: openCount === symbols.length,
     allClosed: openCount === 0,
-    cryptoOpen,
-    forexOpen,
+    forexOpen: forexStatus.isOpen,
     openCount,
     closedCount
   };
@@ -427,13 +391,8 @@ export function getCurrentMarketSession(): SessionInfo {
  * ═════════════════════════════════════════════════════════════════════
  *
  * When calculating goal feasibility, we need a reference symbol to estimate
- * position sizes and pip requirements. This function returns the appropriate
- * reference symbol based on current market conditions:
- *
- * - Forex OPEN: Use EURUSD (most liquid, tightest spreads, best reference)
- * - Forex CLOSED: Use BTCUSD (24/7 availability, crypto never closes)
- *
- * This prevents logs showing "EURUSD" analysis when forex markets are closed.
+ * position sizes and pip requirements. Always uses EURUSD as the most liquid
+ * reference symbol.
  */
 export function getEstimationReferenceSymbol(): {
   symbol: string;
@@ -441,23 +400,12 @@ export function getEstimationReferenceSymbol(): {
   referenceStopPips: number;
   reason: string;
 } {
-  const forexStatus = getForexMarketStatus();
-
-  if (forexStatus.isOpen) {
-    return {
-      symbol: 'EURUSD',
-      referenceEntry: 1.1000,
-      referenceStopPips: 30,
-      reason: 'Forex markets open - using EURUSD as liquid reference'
-    };
-  } else {
-    return {
-      symbol: 'BTCUSD',
-      referenceEntry: 95000,
-      referenceStopPips: 500,
-      reason: 'Forex markets closed - using BTCUSD (24/7 availability)'
-    };
-  }
+  return {
+    symbol: 'EURUSD',
+    referenceEntry: 1.1000,
+    referenceStopPips: 30,
+    reason: 'Using EURUSD as liquid reference'
+  };
 }
 
 /**

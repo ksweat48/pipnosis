@@ -192,24 +192,9 @@ class GoalScanner {
 
       // Add market status message if some symbols are closed
       if (closedSymbols.length > 0) {
-        const cryptoOnly = watchlist.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
+        console.log(`[Goal Scanner] 🕒 ${closedSymbols.length} symbols closed. Scanning ${watchlist.length} open markets.`);
 
-        console.log(`[Goal Scanner] 🕒 ${closedSymbols.length} symbols closed. Scanning ${watchlist.length} open markets (${cryptoOnly ? 'Crypto only' : 'Mixed'}).`);
-
-        let marketMessage = '';
-        if (cryptoOnly) {
-          const dbMarketStatus = await marketScheduleService.getMarketStatus();
-          const dbHoliday = await marketScheduleService.isHoliday();
-          if (dbMarketStatus.status === 'holiday' && dbHoliday) {
-            marketMessage = `📊 Forex markets closed for ${dbHoliday.name}. Scanning crypto markets only (${watchlist.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
-          } else if (dbMarketStatus.status === 'early_close' && dbHoliday) {
-            marketMessage = `📊 Forex markets closed early - ${dbHoliday.name}. Scanning crypto markets only (${watchlist.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
-          } else {
-            marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${watchlist.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
-          }
-        } else {
-          marketMessage = `📊 Scanning ${watchlist.length} open markets. ${closedSymbols.length} symbols temporarily unavailable.`;
-        }
+        const marketMessage = `📊 Scanning ${watchlist.length} open markets. ${closedSymbols.length} symbols temporarily unavailable.`;
 
         await goalSessionManager.addAIMessage(
           sessionId,
@@ -217,8 +202,7 @@ class GoalScanner {
           marketMessage,
           {
             openSymbols: watchlist,
-            closedSymbols: closedSymbols,
-            cryptoOnly
+            closedSymbols: closedSymbols
           },
           'info'
         );
@@ -622,7 +606,6 @@ class GoalScanner {
       const CANDLE_INTEGRITY_THRESHOLDS: Record<string, number> = {
         XAUUSD: 20, XAGUSD: 20,
         US30: 50, NAS100: 50, UK100: 30, GER40: 30,
-        BTCUSD: 300, ETHUSD: 100,
       };
       const integrityThresholdPips = CANDLE_INTEGRITY_THRESHOLDS[symbol] ?? 15;
 

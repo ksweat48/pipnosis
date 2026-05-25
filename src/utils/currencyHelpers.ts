@@ -23,7 +23,7 @@ export interface CurrencyPipInfo {
   decimalPlaces: number;
   contractSize: number;
   dollarPerPipPerLot: number;
-  symbolType: 'forex' | 'metal' | 'index' | 'crypto';
+  symbolType: 'forex' | 'metal' | 'index';
   source?: 'dynamic' | 'static' | 'static_fallback'; // TIER 3: Track value source
   usdjpyRate?: number; // TIER 3: Include rate used for dynamic calculation
 }
@@ -68,19 +68,9 @@ export function isIndex(symbol: string): boolean {
          normalized.includes('FTSE');
 }
 
-/**
- * Check if symbol is a crypto pair
- */
-export function isCrypto(symbol: string): boolean {
-  const normalized = safeNormalizeSymbol(symbol);
-  return normalized === 'BTCUSD' ||
-         normalized === 'ETHUSD' ||
-         normalized.includes('BTC') ||
-         normalized.includes('ETH');
-}
 
 /**
- * Get pip information for a currency pair, metal, index, or crypto
+ * Get pip information for a currency pair, metal, or index
  *
  * CRITICAL - Position Sizing SSOT:
  *
@@ -140,37 +130,6 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
     };
   }
 
-  // Crypto pairs (BTC, ETH, SOL, BNB)
-  if (isCrypto(symbol)) {
-    if (normalized === 'BTCUSD' || normalized.includes('BTC')) {
-      return {
-        pipValue: 1.0,
-        pipMultiplier: 1,
-        decimalPlaces: 2,
-        contractSize: 1,
-        dollarPerPipPerLot: 1.0,
-        symbolType: 'crypto'
-      };
-    }
-    if (normalized === 'ETHUSD' || normalized.includes('ETH')) {
-      return {
-        pipValue: 1.0,  // Fixed: Was 0.1, causing zone tolerance to be 10x too small
-        pipMultiplier: 1,
-        decimalPlaces: 2,
-        contractSize: 1,
-        dollarPerPipPerLot: 1.0,  // Fixed: Match BTCUSD behavior
-        symbolType: 'crypto'
-      };
-    }
-    return {
-      pipValue: 1.0,
-      pipMultiplier: 1,
-      decimalPlaces: 2,
-      contractSize: 1,
-      dollarPerPipPerLot: 1.0,
-      symbolType: 'crypto'
-    };
-  }
 
   // JPY pairs (USDJPY, EURJPY, etc.)
   if (isJPYPair(symbol)) {
@@ -251,7 +210,7 @@ export function roundLotSize(lotSize: number): number {
  *
  * Database constraint: position_size must be ≤ 1000
  *
- * @param symbol Currency pair, crypto, index, or metal
+ * @param symbol Currency pair, index, or metal
  * @param lotSize Lot size in standard lots (0.01, 0.1, 1.0, etc.)
  * @returns Position size for database storage (integer)
  */
@@ -423,8 +382,6 @@ export function checkPriceSymbolMismatch(symbol: string, entryPrice: number): st
     'NZDUSD': { min: 0.45, max: 0.85, description: 'Forex major' },
     'USDCAD': { min: 1.15, max: 1.55, description: 'Forex major' },
     'XAUUSD': { min: 1500, max: 6000, description: 'Gold' },
-    'BTCUSD': { min: 15000, max: 250000, description: 'Bitcoin' },
-    'ETHUSD': { min: 500, max: 15000, description: 'Ethereum' },
     'US30': { min: 20000, max: 65000, description: 'Dow Jones' },
     'NAS100': { min: 10000, max: 35000, description: 'Nasdaq' }
   };
@@ -736,9 +693,7 @@ export function calculatePositionSize(
   // hardcoded per-category constants. This allows lot sizes to grow correctly
   // as account balance increases, while still respecting the broker ceiling
   // defined in symbol-registry.ts.
-  const minSize = pipInfo.symbolType === 'crypto'
-    ? (getSymbolConfig(symbol)?.minLotSize ?? 0.001)
-    : 0.01;
+  const minSize = 0.01;
   const maxSize = getScaledMaxLotSize(symbol, accountBalance, riskPercentage);
 
   positionSize = Math.max(minSize, Math.min(maxSize, positionSize));

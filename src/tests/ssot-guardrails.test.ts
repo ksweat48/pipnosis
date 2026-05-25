@@ -298,29 +298,6 @@ describe('SSOT Guardrails - Symbol-Specific Behavior', () => {
     expect(ctx.decimalPlaces).toBe(2);
   });
 
-  it('should handle BTCUSD (Crypto) correctly', () => {
-    const result = createTradeContext('BTCUSD');
-    const ctx = result.context!;
-
-    expect(ctx.category).toBe('crypto');
-    expect(ctx.pipValue).toBe(1.0);
-    expect(ctx.decimalPlaces).toBe(2);
-  });
-
-  it('should enforce crypto-specific lot size limits', () => {
-    const result = createTradeContext('BTCUSD');
-    const ctx = result.context!;
-
-    // BTC has min lot of 0.001
-    const validLot = lots(0.01);
-    const validCheck = ctx.validateLotSize(validLot);
-    expect(validCheck.valid).toBe(true);
-
-    // Too small for BTC
-    const tooSmall = lots(0.0001);
-    const tooSmallCheck = ctx.validateLotSize(tooSmall);
-    expect(tooSmallCheck.valid).toBe(false);
-  });
 });
 
 describe('SSOT Guardrails - Context Staleness Detection', () => {

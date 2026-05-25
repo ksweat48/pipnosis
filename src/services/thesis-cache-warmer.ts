@@ -35,7 +35,7 @@ export interface WarmingConfig {
  * Default warming configuration
  */
 const DEFAULT_WARMING_CONFIG: WarmingConfig = {
-  symbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30', 'BTCUSD'],
+  symbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30'],
   maxAgeMinutes: 15,
   priorityRegimes: [
     // Strong trending regimes

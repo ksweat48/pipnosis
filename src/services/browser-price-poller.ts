@@ -24,8 +24,7 @@ import { pollingStrategyCoordinator } from './polling-strategy-coordinator';
 import { priceRefreshTrigger } from './price-refresh-trigger';
 
 const FOREX_PAIRS = ['EURUSD', 'XAUUSD', 'US30', 'NAS100', 'GBPUSD', 'USDJPY'];
-const CRYPTO_PAIRS = ['BTCUSD', 'ETHUSD'];
-const ALL_PAIRS = [...FOREX_PAIRS, ...CRYPTO_PAIRS];
+const ALL_PAIRS = [...FOREX_PAIRS];
 const REQUEST_TIMEOUT_MS = 8000;
 
 interface SymbolPollingState {
@@ -61,7 +60,7 @@ class BrowserPricePoller {
     this.isActive = true;
     this.totalConsecutiveErrors = 0;
 
-    // Initialize error tracking for each symbol (forex + crypto)
+    // Initialize error tracking for each symbol
     for (const symbol of ALL_PAIRS) {
       this.symbolErrors.set(symbol, {
         consecutiveErrors: 0,
@@ -195,22 +194,16 @@ class BrowserPricePoller {
         logger.error(LogCategory.BROWSER_POLLER, `❌ ${symbol} HTTP ${response.status}`);
         await this.recordSymbolError(symbol, `HTTP ${response.status}`);
 
-        // Record failure with circuit breaker (non-crypto only)
-        const { is24HourSymbol } = await import('../utils/marketHours');
-        if (!is24HourSymbol(symbol)) {
-          await circuitBreakerService.recordFailure(new Error(`HTTP ${response.status}`));
-        }
+        // Record failure with circuit breaker
+        await circuitBreakerService.recordFailure(new Error(`HTTP ${response.status}`));
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error(LogCategory.BROWSER_POLLER, `❌ ${symbol} fetch error:`, errorMsg);
       await this.recordSymbolError(symbol, errorMsg);
 
-      // Record failure with circuit breaker (non-crypto only)
-      const { is24HourSymbol } = await import('../utils/marketHours');
-      if (!is24HourSymbol(symbol)) {
-        await circuitBreakerService.recordFailure(error instanceof Error ? error : new Error(errorMsg));
-      }
+      // Record failure with circuit breaker
+      await circuitBreakerService.recordFailure(error instanceof Error ? error : new Error(errorMsg));
     }
 
     // Update fresh check timestamp

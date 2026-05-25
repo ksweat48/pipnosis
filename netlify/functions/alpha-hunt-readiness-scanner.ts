@@ -52,7 +52,6 @@ const supabase = getSupabaseAdmin();
 const SYMBOLS = [
   'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
-  'BTCUSD', 'ETHUSD',
 ];
 
 type TradingStyle = 'MICRO_INTRADAY';
@@ -80,7 +79,6 @@ const MULTI_TOUCH_N = 3;
 const PIP_SIZE: Record<string, number> = {
   EURUSD: 0.0001, GBPUSD: 0.0001, USDJPY: 0.01,
   XAUUSD: 0.1,   US30: 1.0,      NAS100: 1.0,
-  BTCUSD: 1.0,   ETHUSD: 0.1,
 };
 
 interface CandleRow {

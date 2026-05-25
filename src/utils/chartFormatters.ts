@@ -11,7 +11,6 @@
  * Mobile standard (CCIP enforced): 2 decimal places for every symbol type.
  */
 export function formatPrice(price: number, symbol: string, isMobile: boolean = false): string {
-  const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
   const isGold = symbol === 'XAUUSD';
   const isIndex = ['US30', 'NAS100'].includes(symbol);
 
@@ -20,12 +19,7 @@ export function formatPrice(price: number, symbol: string, isMobile: boolean = f
     return price.toFixed(2);
   } else {
     // Desktop: Use full symbol-specific precision
-    if (isCrypto) {
-      return price.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      });
-    } else if (isGold || isIndex) {
+    if (isGold || isIndex) {
       return price.toFixed(2);
     } else {
       return price.toFixed(5);
@@ -37,10 +31,8 @@ export function formatPrice(price: number, symbol: string, isMobile: boolean = f
  * Format spread based on symbol type and screen size
  */
 export function formatSpread(spread: number, symbol: string, isMobile: boolean = false): string {
-  const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
+  const isGold = symbol === 'XAUUSD';
+  const isIndex = ['US30', 'NAS100'].includes(symbol);
 
-  if (isMobile && isCrypto && spread >= 10) {
-    return spread.toFixed(1);
-  }
-  return spread.toFixed(isCrypto ? 2 : 5);
+  return spread.toFixed((isGold || isIndex) ? 2 : 5);
 }

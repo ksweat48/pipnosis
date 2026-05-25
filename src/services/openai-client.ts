@@ -435,14 +435,10 @@ class OpenAIClient {
     options: ChatCompletionOptions = {}
   ): Promise<ChatCompletionResponse> {
     try {
-      // Check weekend shutdown — crypto symbols (24/7 markets) are exempt
+      // Check weekend shutdown
       const { weekendProtectionService } = await import('./weekend-protection-service');
       if (weekendProtectionService.isLLMDisabled()) {
-        const { is24HourSymbol } = await import('../utils/marketHours');
-        const isCrypto = options.symbol ? is24HourSymbol(options.symbol) : false;
-        if (!isCrypto) {
-          throw new Error('LLM APIs are disabled for weekend shutdown. Market reopens Sunday 5 PM EST.');
-        }
+        throw new Error('LLM APIs are disabled for weekend shutdown. Market reopens Sunday 5 PM EST.');
       }
 
       // CONTEXT-AWARE ROUTING: Detect server vs browser

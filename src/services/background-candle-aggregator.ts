@@ -26,19 +26,8 @@ type CandleStateMap = Map<string, CandleState>;
 
 const ALL_TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
-// CRITICAL: Include both forex/indices AND crypto (24/7) symbols
-const FOREX_PAIRS = [
-  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
-];
-
-const CRYPTO_PAIRS = [
-  'BTCUSD', 'ETHUSD'
-];
-
-// Combined list for aggregation - crypto trades 24/7, forex follows market hours
 const ALL_TRADING_PAIRS = [
-  ...FOREX_PAIRS,
-  ...CRYPTO_PAIRS
+  'XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'
 ];
 
 class BackgroundCandleAggregator {
@@ -268,7 +257,7 @@ class BackgroundCandleAggregator {
     this.startHealthMonitoring();
     this.startCandleFinalizer();
 
-    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Monitoring ${ALL_TRADING_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes (${FOREX_PAIRS.length} forex + ${CRYPTO_PAIRS.length} crypto)`);
+    logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` Monitoring ${ALL_TRADING_PAIRS.length} pairs across ${ALL_TIMEFRAMES.length} timeframes`);
   }
 
   private startCandleFinalizer(): void {

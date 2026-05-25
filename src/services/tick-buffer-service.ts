@@ -116,8 +116,7 @@ class TickBufferService {
       'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
       'NZDUSD', 'USDCHF', 'EURJPY', 'GBPJPY',
       'XAUUSD',
-      'US30', 'NAS100',
-      'BTCUSD', 'ETHUSD'
+      'US30', 'NAS100'
     ];
 
     for (const symbol of symbols) {
@@ -168,8 +167,7 @@ class TickBufferService {
       'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
       'NZDUSD', 'USDCHF', 'EURJPY', 'GBPJPY',
       'XAUUSD',
-      'US30', 'NAS100',
-      'BTCUSD', 'ETHUSD'
+      'US30', 'NAS100'
     ];
     symbols.forEach(symbol => this.clearBuffer(symbol));
     logger.info(LogCategory.TICK_BUFFER, '🗑️ All buffers cleared');

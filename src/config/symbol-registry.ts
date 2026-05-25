@@ -2,9 +2,9 @@
  * Symbol Registry - Centralized Symbol Configuration
  *
  * Single source of truth for all symbol-related configurations including:
- * - Categories (forex, crypto, index, metal, energy)
- * - Market hours (24/7 for crypto, forex hours for others)
- * - Data providers (MetaAPI for forex, Kraken for crypto)
+ * - Categories (forex, index, metal, energy)
+ * - Market hours (forex hours)
+ * - Data providers (MetaAPI for forex/indices/metals/energy)
  * - Pip values and lot sizes
  *
  * IMPORTANT - Dual PipValue System:
@@ -20,9 +20,9 @@
  * Both systems are mathematically correct for their purposes.
  */
 
-export type SymbolCategory = 'forex' | 'crypto' | 'index' | 'metal' | 'energy';
-export type DataProvider = 'metaapi' | 'twelvedata' | 'finnhub' | 'kraken';
-export type MarketSchedule = 'forex' | '24/7';
+export type SymbolCategory = 'forex' | 'index' | 'metal' | 'energy';
+export type DataProvider = 'metaapi' | 'twelvedata' | 'finnhub';
+export type MarketSchedule = 'forex';
 
 export interface SymbolConfig {
   symbol: string;
@@ -349,43 +349,6 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     atrMultiplierForStop: 1.2,
   },
 
-  // Crypto - 24/7 Trading (via Kraken)
-  // maxLotSize is a broker ceiling (not a position sizing cap).
-  // Math: derivedMax @ $500k/5% = $25,000 / (50 * 1.0) = 500 lots → ceiling 500.0
-  BTCUSD: {
-    symbol: 'BTCUSD',
-    category: 'crypto',
-    displayName: 'Bitcoin',
-    marketSchedule: '24/7',
-    dataProvider: 'kraken',
-    pipValue: 1.0,
-    pipMultiplier: 1,
-    decimalPlaces: 2,
-    contractSize: 1,
-    dollarPerPipPerLot: 1.0,
-    minLotSize: 0.001,
-    maxLotSize: 500.0,
-    typicalDailyRangePoints: 3000,
-    typicalSessionMovePoints: 1000,
-    atrMultiplierForStop: 1.5,
-  },
-  ETHUSD: {
-    symbol: 'ETHUSD',
-    category: 'crypto',
-    displayName: 'Ethereum',
-    marketSchedule: '24/7',
-    dataProvider: 'kraken',
-    pipValue: 1.0,
-    pipMultiplier: 1,
-    decimalPlaces: 2,
-    contractSize: 1,
-    dollarPerPipPerLot: 1.0,
-    minLotSize: 0.01,
-    maxLotSize: 500.0,
-    typicalDailyRangePoints: 150,
-    typicalSessionMovePoints: 75,
-    atrMultiplierForStop: 1.5,
-  },
 
   // Energy - Forex Hours
   // maxLotSize is a broker ceiling (not a position sizing cap).
@@ -447,7 +410,6 @@ export type LotTier = 'standard' | 'mini' | 'micro';
 export const CALIBRATABLE_SYMBOLS = [
   'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
-  'BTCUSD', 'ETHUSD',
 ] as const;
 
 export type CalibratableSymbol = typeof CALIBRATABLE_SYMBOLS[number];
@@ -493,30 +455,20 @@ export function getSymbolsByDataProvider(provider: DataProvider): string[] {
   );
 }
 
-export function is24HourMarket(symbol: string): boolean {
-  const config = getSymbolConfig(symbol);
-  return config?.marketSchedule === '24/7';
+export function is24HourMarket(_symbol: string): boolean {
+  return false;
 }
 
 export const ALL_SYMBOLS = Object.keys(SYMBOL_REGISTRY);
 export const FOREX_SYMBOLS = getSymbolsByCategory('forex');
 
-/**
- * @deprecated DO NOT USE directly - Query via assetClassifier.getSymbolsByCategory('crypto')
- * This constant is kept for backward compatibility but should not be used in new code.
- * Use the SSOT: assetClassifier service for all asset classification queries.
- */
-export const CRYPTO_SYMBOLS = getSymbolsByCategory('crypto');
-
 export const INDEX_SYMBOLS = getSymbolsByCategory('index');
 export const METAL_SYMBOLS = getSymbolsByCategory('metal');
 export const ENERGY_SYMBOLS = getSymbolsByCategory('energy');
 
-export const SYMBOLS_24_7 = getSymbolsByMarketSchedule('24/7');
 export const SYMBOLS_FOREX_HOURS = getSymbolsByMarketSchedule('forex');
 
 export const METAAPI_SYMBOLS = getSymbolsByDataProvider('metaapi');
-export const KRAKEN_SYMBOLS = getSymbolsByDataProvider('kraken');
 
 /**
  * SSOT: Account-balance-scaled maximum lot size
@@ -576,7 +528,6 @@ export function getScaledMaxLotSize(
     forex: 1,    // 1 pip minimum SL
     index: 5,    // 5 points minimum SL
     metal: 2,    // 2 points minimum SL (XAUUSD)
-    crypto: 20,  // 20 points minimum SL (BTC/ETH)
     energy: 5,   // 5 points minimum SL
   };
 

@@ -63,7 +63,6 @@ export const TRADE_CONSTRAINTS = {
     // Percentage floors by asset class and risk mode (advisory minimums)
     floors: {
       FOREX: { HIGH: 0.05, MEDIUM: 0.08, LOW: 0.12 },
-      CRYPTO: { HIGH: 0.50, MEDIUM: 1.00, LOW: 2.00 },
       METAL: { HIGH: 0.15, MEDIUM: 0.25, LOW: 0.40 },
       INDEX: { HIGH: 0.10, MEDIUM: 0.15, LOW: 0.25 }
     },
@@ -76,7 +75,6 @@ export const TRADE_CONSTRAINTS = {
     // ATR% gates for MICRO_INTRADAY viability (advisory thresholds).
     atrGates: {
       FOREX: { MICRO_INTRADAY: 0.04 },
-      CRYPTO: { MICRO_INTRADAY: 0.15 },
       METAL: { MICRO_INTRADAY: 0.06 },
       INDEX: { MICRO_INTRADAY: 0.05 }
     },
@@ -127,10 +125,10 @@ export const TRADE_CONSTRAINTS = {
     applyHardConstraintsTo: [] as TradeStyle[],            // No hard session blocks
     applyAdvisoryTo: ['MICRO_INTRADAY'] as TradeStyle[],   // MICRO_INTRADAY gets advisory session warnings
     ignoreFor: [] as TradeStyle[],
-    exemptMarketSchedules: ['24/7'] as const,              // 24/7 markets (crypto) ignore ALL session constraints
-    feasibilityFactor: 0.8,                                // Use 80% of session time for feasibility
+    exemptMarketSchedules: [] as const,
+    feasibilityFactor: 0.8,
     authority: 'ADVISORY' as ConstraintAuthority,
-    description: 'Session time management - MICRO_INTRADAY advisory only. 24/7 markets (crypto) ALWAYS exempt.'
+    description: 'Session time management - MICRO_INTRADAY advisory only.'
   },
 
   goalFeasibility: {
@@ -221,7 +219,7 @@ export function canBlock(constraintPath: keyof typeof TRADE_CONSTRAINTS): boolea
  * Get ATR gate for a style (advisory threshold)
  */
 export function getAtrGate(
-  assetClass: 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX',
+  assetClass: 'FOREX' | 'METAL' | 'INDEX',
   style: TradeStyle
 ): number {
   return TRADE_CONSTRAINTS.styleValidity.atrGates[assetClass]?.[style] || 0.05;
@@ -231,7 +229,7 @@ export function getAtrGate(
  * Get SL floor percentage (advisory minimum)
  */
 export function getSlFloor(
-  assetClass: 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX',
+  assetClass: 'FOREX' | 'METAL' | 'INDEX',
   riskMode: RiskMode
 ): number {
   return TRADE_CONSTRAINTS.stopLoss.floors[assetClass]?.[riskMode] || 0.50;

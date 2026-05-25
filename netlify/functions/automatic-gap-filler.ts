@@ -5,13 +5,8 @@ import axios from 'axios';
 const supabase = getSupabaseAdmin();
 
 const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100'];
-const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
-const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
+const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS];
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
-
-function isCryptoSymbol(symbol: string): boolean {
-  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
-}
 
 // CRITICAL: All timeframes now look back only 24 hours (fillable window)
 const FILLABLE_HOURS = 24;
@@ -521,16 +516,7 @@ export const handler: Handler = async (event, context) => {
   // Filter symbols based on market hours
   let symbolsToProcess = ACTIVE_SYMBOLS;
   if (!isForexMarketOpen) {
-    // Forex market closed - only process crypto symbols
-    symbolsToProcess = CRYPTO_SYMBOLS;
-    console.log(`[AutoGapFiller] 🌙 Forex market closed - processing only crypto: ${symbolsToProcess.join(', ')}`);
-  } else {
-    console.log(`[AutoGapFiller] 🌅 Forex market open - processing all symbols`);
-  }
-
-  // Early exit if no symbols to process
-  if (symbolsToProcess.length === 0) {
-    console.log('[AutoGapFiller] ℹ️ No symbols to process at this time');
+    console.log('[AutoGapFiller] 🌙 Forex market closed - no symbols to process');
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -541,6 +527,8 @@ export const handler: Handler = async (event, context) => {
         timestamp: new Date().toISOString()
       })
     };
+  } else {
+    console.log(`[AutoGapFiller] 🌅 Forex market open - processing all symbols`);
   }
 
   const stats: GapFillStats = {

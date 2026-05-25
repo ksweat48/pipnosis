@@ -22,7 +22,7 @@ import {
 
 class AssetClassifier {
   /**
-   * Get asset category (forex, crypto, metal, index, energy)
+   * Get asset category (forex, metal, index, energy)
    *
    * @throws Error if symbol not in registry (fail loudly, not silently)
    */
@@ -35,7 +35,7 @@ class AssetClassifier {
   }
 
   /**
-   * Get market schedule (forex hours vs 24/7)
+   * Get market schedule
    *
    * @throws Error if symbol not in registry
    */
@@ -50,28 +50,10 @@ class AssetClassifier {
   /**
    * Check if asset requires session-based trading logic
    *
-   * Returns FALSE for 24/7 markets (crypto)
-   * Returns TRUE for forex-hours markets (forex, metals, indices)
+   * Returns TRUE for all supported markets (forex, metals, indices, energy)
    */
-  requiresSessions(symbol: string): boolean {
-    const schedule = this.getMarketSchedule(symbol);
-    return schedule !== '24/7';
-  }
-
-  /**
-   * Check if symbol is 24/7 market
-   */
-  is24HourMarket(symbol: string): boolean {
-    const schedule = this.getMarketSchedule(symbol);
-    return schedule === '24/7';
-  }
-
-  /**
-   * Check if symbol is crypto
-   */
-  isCrypto(symbol: string): boolean {
-    const category = this.getAssetCategory(symbol);
-    return category === 'crypto';
+  requiresSessions(_symbol: string): boolean {
+    return true;
   }
 
   /**
@@ -131,15 +113,6 @@ class AssetClassifier {
   getSymbolsByCategory(category: SymbolCategory): string[] {
     return Object.keys(SYMBOL_REGISTRY).filter(
       symbol => SYMBOL_REGISTRY[symbol].category === category
-    );
-  }
-
-  /**
-   * Get all 24/7 symbols
-   */
-  get24HourSymbols(): string[] {
-    return Object.keys(SYMBOL_REGISTRY).filter(
-      symbol => SYMBOL_REGISTRY[symbol].marketSchedule === '24/7'
     );
   }
 

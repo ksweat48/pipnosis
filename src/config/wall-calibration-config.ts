@@ -42,7 +42,7 @@ export type WallCalibrationReason =
   | 'CORRIDOR_INFEASIBLE_EXPANSION'
   | 'NO_ADJUSTMENT';
 
-export type AssetCalibrationClass = 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX';
+export type AssetCalibrationClass = 'FOREX' | 'METAL' | 'INDEX';
 
 /**
  * Single fixed ATR multiplier for wall ceiling calculation.
@@ -65,13 +65,11 @@ export const FIXED_ATR_MULTIPLIER = 14;
  * regardless of how compressed conditions are. Protects against alpha
  * receiving absurdly wide TP ceilings.
  *
- * CRYPTO: 20x — crypto can move dramatically, needs wide ceiling
  * FOREX: 16x — forex has bounded ATR ranges, 16x is already generous
- * METAL: 18x — gold/silver can spike but less extreme than crypto
+ * METAL: 18x — gold/silver can spike
  * INDEX: 16x — indices have session-bounded moves
  */
 export const MAX_SAFE_ATR_MULTIPLIER: Record<AssetCalibrationClass, number> = {
-  CRYPTO: 20,
   FOREX: 16,
   METAL: 18,
   INDEX: 16,
@@ -124,7 +122,6 @@ export const SESSION_EXPANSION_FACTORS = {
  */
 export const MIN_CORRIDOR_WIDTH_PIPS: Record<AssetCalibrationClass, number> = {
   FOREX: 5,
-  CRYPTO: 50,
   METAL: 20,
   INDEX: 10,
 };

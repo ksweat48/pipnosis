@@ -43,9 +43,6 @@ export const KNOWN_SYMBOLS = [
   'GBPJPY',  // Pound/Yen
   'AUDJPY',  // Aussie/Yen
   'EURAUD',  // Euro/Aussie
-  // Crypto (24/7)
-  'BTCUSD',  // Bitcoin
-  'ETHUSD',  // Ethereum
   // Energy
   'USOIL',   // WTI Crude
   'UKOIL',   // Brent Crude
@@ -178,41 +175,13 @@ export function isPrimarySymbol(symbol: ValidatedSymbol): symbol is PrimarySymbo
 }
 
 // Get symbol category
-export type SymbolCategory = 'forex' | 'metal' | 'index' | 'crypto' | 'energy';
+export type SymbolCategory = 'forex' | 'metal' | 'index' | 'energy';
 
 export function getSymbolCategory(symbol: ValidatedSymbol): SymbolCategory {
   if (symbol.startsWith('X') && symbol.endsWith('USD')) return 'metal';
   if (['US30', 'NAS100', 'UK100', 'GER40'].includes(symbol)) return 'index';
-  if (['BTCUSD', 'ETHUSD'].includes(symbol)) return 'crypto';
   if (symbol.includes('OIL')) return 'energy';
-  if (symbol.includes('USD') || symbol.includes('JPY') || symbol.includes('GBP') || symbol.includes('EUR') || symbol.includes('CHF') || symbol.includes('AUD') || symbol.includes('NZD') || symbol.includes('CAD')) return 'forex';
   return 'forex';
-}
-
-/**
- * @deprecated DO NOT USE - Query via assetClassifier.isCrypto() or assetClassifier.getSymbolsByCategory('crypto')
- * This constant violates SSOT principles. Use the symbol-registry as the single source of truth.
- * Hardcoded arrays lead to bugs when adding new symbols.
- */
-export const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'] as const;
-export type CryptoSymbol = typeof CRYPTO_SYMBOLS[number];
-
-/**
- * @deprecated Use assetClassifier.isCrypto(symbol) instead
- * This function hardcodes crypto symbols instead of querying the registry.
- */
-export function isCryptoSymbol(symbol: string): boolean {
-  console.warn('[DEPRECATED] isCryptoSymbol() is deprecated - use assetClassifier.isCrypto() instead');
-  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase() as CryptoSymbol);
-}
-
-/**
- * @deprecated Use assetClassifier.is24HourMarket(symbol) instead
- * This function hardcodes 24/7 symbols instead of querying the registry.
- */
-export function is24HourSymbol(symbol: string): boolean {
-  console.warn('[DEPRECATED] is24HourSymbol() is deprecated - use assetClassifier.is24HourMarket() instead');
-  return isCryptoSymbol(symbol);
 }
 
 // Symbol equality check (type-safe)

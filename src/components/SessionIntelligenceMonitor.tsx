@@ -38,7 +38,7 @@ import {
   Moon,
   Sunrise,
 } from 'lucide-react';
-import { calculateSessionContext, getForexMarketStatus, isCryptoSymbol } from '@/utils/marketHours';
+import { calculateSessionContext, getForexMarketStatus } from '@/utils/marketHours';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ function MarketClosedBanner() {
       <Moon className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
       <div>
         <p className="text-xs font-semibold text-slate-300">Forex market closed</p>
-        <p className="text-[10px] text-slate-500">Crypto instruments only · Forex opens Sunday 22:00 UTC</p>
+        <p className="text-[10px] text-slate-500">Forex opens Sunday 22:00 UTC</p>
       </div>
     </div>
   );
@@ -300,7 +300,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   }, [sessionId]);
 
   const visibleRows = isForexMarketClosed
-    ? readinessRows.filter(r => isCryptoSymbol(r.symbol))
+    ? []
     : readinessRows;
 
   const armedCount = visibleRows.length;

@@ -8,11 +8,10 @@
 import { SYMBOL_REGISTRY, SymbolCategory } from '../config/symbol-registry';
 import { DEFAULT_WATCHLIST } from '../config/watchlist';
 
-export type AssetClass = 'forex' | 'crypto' | 'indices' | 'gold';
+export type AssetClass = 'forex' | 'indices' | 'gold';
 
 const CATEGORY_TO_ASSET_CLASS: Record<SymbolCategory, AssetClass> = {
   'forex': 'forex',
-  'crypto': 'crypto',
   'index': 'indices',
   'metal': 'gold',
   'energy': 'forex'
@@ -20,7 +19,6 @@ const CATEGORY_TO_ASSET_CLASS: Record<SymbolCategory, AssetClass> = {
 
 const ASSET_CLASS_TO_CATEGORY: Record<AssetClass, SymbolCategory[]> = {
   'forex': ['forex'],
-  'crypto': ['crypto'],
   'indices': ['index'],
   'gold': ['metal']
 };
@@ -41,13 +39,6 @@ export function getAssetClassInfo(): AssetClassInfo[] {
       symbols: getSymbolsByAssetClass(['forex']),
       description: 'Major currency pairs',
       emoji: '💱'
-    },
-    {
-      assetClass: 'crypto',
-      displayName: 'Crypto',
-      symbols: getSymbolsByAssetClass(['crypto']),
-      description: '24/7 cryptocurrency markets',
-      emoji: '₿'
     },
     {
       assetClass: 'indices',

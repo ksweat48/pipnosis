@@ -106,8 +106,7 @@ class Omega9ConstraintProvider {
     });
     const earlyFeasiblePips = (sessionTimeRemainingMinutes / 60) * this.estimateVolatilityPerHour(symbol, atr, volatilityRegime, currentSession) * 0.8;
     const assetCategoryEarly = assetClassifier.getAssetCategory(symbol);
-    const is24HourEarly = assetClassifier.is24HourMarket(symbol);
-    if (!is24HourEarly && assetCategoryEarly !== 'forex') {
+    if (assetCategoryEarly !== 'forex') {
       // For indices and metals: check if min SL floor exceeds feasible travel
       const envelopeAssetClassEarly = this.mapAssetCategoryToEnvelope(assetCategoryEarly);
       const mappedStyleEarly = STYLE_MAP[tradeStyle] || tradeStyle;
@@ -142,13 +141,8 @@ class Omega9ConstraintProvider {
       });
     }
 
-    // ✅ CRYPTO EXEMPTION: 24/7 markets skip session calculations entirely
-    const is24HourMarket = assetClassifier.is24HourMarket(symbol);
-
-    // SSOT: Get session constraint policy from coordinator (unless 24/7 market)
-    const sessionConstraintPolicy = is24HourMarket
-      ? 'NONE'
-      : sessionConstraintCoordinator.getSessionConstraintPolicy(symbol, tradeStyle);
+    // SSOT: Get session constraint policy from coordinator
+    const sessionConstraintPolicy = sessionConstraintCoordinator.getSessionConstraintPolicy(symbol, tradeStyle);
 
     // Determine the SL we'll use for R:R calculations
     // If Alpha already proposed an SL, use that; otherwise use recommended
@@ -188,43 +182,30 @@ class Omega9ConstraintProvider {
     let sessionConstraintMode: 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
 
-    if (is24HourMarket) {
-      // 24/7 markets: No session constraints at all
-      sessionConstraintMode = 'NONE';
-      tpReasoningSuffix = ' | 24/7 market - no session constraints';
-      console.log(`[Omega-9] ${symbol} is 24/7 market - session constraints disabled`);
-    } else {
-      // Forex/indices with session-based trading hours
-      switch (sessionConstraintPolicy) {
-        case 'ENFORCED':
-          // Even ENFORCED is now ADVISORY - no TP ceiling
-          sessionConstraintMode = 'ADVISORY';
+    switch (sessionConstraintPolicy) {
+      case 'ENFORCED':
+        // Even ENFORCED is now ADVISORY - no TP ceiling
+        sessionConstraintMode = 'ADVISORY';
 
-          if (feasibleTravelPips < idealMinTakeProfitPips) {
-            tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} minimum TP requires ${idealMinTakeProfitPips.toFixed(1)} pips but only ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining. Alpha has full authority to assess whether R:R geometry is achievable.`;
-          }
-          break;
+        if (feasibleTravelPips < idealMinTakeProfitPips) {
+          tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} minimum TP requires ${idealMinTakeProfitPips.toFixed(1)} pips but only ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining. Alpha has full authority to assess whether R:R geometry is achievable.`;
+        }
+        break;
 
-        case 'ADVISORY':
-          // INTRADAY: Session-time ADVISORY - no TP ceiling
-          sessionConstraintMode = 'ADVISORY';
+      case 'ADVISORY':
+        // INTRADAY: Session-time ADVISORY - no TP ceiling
+        sessionConstraintMode = 'ADVISORY';
 
-          if (idealMinTakeProfitPips > feasibleTravelPips) {
-            tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} trade minimum TP requires ${idealMinTakeProfitPips.toFixed(1)} pips, ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining. Trade may extend into next session.`;
-          }
-          break;
+        if (idealMinTakeProfitPips > feasibleTravelPips) {
+          tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} trade minimum TP requires ${idealMinTakeProfitPips.toFixed(1)} pips, ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining. Trade may extend into next session.`;
+        }
+        break;
 
-        case 'NONE':
-          // SWING or 24/7 market: Session-time NONE - no session constraints
-          sessionConstraintMode = 'NONE';
-
-          if (assetClassifier.is24HourMarket(symbol)) {
-            tpReasoningSuffix = ` | 24/7 market - no session constraints`;
-          } else {
-            tpReasoningSuffix = ` | ${tradeStyle} trade - session timing not applicable`;
-          }
-          break;
-      }
+      case 'NONE':
+        // SWING: Session-time NONE - no session constraints
+        sessionConstraintMode = 'NONE';
+        tpReasoningSuffix = ` | ${tradeStyle} trade - session timing not applicable`;
+        break;
     }
 
     const targetTakeProfitPips = referenceSLPips * TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
@@ -449,26 +430,6 @@ class Omega9ConstraintProvider {
 
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-    // CRYPTO SCALE MISMATCH DIAGNOSTIC (NON-BLOCKING)
-    // Only meaningful when a positive R:R floor exists. When minRiskReward=0, minTP is
-    // intentionally 0 and the ratio will always be 0% — not an anomaly, just no TP floor.
-    if (assetClassifier.isCrypto(symbol) && minRiskReward > 0) {
-      const tpToSLRatio = constraints.minTakeProfitPips / referenceSLPips;
-
-      if (tpToSLRatio < 0.2) {
-        console.error('[Omega-9 Crypto Scale] DIAGNOSTIC: Crypto TP/SL ratio anomaly detected (NON-BLOCKING)');
-        console.error(`[Omega-9 Crypto Scale] ${symbol}: minTP=${constraints.minTakeProfitPips.toFixed(0)} pips / referenceSL=${referenceSLPips.toFixed(0)} pips = ${(tpToSLRatio * 100).toFixed(1)}% ratio (expected >20%)`);
-        console.error(`[Omega-9 Crypto Scale] referenceSLPips source: ${referenceSLPips === stopLossCalc.stopLossPips ? 'stop-calculator (no proposed SL)' : 'calculatePipDistance(entry, proposedSL)'}`);
-        console.error(`[Omega-9 Crypto Scale] idealMinTakeProfitPips=${idealMinTakeProfitPips.toFixed(0)}, maxTakeProfitPips=${maxTakeProfitPips.toFixed(0)}, minRiskReward=${minRiskReward}`);
-
-        constraints.violations.push({
-          type: 'CRYPTO_SCALE_MISMATCH',
-          severity: 'WARNING',
-          message: `Crypto scale diagnostic: TP/SL ratio ${(tpToSLRatio * 100).toFixed(1)}% (expected >20%) - possible calculation error`,
-          suggestedFix: 'DIAGNOSTIC ONLY: This is informational. Alpha retains full authority. Check session constraint exemption for 24/7 markets.'
-        });
-      }
-    }
 
     return constraints;
   }
@@ -801,7 +762,6 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
 
   private mapAssetCategoryToEnvelope(category: string): EnvelopeAssetClass {
     switch (category) {
-      case 'crypto': return 'CRYPTO';
       case 'metal': return 'METAL';
       case 'index': return 'INDEX';
       default: return 'FOREX';
@@ -815,7 +775,7 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
    *
    * SSOT COMPLIANCE:
    * - Session volatility multipliers delegated to sessionConstraintCoordinator
-   * - 24/7 markets automatically get constant volatility profile
+   * - Session volatility multipliers applied per market hours
    */
   private estimateVolatilityPerHour(
     symbol: string,
@@ -846,7 +806,7 @@ AUTHORITY: You place SL and TP where market structure demands. Choose LONG, SHOR
     let baseVolatility = atrInPips * 1.5;
 
     // SSOT: Get session volatility multiplier from coordinator.
-    // This handles 24/7 markets vs forex-hours markets.
+    // This handles forex-hours markets session differences.
     // Session is the ONLY structural modifier applied here — it reflects
     // real differences in market participation, not a regime opinion.
     const sessionMultiplier = sessionConstraintCoordinator.getSessionVolatilityMultiplier(

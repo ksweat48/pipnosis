@@ -30,7 +30,7 @@ import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath
 import { getRiskPercentage } from '../config/risk-levels';
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { postTradeAnalyzer } from './post-trade-analyzer';
-import { hasAnyOpenMarket, isSymbolMarketOpen, is24HourSymbol, getEstimationReferenceSymbol, calculateSessionContext } from '../utils/marketHours';
+import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol, calculateSessionContext } from '../utils/marketHours';
 import { scanResultsManager, type ScanCandidate } from './scan-results-manager';
 import { weekendProtectionService } from './weekend-protection-service';
 import { marketScheduleService } from './market-schedule-service';
@@ -758,17 +758,15 @@ class GoalSessionLiveEngine {
       if (import.meta.env.DEV) {
       }
 
-      // CRYPTO FIX: Fetch async market status once to check DB holidays (synchronous
+      // Fetch async market status once to check DB holidays (synchronous
       // isSymbolMarketOpen only checks weekends, not database-backed holidays like Good Friday).
       const dbMarketStatus = await marketScheduleService.getMarketStatus();
       const dbHoliday = await marketScheduleService.isHoliday();
       const isForexClosedByHoliday = dbMarketStatus.status === 'holiday' || dbMarketStatus.status === 'early_close';
 
       // Determine which symbols are truly tradeable:
-      // - Crypto (24/7) is always open
       // - Forex/Indices require both the synchronous weekend check AND no DB holiday
       const openMarketSymbols = watchlist.filter(symbol => {
-        if (is24HourSymbol(symbol)) return true;
         if (isForexClosedByHoliday) return false;
         return isSymbolMarketOpen(symbol);
       });
@@ -781,18 +779,8 @@ class GoalSessionLiveEngine {
       }
 
       if (openMarketSymbols.length < watchlist.length) {
-        const cryptoOnly = openMarketSymbols.every(s => is24HourSymbol(s));
-
         let marketMessage = '';
-        if (cryptoOnly && closedSymbols.length > 0) {
-          if (dbMarketStatus.status === 'holiday' && dbHoliday) {
-            marketMessage = `📊 Forex markets closed for ${dbHoliday.name}. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
-          } else if (dbMarketStatus.status === 'early_close' && dbHoliday) {
-            marketMessage = `📊 Forex markets closed early - ${dbHoliday.name}. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
-          } else {
-            marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
-          }
-        } else if (closedSymbols.length > 0) {
+        if (closedSymbols.length > 0) {
           marketMessage = `📊 Scanning ${openMarketSymbols.length} open markets. ${closedSymbols.length} symbols temporarily unavailable (${closedSymbols.join(', ')}).`;
         }
 
@@ -802,15 +790,9 @@ class GoalSessionLiveEngine {
       }
 
       // Check weekend protection - find first tradeable symbol to confirm trading is allowed.
-      // Prioritize 24/7 symbols (crypto) first since they bypass all holiday/weekend blocks.
       // openMarketSymbols is already holiday-aware so this is mainly a safeguard.
       let canTrade: { allowed: boolean; reason?: string; holidayName?: string } = { allowed: false, reason: 'No tradeable symbols found' };
-      const sortedSymbols = [...openMarketSymbols].sort((a, b) => {
-        const aIs24h = is24HourSymbol(a) ? 0 : 1;
-        const bIs24h = is24HourSymbol(b) ? 0 : 1;
-        return aIs24h - bIs24h;
-      });
-      for (const sym of sortedSymbols) {
+      for (const sym of openMarketSymbols) {
         const result = await weekendProtectionService.canOpenNewTrade(sym);
         if (result.allowed) {
           canTrade = result;
@@ -1047,7 +1029,6 @@ class GoalSessionLiveEngine {
       // Purpose: Estimate "how many pips needed" to reach goal
       // Method: Use market-aware reference symbol (SSOT: getEstimationReferenceSymbol)
       //   - Forex OPEN → EURUSD (most liquid, best reference)
-      //   - Forex CLOSED → BTCUSD (24/7 availability, prevents misleading logs)
       //
       // This provides context for Alpha's decision-making, but Alpha ALWAYS
       // uses real market prices, real symbol data, and real opportunity analysis
@@ -2075,7 +2056,7 @@ class GoalSessionLiveEngine {
       // that value (with per-asset-class fallbacks) and shifts SL/TP to preserve
       // geometry when within tolerance, or cancels the setup when exceeded.
       // DO NOT add a pre-executor deviation check here — it would fire before Alpha's
-      // tolerance is consulted and would use wrong thresholds for crypto/metals/indices.
+      // tolerance is consulted and would use wrong thresholds for metals/indices.
 
       logger.info(
         LogCategory.AI_TRADING,

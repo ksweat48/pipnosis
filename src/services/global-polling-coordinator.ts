@@ -24,7 +24,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
-import { getForexMarketStatus, isSymbolMarketOpen, is24HourSymbol } from '@/utils/marketHours';
+import { getForexMarketStatus } from '@/utils/marketHours';
 import { areFunctionsAvailable, logEnvironmentInfo } from '@/lib/environment';
 import { pollingConfigService, SymbolPriority } from './polling-config-service';
 import { globalToastManager } from './global-toast-manager';
@@ -85,13 +85,8 @@ class GlobalPollingCoordinator {
     'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD', 'NAS100'
   ];
 
-  private readonly CRYPTO_PAIRS = [
-    'BTCUSD', 'ETHUSD'
-  ];
-
   private readonly ALL_TRADING_PAIRS = [
-    ...this.FOREX_PAIRS,
-    ...this.CRYPTO_PAIRS
+    ...this.FOREX_PAIRS
   ];
 
   private readonly MARKET_CHECK_INTERVAL = 60000; // 🚨 CRITICAL: 60 seconds - DO NOT CHANGE
@@ -125,7 +120,6 @@ class GlobalPollingCoordinator {
 
     const marketStatus = getForexMarketStatus();
     logger.debug(LogCategory.POLLING_COORDINATOR, `Forex Market Status: ${marketStatus.status}`);
-    logger.debug(LogCategory.POLLING_COORDINATOR, `Crypto markets: Always Open (24/7)`);
 
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
@@ -148,7 +142,6 @@ class GlobalPollingCoordinator {
 
     logger.debug(LogCategory.POLLING_COORDINATOR, `Starting polling for all ${this.ALL_TRADING_PAIRS.length} pairs...`);
     logger.debug(LogCategory.POLLING_COORDINATOR, `  Forex/Indices: ${this.FOREX_PAIRS.length} pairs (market-hours aware)`);
-    logger.debug(LogCategory.POLLING_COORDINATOR, `  Crypto: ${this.CRYPTO_PAIRS.length} pairs (24/7)`);
 
     this.isPaused = false;
     this.pauseReason = null;
@@ -392,16 +385,15 @@ class GlobalPollingCoordinator {
   }
 
   private stopForexPolling(): void {
-    console.log('Stopping forex/indices polling (market closed)...');
+    console.log('Stopping polling (market closed)...');
     for (const symbol of this.FOREX_PAIRS) {
       this.stopPollingForSymbol(symbol);
     }
-    console.log('Crypto polling continues (24/7)');
     this.notifyListeners();
   }
 
   private startForexPolling(): void {
-    console.log('Starting forex/indices polling (market open)...');
+    console.log('Starting polling (market open)...');
     for (const symbol of this.FOREX_PAIRS) {
       this.startPollingForSymbol(symbol);
     }
@@ -531,13 +523,9 @@ class GlobalPollingCoordinator {
     }
 
     const pollFunction = async () => {
-      const is24Hour = is24HourSymbol(symbol);
-
-      if (!is24Hour) {
-        const marketStatus = getForexMarketStatus();
-        if (!marketStatus.isOpen) {
-          return;
-        }
+      const marketStatus = getForexMarketStatus();
+      if (!marketStatus.isOpen) {
+        return;
       }
 
       if (this.isPaused) {
@@ -658,17 +646,17 @@ class GlobalPollingCoordinator {
     this.marketCheckInterval = setInterval(() => {
       const marketStatus = getForexMarketStatus();
 
-      // CRYPTO FIX: Market just opened - resume forex polling (crypto never stopped)
+      // Market just opened - resume polling
       if (marketStatus.isOpen && this.isPaused && this.pauseReason === 'market_closed') {
-        console.log('🟢 Forex market opened! Resuming forex polling...');
+        console.log('🟢 Market opened! Resuming polling...');
         this.isPaused = false;
         this.pauseReason = null;
         this.startForexPolling();
         this.notifyListeners();
       }
-      // CRYPTO FIX: Market just closed - stop only forex polling (keep crypto active 24/7)
+      // Market just closed - stop polling
       else if (!marketStatus.isOpen && (!this.isPaused || this.pauseReason !== 'market_closed')) {
-        console.log('🔴 Forex market closed! Stopping forex polling (crypto continues 24/7)...');
+        console.log('🔴 Market closed! Stopping polling...');
         this.isPaused = true;
         this.pauseReason = 'market_closed';
         this.stopForexPolling();

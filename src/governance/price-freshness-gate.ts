@@ -58,9 +58,6 @@ export const FRESHNESS_THRESHOLDS = {
   // Analysis/scanning can use slightly older data
   ANALYSIS_MAX_AGE_SECONDS: 90,
 
-  // Crypto markets - 24/7, expect frequent updates
-  CRYPTO_MAX_AGE_SECONDS: 45,
-
   // Forex markets - during active hours
   FOREX_MAX_AGE_SECONDS: TIME_CONSTANTS.SECONDS.PRICE_STALENESS_CRITICAL,
 
@@ -304,9 +301,6 @@ class PriceFreshnessGate {
       case 'monitoring':
       case 'display':
         // Symbol-specific thresholds for monitoring/display
-        if (this.isCrypto(normalizedSymbol)) {
-          return FRESHNESS_THRESHOLDS.CRYPTO_MAX_AGE_SECONDS;
-        }
         if (this.isIndex(normalizedSymbol)) {
           return FRESHNESS_THRESHOLDS.INDEX_MAX_AGE_SECONDS;
         }
@@ -315,13 +309,6 @@ class PriceFreshnessGate {
       default:
         return FRESHNESS_THRESHOLDS.DEFAULT_MAX_AGE_SECONDS;
     }
-  }
-
-  /**
-   * Helper: Check if symbol is crypto
-   */
-  private isCrypto(symbol: string): boolean {
-    return symbol.includes('BTC') || symbol.includes('ETH');
   }
 
   /**

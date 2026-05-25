@@ -131,7 +131,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const [systemStatus, setSystemStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
   const [marketStatus, setMarketStatus] = useState<'live' | 'delayed' | 'offline'>('live');
   const [priceSource, setPriceSource] = useState<'metaapi' | 'database' | 'offline'>('offline');
-  const [cryptoDataSource, setCryptoDataSource] = useState<string | null>(null);
+  const [priceDataSource, setPriceDataSource] = useState<string | null>(null);
   const [directPollerActive, setDirectPollerActive] = useState(false);
   const [isDatabaseOnlyMode, setIsDatabaseOnlyMode] = useState(shouldDisableMetaAPI());
   const [forexMarketStatus, setForexMarketStatus] = useState<MarketStatus>(() => getForexMarketStatus());
@@ -197,8 +197,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       setForexMarketStatus(newStatus);
       setSymbolMarketStatus(newSymbolStatus);
 
-      // Market just closed - freeze time range (ONLY for forex, crypto never closes)
-      if (wasOpen && !isNowOpen && isMountedRef.current && chartRef.current && !newSymbolStatus.is24Hour) {
+      // Market just closed - freeze time range
+      if (wasOpen && !isNowOpen && isMountedRef.current && chartRef.current) {
         if (import.meta.env.DEV) {
           console.log(`[Chart] ${symbol} market closed - freezing range`);
         }
@@ -214,8 +214,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         }
       }
 
-      // Market just opened - resume real-time scrolling (ONLY for forex, crypto never stopped)
-      if (!wasOpen && isNowOpen && isMountedRef.current && chartRef.current && !newSymbolStatus.is24Hour) {
+      // Market just opened - resume real-time scrolling
+      if (!wasOpen && isNowOpen && isMountedRef.current && chartRef.current) {
         if (import.meta.env.DEV) {
           console.log(`[Chart] ${symbol} market opened`);
         }
@@ -490,15 +490,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     // GOVERNANCE (CCIP): Mobile standard = 2 decimal places on the Y-axis ruler.
     // Desktop retains symbol-specific precision for full technical accuracy.
     const isMobileViewport = window.innerWidth < 640;
-    const isCryptoSymbol = ['BTCUSD', 'ETHUSD'].includes(symbol);
     const isGoldSymbol = symbol === 'XAUUSD';
     const isIndexSymbol = ['US30', 'NAS100'].includes(symbol);
     const chartPrecision = isMobileViewport
       ? 2
-      : (isCryptoSymbol || isGoldSymbol || isIndexSymbol ? 2 : 5);
+      : (isGoldSymbol || isIndexSymbol ? 2 : 5);
     const chartMinMove = isMobileViewport
       ? 0.01
-      : (isCryptoSymbol || isGoldSymbol || isIndexSymbol ? 0.01 : 0.00001);
+      : (isGoldSymbol || isIndexSymbol ? 0.01 : 0.00001);
 
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10b981',
@@ -772,8 +771,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
 
     // CRITICAL FIX: Check if market is open before processing tick
-    // BUT ALWAYS allow 24/7 symbols (crypto) to process ticks regardless of isOpen state
-    if (!symbolMarketStatus.isOpen && !symbolMarketStatus.is24Hour) {
+    if (!symbolMarketStatus.isOpen) {
       return;
     }
 
@@ -1761,7 +1759,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         // Track price data source for UI display (all symbols)
         if (price.source) {
-          setCryptoDataSource(price.source);
+          setPriceDataSource(price.source);
         }
 
         // Show data quality warning only for significantly degraded data sources (Level 3+)
@@ -2403,8 +2401,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   const FOREX_PAIRS = [
     'XAUUSD', 'US30', 'NAS100',
-    'EURUSD', 'GBPUSD', 'USDJPY',
-    'BTCUSD', 'ETHUSD'
+    'EURUSD', 'GBPUSD', 'USDJPY'
   ];
 
   const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
@@ -2555,13 +2552,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
                 </span>
               </div>
-              {cryptoDataSource && (
+              {priceDataSource && (
                 <div className={`text-[9px] px-1.5 py-0.5 rounded border ${
                   dataQualityWarning
                     ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
                     : 'text-gray-500 bg-blue-500/10 border-blue-500/20'
                 }`}>
-                  {dataQualityWarning ? 'DELAYED' : cryptoDataSource.replace('-live', '').toUpperCase()}
+                  {dataQualityWarning ? 'DELAYED' : priceDataSource.replace('-live', '').toUpperCase()}
                 </div>
               )}
             </div>
@@ -2580,13 +2577,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 <Activity size={14} />
                 {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
               </div>
-              {cryptoDataSource && (
+              {priceDataSource && (
                 <div className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
                   dataQualityWarning
                     ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                     : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
                 }`}>
-                  {dataQualityWarning ? 'DELAYED' : cryptoDataSource.replace('-live', '').toUpperCase()}
+                  {dataQualityWarning ? 'DELAYED' : priceDataSource.replace('-live', '').toUpperCase()}
                 </div>
               )}
             </div>
@@ -2665,11 +2662,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 </div>
               )}
               <div className={`text-[10px] font-medium ${symbolMarketStatus.isOpen ? 'text-green-400' : 'text-red-400'}`}>
-                {symbolMarketStatus.is24Hour
-                  ? `Market Open 24/7`
-                  : symbolMarketStatus.isOpen
-                    ? 'Market Open'
-                    : 'Forex Closed'
+                {symbolMarketStatus.isOpen
+                  ? 'Market Open'
+                  : 'Forex Closed'
                 }
               </div>
             </div>

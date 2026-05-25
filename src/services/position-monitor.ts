@@ -496,7 +496,6 @@ class PositionMonitorService {
     const lotSize = position.lot_size || position.position_size;
 
     // Safety check: lot_size should be reasonable (0.01 to 10,000 lots)
-    // Crypto instruments (ETHUSD, BTCUSD) use much larger lot sizes than forex
     if (!lotSize || lotSize <= 0 || lotSize > 10000) {
       console.error(`[PositionMonitor] ❌ INVALID LOT SIZE for position ${position.id}:`, {
         symbol: position.symbol,

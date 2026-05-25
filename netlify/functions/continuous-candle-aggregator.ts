@@ -9,7 +9,6 @@
  *
  * Removed sources (do not restore):
  *   - Finnhub  — unreliable, returned wrong/identical data for all pairs
- *   - Kraken   — crypto-only, redundant now that MetaAPI covers BTCUSD/ETHUSD
  *   - All other third-party APIs
  *
  * Governance rules:
@@ -25,14 +24,7 @@ import { getSupabaseAdmin } from './_shared/supabase-admin';
 const supabase = getSupabaseAdmin();
 
 const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100'];
-const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
-// CCIP-2026-0510E: Crypto processed FIRST — 24/7 markets must never be starved
-// by slow forex symbols exhausting the 90s function budget.
-const ACTIVE_SYMBOLS = [...CRYPTO_SYMBOLS, ...FOREX_SYMBOLS];
-
-function isCryptoSymbol(symbol: string): boolean {
-  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
-}
+const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS];
 
 const FAST_TIMEFRAMES = ['M1', 'M5', 'M15'];
 const MEDIUM_TIMEFRAMES = ['M30', 'H1'];
@@ -125,10 +117,6 @@ function getTimeframesToProcess(): string[] {
 }
 
 function isMarketOpenAtTime(date: Date, symbol?: string): boolean {
-  if (symbol && isCryptoSymbol(symbol)) {
-    return true;
-  }
-
   const estTime = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const dayOfWeek = estTime.getDay();
   const hours = estTime.getHours();
@@ -150,12 +138,7 @@ function calculateCandleFromPrices(
   timeframe: string,
   candleStartTime: Date
 ): CandleData | null {
-  // CCIP-2026-0510F: Crypto tick feed (hybrid_kraken) averages ~3 ticks/min on weekends.
-  // Requiring 2 ticks/minute drops 60% of M1 buckets for crypto on weekends, which then
-  // cascades into M5 failure via the 60% quality threshold. Allow single-tick candles for
-  // crypto; a lone tick is still a valid OHLC observation and saveCandlesBatch already
-  // filters truly flat candles. Forex keeps ≥2 floor (tick density is 10-50/min).
-  const minTicks = isCryptoSymbol(symbol) ? 1 : 2;
+  const minTicks = 2;
   if (prices.length < minTicks) {
     console.log(`[CandleAggregator] Skipping ${symbol} ${timeframe} — only ${prices.length} tick (need ${minTicks}+)`);
     return null;
@@ -339,7 +322,7 @@ async function aggregateFromLowerTimeframe(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DEAD-MAN SWITCH: MetaAPI gap-fill
-// Authority: MetaAPI is the SOLE gap-fill source for ALL symbols (forex + crypto).
+// Authority: MetaAPI is the SOLE gap-fill source for ALL symbols.
 // Triggered when the last M1 candle is > 10 minutes old.
 // Uses broker historical data — same source as the live tick feed.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -522,11 +505,7 @@ async function runMetaApiDeadManSwitch(
     ? (now.getTime() - lastM1CandleTime.getTime()) / 60000
     : Infinity;
 
-  // CCIP-2026-0510F: Crypto tick feed (hybrid_kraken) is sparser than forex; weekend
-  // gaps up to 6min are common even when the pipeline is healthy. Use 6min for crypto
-  // so backfill fires before scans abort on staleness, while forex keeps the 10min
-  // floor to avoid thrashing MetaAPI during normal broker jitter.
-  const triggerMinutes = isCryptoSymbol(symbol) ? 6 : 10;
+  const triggerMinutes = 10;
   if (gapMinutes < triggerMinutes) return 0;
 
   const gapDesc = lastM1CandleTime
@@ -611,8 +590,8 @@ async function aggregateCandlesForSymbol(
   // lookbackMinutes negative, which sets the cutoffTime in the FUTURE and returns zero ticks.
   // Fix: probe the latest broker_time first to determine effectiveNow, then compute
   // gapMinutes against effectiveNow so both sides are in the same clock domain.
-  const latestBrokerTime = isCryptoSymbol(symbol) ? null : await fetchLatestBrokerTime(symbol);
-  const effectiveNowForLookback = (!isCryptoSymbol(symbol) && latestBrokerTime) ? latestBrokerTime : now;
+  const latestBrokerTime = await fetchLatestBrokerTime(symbol);
+  const effectiveNowForLookback = latestBrokerTime ? latestBrokerTime : now;
 
   let lookbackMinutes: number;
   if (lastM1CandleTime) {
@@ -648,9 +627,9 @@ async function aggregateCandlesForSymbol(
 
   // Use latest broker_time as effectiveNow for candle boundary calculations.
   // This is consistent with how open_time is stored in forex_candles.
-  const effectiveNow = isCryptoSymbol(symbol) ? now : lastPriceTime;
+  const effectiveNow = lastPriceTime;
   const clockSkewMs = effectiveNow.getTime() - now.getTime();
-  if (!isCryptoSymbol(symbol) && Math.abs(clockSkewMs) > 60000) {
+  if (Math.abs(clockSkewMs) > 60000) {
     console.log(`[CandleAggregator]   ${symbol}: Broker clock skew ${Math.round(clockSkewMs / 60000)}min — using broker_time as effective now`);
   }
 
@@ -711,10 +690,7 @@ async function aggregateCandlesForSymbol(
       }
 
       const candleEndTime = new Date(currentCandleToCreate.getTime() + timeframeMinutes * 60 * 1000);
-      // CCIP-2026-0510E: Crypto uses 10s buffer (24/7 fresh ticks), forex keeps 30s
-      // buffer to absorb broker clock skew. This ensures crypto M5 closes are written
-      // within ~10s of candle close instead of waiting 30s past close.
-      const bufferMs = isCryptoSymbol(symbol) ? 10 * 1000 : 30 * 1000;
+      const bufferMs = 30 * 1000;
       if (candleEndTime > new Date(effectiveNow.getTime() - bufferMs)) {
         break;
       }
@@ -726,13 +702,8 @@ async function aggregateCandlesForSymbol(
 
       let candle: CandleData | null = null;
       const sourceTimeframe = AGGREGATION_HIERARCHY[timeframe];
-      // CCIP-2026-0510F: Crypto M5 bypasses the M1→M5 aggregation hierarchy because
-      // weekend crypto tick density (~3/min) causes sparse M1 buckets, which then
-      // cascades into M5 failure via the 60% quality threshold. Building M5 directly
-      // from the 5-minute tick window sidesteps the M1 dependency entirely.
-      const bypassHierarchy = isCryptoSymbol(symbol) && timeframe === 'M5';
 
-      if (sourceTimeframe && !bypassHierarchy) {
+      if (sourceTimeframe) {
         candle = await aggregateFromLowerTimeframe(
           symbol,
           timeframe,
@@ -795,10 +766,7 @@ async function aggregateCandlesForSymbol(
   }
 
   // Correct wicks on recently saved sparse-tick M5 candles using broker OHLC
-  // CCIP-2026-04-15: Disabled for crypto symbols — Kraken is the authoritative price source
-  // for BTCUSD/ETHUSD. MetaAPI does not serve reliable crypto OHLC from the same feed,
-  // causing inflated highs (650-800+ USD above real price) that corrupt candle wicks.
-  if (timeframesToProcess.includes('M5') && !isCryptoSymbol(symbol)) {
+  if (timeframesToProcess.includes('M5')) {
     try {
       await correctSparseCandleWicks(symbol);
     } catch (wickErr) {
@@ -822,13 +790,7 @@ export const handler: Handler = async (_event, _context) => {
 
     let symbolsToProcess = ACTIVE_SYMBOLS;
     if (!isForexMarketOpen) {
-      symbolsToProcess = CRYPTO_SYMBOLS;
-      console.log(`[CandleAggregator] Forex market closed — processing crypto only: ${symbolsToProcess.join(', ')}`);
-    } else {
-      console.log(`[CandleAggregator] Forex market open — processing all symbols`);
-    }
-
-    if (symbolsToProcess.length === 0) {
+      console.log(`[CandleAggregator] Forex market closed — skipping aggregation`);
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -840,6 +802,8 @@ export const handler: Handler = async (_event, _context) => {
           timestamp: new Date().toISOString()
         })
       };
+    } else {
+      console.log(`[CandleAggregator] Forex market open — processing all symbols`);
     }
 
     const timeframesToProcess = getTimeframesToProcess();

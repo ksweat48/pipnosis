@@ -5,7 +5,7 @@
  * Examples:
  * - "make me $100 with EURUSD" -> [EURUSD]
  * - "scalp Gold for $200" -> [XAUUSD]
- * - "trade Bitcoin and Ethereum" -> [BTCUSD, ETHUSD]
+ * - "trade the Dow" -> [US30]
  *
  * Uses SYMBOL_REGISTRY as single source of truth for valid symbols.
  */
@@ -20,10 +20,6 @@ export interface DetectedSymbol {
 }
 
 const SYMBOL_ALIASES: Record<string, string> = {
-  'btc': 'BTCUSD',
-  'bitcoin': 'BTCUSD',
-  'eth': 'ETHUSD',
-  'ethereum': 'ETHUSD',
   'gold': 'XAUUSD',
   'xau': 'XAUUSD',
   'euro': 'EURUSD',

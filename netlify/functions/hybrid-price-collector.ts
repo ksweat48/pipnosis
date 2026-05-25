@@ -1,17 +1,13 @@
 /**
  * Hybrid Price Collector
  *
- * BREAKTHROUGH: Uses multiple data sources to ensure data quality
+ * Uses multiple data sources to ensure data quality
  * - Forex/Indices: MetaAPI (primary) + Finnhub (fallback)
- * - Crypto (24/7): Kraken API (primary, execution-grade, no geo-restrictions)
- *
- * Supports both traditional forex hours and 24/7 crypto trading.
  */
 
 import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
 import { createFinnhubClient } from './_shared/finnhub-client';
-import { fetchKrakenTicker } from './_shared/kraken-client';
 
 const metaApiToken = process.env.METAAPI_TOKEN!;
 const metaApiRegion = process.env.METAAPI_REGION || 'london';
@@ -20,8 +16,7 @@ const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID || '';
 const supabase = getSupabaseAdmin();
 
 const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100'];
-const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
-const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
+const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS];
 
 const TICKS_PER_MINUTE = 8;
 const TICK_INTERVAL_MS = 3000;
@@ -29,10 +24,6 @@ const MAX_EXECUTION_TIME_MS = 33000; // Increased from 24s to 33s for better rel
 const METAAPI_TIMEOUT_MS = 8000; // Increased from 5s to 8s
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 1000;
-
-function isCryptoSymbol(symbol: string): boolean {
-  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
-}
 
 interface PriceSource {
   name: string;
@@ -57,15 +48,7 @@ interface FinnhubPrice {
   source: 'finnhub';
 }
 
-interface KrakenPrice {
-  symbol: string;
-  bid: number;
-  ask: number;
-  time: string;
-  source: 'kraken';
-}
-
-type HybridPrice = MetaApiPrice | FinnhubPrice | KrakenPrice;
+type HybridPrice = MetaApiPrice | FinnhubPrice;
 
 async function fetchFromMetaAPI(symbol: string, attemptNumber: number = 1): Promise<MetaApiPrice | null> {
   if (!metaApiToken || !metaApiAccountId) {
@@ -150,23 +133,6 @@ async function fetchFromFinnhub(symbol: string): Promise<FinnhubPrice | null> {
   }
 }
 
-async function fetchFromKraken(symbol: string): Promise<KrakenPrice | null> {
-  try {
-    const priceData = await fetchKrakenTicker(symbol);
-
-    return {
-      symbol,
-      bid: priceData.bid,
-      ask: priceData.ask,
-      time: new Date().toISOString(),
-      source: 'kraken'
-    };
-  } catch (error) {
-    console.error(`[HybridCollector] Kraken error for ${symbol}:`, error);
-    return null;
-  }
-}
-
 async function fetchPriceWithRetry(
   symbol: string,
   executionId: string
@@ -185,30 +151,7 @@ async function fetchPriceWithRetry(
 
   const startTime = Date.now();
 
-  // Crypto symbols: use Kraken only
-  if (isCryptoSymbol(symbol)) {
-    metrics.sourceAttempted = 'kraken';
-    metrics.attemptNumber = 1;
-
-    try {
-      const krakenPrice = await fetchFromKraken(symbol);
-      if (krakenPrice) {
-        metrics.sourceUsed = 'kraken';
-        metrics.success = true;
-        metrics.latencyMs = Date.now() - startTime;
-        return { price: krakenPrice, metrics };
-      }
-      metrics.errorMessage = 'Kraken returned no data';
-    } catch (error) {
-      metrics.errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    }
-
-    metrics.latencyMs = Date.now() - startTime;
-    console.error(`[HybridCollector] Kraken failed for crypto ${symbol}`);
-    return { price: null, metrics };
-  }
-
-  // Forex/indices: MetaAPI primary with retry, Finnhub fallback
+  // MetaAPI primary with retry, Finnhub fallback
   metrics.sourceAttempted = 'metaapi';
 
   // Try MetaAPI with exponential backoff retry
@@ -337,7 +280,7 @@ export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
   let totalTicksCollected = 0;
   let totalTicksFailed = 0;
-  const sourceStats: Record<string, number> = { metaapi: 0, finnhub: 0, kraken: 0 };
+  const sourceStats: Record<string, number> = { metaapi: 0, finnhub: 0 };
 
   // VALIDATION: Check MetaAPI credentials (Supabase credentials validated by getSupabaseAdmin())
   if (!metaApiToken || !metaApiAccountId) {
@@ -346,14 +289,12 @@ export const handler: Handler = async (event, context) => {
     console.error('[HybridCollector] Current value: METAAPI_TOKEN =', metaApiToken ? 'SET' : 'UNDEFINED');
     console.error('[HybridCollector] Current value: METAAPI_ACCOUNT_ID =', metaApiAccountId ? 'SET' : 'UNDEFINED');
     console.error('[HybridCollector] ⚠️  Forex symbols will NOT be collected (XAUUSD, EURUSD, etc.)');
-    console.error('[HybridCollector] ⚠️  Only crypto symbols will work (BTCUSD, ETHUSD via Kraken)');
     console.error('[HybridCollector] 🔧 FIX: Set METAAPI_TOKEN in Netlify Dashboard (NOT METAAPI_ADMIN_TOKEN)');
     console.error('[HybridCollector] 📍 Location: Netlify Dashboard → Site Settings → Environment Variables');
   }
 
   console.log(`[HybridCollector:${executionId}] Starting hybrid price collection...`);
-  console.log(`[HybridCollector:${executionId}] Forex symbols: ${FOREX_SYMBOLS.join(', ')}`);
-  console.log(`[HybridCollector:${executionId}] Crypto symbols (24/7): ${CRYPTO_SYMBOLS.join(', ')}`);
+  console.log(`[HybridCollector:${executionId}] Symbols: ${FOREX_SYMBOLS.join(', ')}`);
   console.log(`[HybridCollector:${executionId}] Collecting ${TICKS_PER_MINUTE} ticks over ${MAX_EXECUTION_TIME_MS / 1000}s...`);
 
   try {
@@ -414,7 +355,7 @@ export const handler: Handler = async (event, context) => {
     console.log(`[HybridCollector:${executionId}] ✅ Completed in ${duration}ms`);
     console.log(`[HybridCollector:${executionId}] Total: ${totalTicksCollected} ticks collected, ${totalTicksFailed} failed (${successRate}% success rate)`);
     console.log(`[HybridCollector:${executionId}] Average: ${avgTicksPerSymbol.toFixed(1)} ticks per symbol`);
-    console.log(`[HybridCollector:${executionId}] Sources: MetaAPI=${sourceStats.metaapi}, Finnhub=${sourceStats.finnhub}, Kraken=${sourceStats.kraken}`);
+    console.log(`[HybridCollector:${executionId}] Sources: MetaAPI=${sourceStats.metaapi}, Finnhub=${sourceStats.finnhub}`);
 
     const finnhubUsagePercent = totalTicksCollected > 0 ? (sourceStats.finnhub / totalTicksCollected) * 100 : 0;
     if (finnhubUsagePercent > 20) {

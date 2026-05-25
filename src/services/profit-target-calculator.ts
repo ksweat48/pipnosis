@@ -336,18 +336,12 @@ export class EliteProfitTargetCalculator {
   /**
    * SSOT COMPLIANCE: Use centralized pip value from currencyHelpers
    *
-   * Previously this method had hardcoded pip values that diverged from SSOT,
-   * causing catastrophic calculation errors (e.g., ETHUSD 0.1 vs 1.0 = 10x error).
+   * Previously this method had hardcoded pip values that diverged from SSOT.
    *
    * Now delegates to getCurrencyPipInfo() - the single source of truth.
    */
   private getPipValue(symbol: string): number {
     const pipInfo = getCurrencyPipInfo(symbol);
-
-    // Diagnostic logging for ETHUSD to catch future regressions
-    if (symbol.toUpperCase().includes('ETH')) {
-      logger.info(`[TP Calculator] SSOT pip value for ${symbol}: ${pipInfo.pipValue}`);
-    }
 
     return pipInfo.pipValue;
   }
@@ -378,9 +372,8 @@ export class EliteProfitTargetCalculator {
     const zones: LiquidityZone[] = [];
 
     // Calculate psychological levels based on pip value
-    // For BTCUSD (pip=1.0): levels every 50-100 points
-    // For ETHUSD (pip=0.1): levels every 5-10 points
     // For forex (pip=0.0001): levels every 50 pips
+    // For indices/metals: levels scaled by pip value
     const level_spacing = pip_value >= 1.0 ? 50 : pip_value >= 0.1 ? 5 : 50;
 
     for (let i = 1; i <= 5; i++) {
@@ -389,7 +382,7 @@ export class EliteProfitTargetCalculator {
         ? price + level_offset
         : price - level_offset;
 
-      // Check if it's a round number (divisible by 100 for BTCUSD, by 10 for others)
+      // Check if it's a round number (divisible by round_threshold)
       const round_threshold = pip_value >= 1.0 ? 100 : 10;
       const is_round_number = Math.abs(level) % round_threshold < 0.01;
 

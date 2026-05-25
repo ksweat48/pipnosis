@@ -470,7 +470,7 @@ export class GoalFeasibilityResolver {
     // BUG 1: adjustedATR is in PRICE UNITS, must convert to PIPS
     // BUG 2: pipInfo.pipSize doesn't exist, must use pipInfo.dollarPerPipPerLot
     //
-    // Example - ETHUSD:
+    // Example - EURUSD:
     // - adjustedATR = 4.039 (price units)
     // - pipValue = 0.1 (1 pip = 0.1 price units)
     // - atrInPips = 4.039 / 0.1 = 40.39 pips ✅

@@ -78,18 +78,6 @@ export const MINIMUM_SL_DISTANCE_BY_SYMBOL: Record<string, MinimumStopLossConstr
     minSpreadMultiple: 2,
     reason: 'Nasdaq 100 alias - same constraints as NAS100'
   },
-  BTCUSD: {
-    minPips: 50,
-    minAtrMultiple: 0.2,
-    minSpreadMultiple: 2,
-    reason: 'Crypto - much higher pip minimum due to volatility'
-  },
-  ETHUSD: {
-    minPips: 10,
-    minAtrMultiple: 0.2,
-    minSpreadMultiple: 2,
-    reason: 'Crypto - higher pip minimum due to volatility'
-  }
 };
 
 export const DEFAULT_MIN_SL_CONSTRAINT: MinimumStopLossConstraint = {

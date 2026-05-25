@@ -202,33 +202,6 @@ Per-index session bias: NAS100 — strongest at cash open and late-NY, most vola
     },
   },
 
-  // ── CRYPTO (BTC, ETH) ──────────────────────────────────────────────────────
-  {
-    group: 'CRYPTO',
-    symbols: ['BTCUSD', 'ETHUSD'],
-    characterContext: `I am trading a cryptocurrency. Crypto markets operate 24/7 with no session gaps — structure exists and can be traded in every session. The instrument's behavioral character is constant: aggressive wick behavior at round-number levels and obvious structural zones, with false breaks through key levels followed by sharp reversals as a documented pattern — this is the instrument collecting liquidity before the true direction continues.
-
-SL awareness: Crypto carries wide ATR and aggressive wick behavior at round-number levels and obvious structural zones. The spread on crypto is wider than on Forex pairs — that spread must be factored into the true cost of any position, particularly for scalp timeframes where the profit distance is narrowest. Alpha uses live ATR to size stops — structural breathing room is always calibrated to current conditions, not to a fixed session label.
-
-TP awareness: Crypto is capable of extended trending moves once momentum is confirmed by volume. Volume-confirmed breaks of psychological levels carry directional weight. Prior day and prior week high/low are the most observable structural reference points. A price level that has been respected across multiple days on crypto carries more structural weight than a level established in a single session.
-
-DRIFT & SPREAD DISCIPLINE: Crypto combines a wide spread with fast tick movement — the cost of reaching the market is larger per unit of price than any Forex pair, and the distance travelled during that reach is also larger. A planned crypto entry is always a zone. Alpha accounts for both the spread cost and the realistic decision-to-fill drift when choosing the planned entry: the stop distance must remain structurally valid after the spread has been crossed and after several pips of drift have been absorbed. A scalp setup on crypto whose viability depends on a perfect tick fill is not a setup — it is a coin toss dressed up as a plan.
-
-SL NOISE FLOOR (CCIP-2026-0501A — CRYPTO STOP SURVIVAL): Crypto's noise floor is the widest in the watchlist and does not have session-based relief — it is wide 24/7. Round numbers (BTC: every $500 or $1000; ETH: every $50 or $100) are the most aggressive sweep magnets on this instrument class. A structural stop placed at an obvious round-number anchor is positioned where crypto's liquidity hunts target it. Wick penetrations of $100–$300 on BTC and $10–$30 on ETH through structural levels during US overlap and weekend-flush events are normal behavior, not invalidation. The structural SL must sit behind the typical round-number sweep depth plus the wider spread — not at the level itself, and not at a distance calibrated for a Forex pair. A crypto structural SL that would be reasonable on EURUSD is inside the noise floor on BTCUSD or ETHUSD.
-
-SESSION AFFINITY (CCIP-2026-0501A — CRYPTO SESSION DYNAMICS): Crypto is 24/7 but does not trade identically in every window — the instrument inherits participation rhythms from global financial markets even without closing:
-  • Asian hours: Retail-driven flows dominate; ranges are often technically clean but participation thin. Sweeps of prior-day extremes printed here are less structurally weighted than the same sweep during US overlap.
-  • European session: Volume increases as European participants arrive; continuation setups that formed during Asian hours get their first real test here.
-  • US session (cash-session overlap): The highest-volume and highest-conviction window on crypto. Correlation to US equity indices is strongest here — a crypto move aligned with equity risk-on/risk-off at US open carries materially more structural weight than a move running against the equity narrative. The widest crypto wicks of the day typically print in this window.
-  • US post-close / pre-Asia: Volume drops; crypto-native flows (on-chain activity, ETF-adjacent positioning) reassert. Continuation setups initiated here without US-session confirmation have lower conviction.
-  • Weekends: Thinnest participation of all; spreads widen; sweeps can overshoot structure more than on weekdays. A structural level that held cleanly through a weekend is more confirmed than the same level tested only on weekdays.
-Named prior-day and prior-week high/low are crypto's strongest structural anchors and are best tested during US overlap — a weekday US-session test of a prior-week level is higher-conviction than an Asian-hours test of the same level.`,
-    styleNotes: {
-      SCALP: `On SCALP, crypto M5 wicks at round numbers and structural levels are among the most aggressive of any instrument. The combination of a wide spread and a well-known level creates conditions where the wick-hunt is the instrument's primary M5 behavior rather than the exception. A wick through a level followed by an M5 body close on the other side — with a close back inside the prior range — is the hunt completing. That completion is a different event from a genuine break. M5 body closes carry the directional vote; wick extremes carry the liquidity hunt.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, crypto produces M15 structural moves in every session. Opportunities exist whenever price is forming identifiable structure — confirmed M15 body closes, named levels, and directional momentum. Alpha reads what the M5/M15 tape is showing right now and assesses whether a structural edge exists in the current conditions.`,
-      INTRADAY: `On INTRADAY, prior day and weekly high/low are the dominant H1 structural reference points on crypto. Crypto H1 trends are capable of extending multiple ATR units within a single session once momentum is established and confirmed by volume. Alpha assesses each H1 trend on its structural integrity and momentum — structure and trend that exists is tradeable regardless of when it formed.`,
-    },
-  },
 
 ];
 
@@ -244,7 +217,6 @@ const CATEGORY_FALLBACK: Record<SymbolCategory, string> = {
 
   index: `I am trading an equity index. Indices are session-influenced instruments with elevated volatility at session opens and key data releases. Opening spikes on indices frequently sweep obvious structural levels before the session direction is established. Named prior session highs/lows and psychological round numbers are observed structural reference points — and they are also where the opening sweep tends to target. Opportunities exist in every session — Alpha reads the current structural setup for the edge present now.`,
 
-  crypto: `I am trading a cryptocurrency. Crypto operates 24/7 with no session gaps — structure exists and can be traded in every session. Aggressive wick behavior at round-number and structural levels is the norm on this instrument class. Alpha uses live ATR to define structural breathing room — stop sizing calibrates to current conditions automatically, making the instrument tradeable in every session.`,
 
   energy: `I am trading an energy instrument. Energy markets react sharply to supply/demand news, OPEC decisions, and geopolitical events. Volatility spikes on energy instruments frequently exceed structural anchors without prior warning — fundamental news is a first-order input on this instrument class, not just context. Intraday technical structure on energy instruments can be overridden entirely by a supply or demand headline that changes the fundamental picture mid-session.`,
 };

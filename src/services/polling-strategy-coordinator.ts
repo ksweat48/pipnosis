@@ -7,7 +7,7 @@
  * Philosophy:
  * - Circuit breaker handles ALERTING and FALLBACK, not polling intervals
  * - Polling intervals are controlled by session state (active vs monitoring)
- * - Polling intervals are symbol-aware (crypto 24/7 vs forex session hours)
+ * - Polling intervals are symbol-aware (forex session hours vs indices)
  * - Minimum interval is 5 seconds (never degrade below this)
  * - Price staleness is handled by PriceRefreshTrigger (emergency injection)
  */
@@ -15,7 +15,7 @@
 import { logger, LogCategory } from '@/lib/logger';
 
 type SessionState = 'active_trading' | 'monitoring' | 'inactive';
-type SymbolClass = 'crypto' | 'forex' | 'index';
+type SymbolClass = 'forex' | 'index';
 
 interface PollingStrategy {
   sessionState: SessionState;
@@ -41,19 +41,16 @@ class PollingStrategyCoordinator {
   private readonly INTERVALS = {
     // Active trading (executing trades right now)
     ACTIVE_TRADING: {
-      crypto: 1000,      // 1 second for crypto (no latency concerns)
       forex: 3000,       // 3 seconds for forex
       index: 3000        // 3 seconds for indices
     },
     // Monitoring mode (trades open, not actively entering)
     MONITORING: {
-      crypto: 3000,      // 3 seconds for crypto
       forex: 5000,       // 5 seconds for forex
       index: 5000        // 5 seconds for indices
     },
     // Inactive (no active trades)
     INACTIVE: {
-      crypto: 30000,     // 30 seconds (can be slow, no active trades)
       forex: 30000,      // 30 seconds
       index: 30000       // 30 seconds
     }
@@ -219,11 +216,6 @@ class PollingStrategyCoordinator {
    * Classify a symbol by type
    */
   private classifySymbol(symbol: string): SymbolClass {
-    const cryptoSymbols = ['BTCUSD', 'ETHUSD'];
-    if (cryptoSymbols.includes(symbol.toUpperCase())) {
-      return 'crypto';
-    }
-
     const indexSymbols = ['US30'];
     if (indexSymbols.includes(symbol.toUpperCase())) {
       return 'index';

@@ -98,11 +98,6 @@ describe('Display Formatters', () => {
       expect(formatPositionPrice(2000, 'GOLD', 'desktop')).toBe('2000.00');
     });
 
-    it('should format crypto correctly', () => {
-      expect(formatPositionPrice(42345.67, 'BTCUSD', 'desktop')).toBe('42345.67');
-      expect(formatPositionPrice(2500.50, 'ETHUSD', 'desktop')).toBe('2500.50');
-    });
-
     it('should handle null prices', () => {
       expect(formatPositionPrice(null, 'EURUSD', 'desktop')).toBe('N/A');
       expect(formatPositionPrice(undefined as any, 'EURUSD', 'desktop')).toBe('N/A');

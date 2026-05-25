@@ -21,13 +21,13 @@
  *
  * NOISE FLOOR ALIGNMENT:
  * slPercent.min values MUST be >= the noise floor for the asset class:
- *   INDEX: 0.15%, CRYPTO: 0.20%, METAL: 0.20%, FOREX: 0.05%
+ *   INDEX: 0.15%, METAL: 0.20%, FOREX: 0.05%
  */
 
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { getIndexPriceTierBounds } from './wall-calibration-config';
 
-export type EnvelopeAssetClass = 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX';
+export type EnvelopeAssetClass = 'FOREX' | 'METAL' | 'INDEX';
 
 export interface AssetClassBounds {
   tpPips: { min: number; max: number };
@@ -81,7 +81,6 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
 
   assetClassPercentBounds: {
     FOREX:   { tpPercent: { min: 0.12, max: 1.20 }, slPercent: { min: 0.06, max: 0.50 } },
-    CRYPTO:  { tpPercent: { min: 0.75, max: 6.00 }, slPercent: { min: 0.40, max: 2.50 } },
     METAL:   { tpPercent: { min: 0.50, max: 5.00 }, slPercent: { min: 0.25, max: 2.00 } },
     INDEX:   { tpPercent: { min: 0.25, max: 1.00 }, slPercent: { min: 0.15, max: 0.35 } },
   },

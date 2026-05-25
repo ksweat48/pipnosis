@@ -60,7 +60,7 @@ export function ServerSidePollingMonitor() {
 
       setStats(statsData);
 
-      // Check for any hybrid sources (hybrid_metaapi, hybrid_finnhub, hybrid_kraken)
+      // Check for any hybrid sources (hybrid_metaapi, hybrid_finnhub)
       const hybridSources = statsData.filter(s => s.source.startsWith('hybrid_'));
 
       // Find the most recent hybrid source update
@@ -320,7 +320,6 @@ export function ServerSidePollingMonitor() {
           </p>
           <ul className="mt-2 text-xs text-blue-200 space-y-1">
             <li>• <strong>hybrid_metaapi</strong> - Forex and indices (XAUUSD, US30, EURUSD, etc.)</li>
-            <li>• <strong>hybrid_kraken</strong> - Crypto 24/7 (BTCUSD, ETHUSD)</li>
             <li>• <strong>hybrid_finnhub</strong> - Fallback for forex if MetaAPI fails</li>
           </ul>
           <p className="text-sm text-blue-300 mt-2">

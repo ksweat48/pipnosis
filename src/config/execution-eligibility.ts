@@ -31,7 +31,6 @@ export interface MinProfitConfig {
 
 export interface SlAtrCaps {
   forex: number;
-  crypto: number;
   index: number;
   metal: number;
   energy: number;
@@ -71,7 +70,6 @@ export const EXECUTION_ELIGIBILITY_CONFIG: ExecutionEligibilityConfig = {
   // Philosophy: Reduced profit > NO_TRADE
   slAtrCaps: {
     forex: 2.5,
-    crypto: 3.0,
     index: 2.0,
     metal: 2.5,
     energy: 2.5
@@ -97,7 +95,7 @@ export function getMinExpectedProfit(accountBalance: number): number {
 }
 
 export function getSlAtrCap(
-  assetClass: 'forex' | 'crypto' | 'index' | 'metal' | 'energy',
+  assetClass: 'forex' | 'index' | 'metal' | 'energy',
   mode: TradingMode
 ): number {
   const baseCap = EXECUTION_ELIGIBILITY_CONFIG.slAtrCaps[assetClass];

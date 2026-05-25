@@ -9,7 +9,6 @@
 export const DEFAULT_WATCHLIST = [
   'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
-  'BTCUSD', 'ETHUSD'
 ] as const;
 
 export type WatchlistSymbol = typeof DEFAULT_WATCHLIST[number];

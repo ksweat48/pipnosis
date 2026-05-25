@@ -11,7 +11,7 @@
  *       for the original trade plan. This engine never re-derives from alpha_decisions.
  */
 
-import { calculatePipDistance, getCurrencyPipInfo, isJPYPair, isIndex, isCrypto } from '@/utils/currencyHelpers';
+import { calculatePipDistance, getCurrencyPipInfo, isJPYPair, isIndex } from '@/utils/currencyHelpers';
 import type { GoalSessionTrade } from '@/types/position';
 
 export type ScalpPattern =
@@ -929,7 +929,6 @@ function roundToSymbolPrecision(symbol: string, price: number): number {
   const sym = symbol.toUpperCase();
   if (isJPYPair(sym)) return Math.round(price * 1000) / 1000;
   if (isIndex(sym)) return Math.round(price * 10) / 10;
-  if (isCrypto(sym)) return Math.round(price * 100) / 100;
   if (sym.includes('XAU') || sym.includes('XAG')) return Math.round(price * 100) / 100;
   return Math.round(price * 100000) / 100000;
 }
@@ -938,7 +937,6 @@ function formatPrice(symbol: string, price: number): string {
   const sym = symbol.toUpperCase();
   if (isJPYPair(sym)) return price.toFixed(3);
   if (isIndex(sym)) return price.toFixed(1);
-  if (isCrypto(sym)) return price.toFixed(2);
   if (sym.includes('XAU') || sym.includes('XAG')) return price.toFixed(2);
   return price.toFixed(5);
 }

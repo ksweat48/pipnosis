@@ -547,7 +547,7 @@ class RealtimeSLTPMonitor {
   /**
    * Inject a price update from any external source (e.g., chart poller websocket).
    * Provides resilience when the database tick pipeline is stale but live prices
-   * are still arriving via the chart's direct Kraken/MetaAPI feed.
+   * are still arriving via the chart's direct MetaAPI feed.
    */
   injectDirectPrice(symbol: string, bid: number, ask: number): void {
     if (!this.isRunning) return;
@@ -561,7 +561,7 @@ class RealtimeSLTPMonitor {
   /**
    * Fallback: Directly fetch live prices from get-live-price for symbols
    * that have not received a price update in STALE_THRESHOLD_MS.
-   * This bypasses the database entirely (goes Kraken/MetaAPI -> SL/TP check).
+   * This bypasses the database entirely (goes MetaAPI -> SL/TP check).
    */
   private async fetchDirectPricesForStaleSymbols(): Promise<void> {
     if (!this.isRunning) return;

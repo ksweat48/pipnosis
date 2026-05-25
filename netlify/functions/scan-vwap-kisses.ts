@@ -30,7 +30,6 @@ const supabase = getSupabaseAdmin();
 const WATCHLIST = [
   'XAUUSD', 'US30', 'NAS100',
   'EURUSD', 'GBPUSD', 'USDJPY',
-  'BTCUSD', 'ETHUSD'
 ];
 
 interface Candle {

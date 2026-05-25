@@ -11,14 +11,14 @@ import { TradeContext } from '../types/trade-context';
 describe('Goal-Aware Lot Sizing Coordinator', () => {
   // Mock TradeContext for testing
   const mockTradeContext: TradeContext = {
-    symbol: 'BTCUSD',
-    pipValue: 1,
+    symbol: 'XAUUSD',
+    pipValue: 0.01,
     dollarPerPipPerLot: 100,
     contractSize: 1,
     minLotSize: 0.01,
     maxLotSize: 10,
-    decimalPlaces: 1,
-    symbolType: 'crypto',
+    decimalPlaces: 2,
+    symbolType: 'metal',
     profileHash: 'test-hash',
     createdAt: new Date(),
     calculateDollarsPerPip: (lots: number) => lots * 100,
@@ -34,7 +34,7 @@ describe('Goal-Aware Lot Sizing Coordinator', () => {
       const input = {
         userId: 'test-user',
         goalSessionId: 'test-session',
-        symbol: 'BTCUSD',
+        symbol: 'XAUUSD',
         direction: 'long' as const,
         accountBalance: 5800,
         goalAmount: 63,
@@ -68,7 +68,7 @@ describe('Goal-Aware Lot Sizing Coordinator', () => {
       const input = {
         userId: 'test-user',
         goalSessionId: 'test-session',
-        symbol: 'BTCUSD',
+        symbol: 'XAUUSD',
         direction: 'long' as const,
         accountBalance: 5800,
         goalAmount: 500, // Much larger goal
@@ -94,7 +94,7 @@ describe('Goal-Aware Lot Sizing Coordinator', () => {
       const input = {
         userId: 'test-user',
         goalSessionId: 'test-session',
-        symbol: 'BTCUSD',
+        symbol: 'XAUUSD',
         direction: 'long' as const,
         accountBalance: 10000,
         goalAmount: 200,
@@ -122,7 +122,7 @@ describe('Goal-Aware Lot Sizing Coordinator', () => {
       const input = {
         userId: 'test-user',
         goalSessionId: 'test-session',
-        symbol: 'BTCUSD',
+        symbol: 'XAUUSD',
         direction: 'long' as const,
         accountBalance: 5800,
         goalAmount: 63,
@@ -152,7 +152,7 @@ describe('Goal-Aware Lot Sizing Coordinator', () => {
       const input = {
         userId: 'test-user',
         goalSessionId: 'test-session',
-        symbol: 'BTCUSD',
+        symbol: 'XAUUSD',
         direction: 'long' as const,
         accountBalance: 5800,
         goalAmount: 100,
@@ -175,7 +175,7 @@ describe('Goal-Aware Lot Sizing Coordinator', () => {
       const input = {
         userId: 'test-user',
         goalSessionId: 'test-session',
-        symbol: 'BTCUSD',
+        symbol: 'XAUUSD',
         direction: 'long' as const,
         accountBalance: 5800,
         goalAmount: 63,
@@ -198,7 +198,7 @@ describe('Goal-Aware Lot Sizing Coordinator', () => {
       const input = {
         userId: 'test-user',
         goalSessionId: 'test-session',
-        symbol: 'BTCUSD',
+        symbol: 'XAUUSD',
         direction: 'long' as const,
         accountBalance: 100000,
         goalAmount: 50000, // Massive goal
@@ -222,7 +222,7 @@ describe('Goal-Aware Lot Sizing Coordinator', () => {
       const input = {
         userId: 'test-user',
         goalSessionId: 'test-session',
-        symbol: 'BTCUSD',
+        symbol: 'XAUUSD',
         direction: 'long' as const,
         accountBalance: 5800,
         goalAmount: 63,

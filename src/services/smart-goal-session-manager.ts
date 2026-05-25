@@ -44,7 +44,7 @@ export interface SmartGoalConfig {
   watchlist: string[];
   autoExecute: boolean;
   accountBalance: number;
-  assetClassFilter?: string[]; // Asset class preferences: ['forex', 'crypto', 'indices', 'gold']
+  assetClassFilter?: string[]; // Asset class preferences: ['forex', 'indices', 'gold']
   specificSymbols?: string[]; // User-selected specific symbols
   customInstructions?: string; // Custom trading instructions (max 200 chars)
   symbolSelectionSource?: 'prompt' | 'ui' | 'asset_filter' | 'default'; // How symbols were chosen
@@ -245,7 +245,7 @@ class SmartGoalSessionManager {
    * Priority order for symbol selection:
    * 1. Symbols detected from prompt (e.g., "trade EURUSD")
    * 2. Specific symbols from UI selection
-   * 3. Asset class filter (e.g., ['forex', 'crypto'])
+   * 3. Asset class filter (e.g., ['forex', 'indices'])
    * 4. Default full watchlist
    */
   private buildConfigFromStyle(
@@ -274,7 +274,7 @@ class SmartGoalSessionManager {
     // STEP 1: Detect symbols from prompt (highest priority)
     const promptSymbols = extractSymbolsFromPrompt(prompt);
 
-    // STEP 1b: Also parse customInstructions for symbol mentions (e.g. "Focus on ETHUSD")
+    // STEP 1b: Also parse customInstructions for symbol mentions
     const instructionSymbols = customInstructions ? extractSymbolsFromPrompt(customInstructions) : [];
 
     // STEP 2: Determine watchlist based on priority order
@@ -292,7 +292,7 @@ class SmartGoalSessionManager {
       symbolSelectionSource = 'ui';
       console.log(`[Smart Goal] 🎯 Using ${specificSymbols.length} symbol(s) from UI: ${specificSymbols.join(', ')}`);
     } else if (instructionSymbols.length > 0) {
-      // Priority 3: Use symbols detected from custom instructions (e.g. "Focus on ETHUSD")
+      // Priority 3: Use symbols detected from custom instructions
       watchlist = instructionSymbols;
       symbolSelectionSource = 'prompt';
       console.log(`[Smart Goal] 🎯 Detected ${instructionSymbols.length} symbol(s) from custom instructions: ${instructionSymbols.join(', ')}`);
@@ -312,7 +312,7 @@ class SmartGoalSessionManager {
     // STEP 3: Validate that at least one market is open for selected symbols
     const marketCheck = weekendProtectionService.canScanAnySymbol(watchlist);
     if (!marketCheck.allowed) {
-      throw new Error(`All selected markets are closed. Trading resumes Sunday 5:00 PM EST. Available 24/7: BTCUSD, ETHUSD`);
+      throw new Error(`All selected markets are closed. Trading resumes Sunday 5:00 PM EST.`);
     }
 
     // If some symbols are closed, warn but continue with open symbols

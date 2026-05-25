@@ -1120,7 +1120,6 @@ class PostTradeAnalyzer {
     else if (symbol === 'XAUUSD') pipSize = 0.1;
     else if (symbol === 'XAGUSD') pipSize = 0.001;
     else if (symbol === 'US30' || symbol === 'NAS100') pipSize = 1;
-    else if (symbol === 'BTCUSD' || symbol === 'ETHUSD') pipSize = 1;
 
     const slippage = direction === 'buy' ? rawDiff / pipSize : -rawDiff / pipSize;
     return Math.abs(parseFloat(slippage.toFixed(2)));

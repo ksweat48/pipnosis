@@ -109,7 +109,6 @@ describe('Symbol Validation - Type System Protection', () => {
 
     test('should reject non-primary symbols', () => {
       expect(isPrimarySymbol('NZDUSD' as any)).toBe(false);
-      expect(isPrimarySymbol('BTCUSD' as any)).toBe(false);
     });
   });
 
@@ -128,11 +127,6 @@ describe('Symbol Validation - Type System Protection', () => {
     test('should categorize indices', () => {
       expect(getSymbolCategory('US30' as any)).toBe('index');
       expect(getSymbolCategory('NAS100' as any)).toBe('index');
-    });
-
-    test('should categorize crypto', () => {
-      expect(getSymbolCategory('BTCUSD' as any)).toBe('crypto');
-      expect(getSymbolCategory('ETHUSD' as any)).toBe('crypto');
     });
 
     test('should categorize energy', () => {

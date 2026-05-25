@@ -12,17 +12,15 @@
  * conditions as penalties or reductions to Alpha's confidence.
  *
  * PRINCIPLE:
- * - 24/7 markets (crypto) → No session concept applies
+ * - All markets follow forex session hours
  * - Forex-hours markets → Session timing is an observable fact, not a gate
  * - Alpha knows what session he is in from the raw regime data
  * - Alpha decides whether that session timing affects his edge
  *
  * SSOT GUARANTEE:
- * If you add a new crypto symbol, update SYMBOL_REGISTRY with marketSchedule: '24/7'
- * and ALL session logic automatically adjusts. No code changes needed elsewhere.
+ * Session constraint policy is derived from trade style and asset classification.
  */
 
-import { assetClassifier } from './asset-classifier';
 
 export type SessionConstraintPolicy = 'ADVISORY' | 'NONE';
 
@@ -36,17 +34,14 @@ class SessionConstraintCoordinator {
   /**
    * Get session constraint policy for a symbol and trade style.
    *
-   * CCIP-2026-0329A: Returns NONE for 24/7 markets and ADVISORY for all
-   * forex-hours markets. ADVISORY means Alpha receives session context as
-   * information — it never blocks and carries no penalty arithmetic.
+   * CCIP-2026-0329A: Returns ADVISORY for all markets. ADVISORY means Alpha
+   * receives session context as information — it never blocks and carries no
+   * penalty arithmetic.
    */
   getSessionConstraintPolicy(
-    symbol: string,
+    _symbol: string,
     _tradeStyle: string
   ): SessionConstraintPolicy {
-    if (assetClassifier.is24HourMarket(symbol)) {
-      return 'NONE';
-    }
     return 'ADVISORY';
   }
 
@@ -99,10 +94,7 @@ class SessionConstraintCoordinator {
    * as market context. It does not block trades or reduce confidence.
    * Alpha decides how to factor liquidity into his edge assessment.
    */
-  isLowLiquidityWindow(symbol: string, hour: number): boolean {
-    if (assetClassifier.is24HourMarket(symbol)) {
-      return false;
-    }
+  isLowLiquidityWindow(_symbol: string, hour: number): boolean {
     return hour >= 21 || hour < 0;
   }
 
@@ -130,7 +122,7 @@ class SessionConstraintCoordinator {
       case 'ADVISORY':
         return 'ADVISORY - Session data passed to Alpha as context';
       case 'NONE':
-        return 'NONE - No session constraints (24/7 market)';
+        return 'NONE - No session constraints';
     }
   }
 }
