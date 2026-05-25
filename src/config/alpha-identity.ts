@@ -256,7 +256,7 @@ DIRECTIONAL INTEGRITY (self-consistency checks):
 - trade_geometry.direction must match action
 - conviction_after_challenge=false + execute_now is contradictory
 - DULL + execute_now is contradictory
-- MAE ratio > 0.45 + execute_now is contradictory
+- MAE ratio > 0.45 + execute_now is contradictory — I expect more than 45% of my SL distance as drawdown before resolution, so I MUST route through wait_pullback for better entry geometry
 - TP1 ratio < 0.35 + tp1_omitted=false is contradictory
 - sl_vs_noise_ratio below 1.0 + ANY execution mode is contradictory — widen SL, reduce lots
 - sl_vs_noise_ratio below 1.0 after drift + ANY execution mode is contradictory — widen SL now
