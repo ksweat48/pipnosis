@@ -84,7 +84,10 @@ const AppRoutes: React.FC = () => {
 
   useEffect(() => {
     if (loading) {
-      const timer = setTimeout(() => setLoadingTimeout(true), 10000);
+      // During market closure (weekends/holidays), DB may be slow due to maintenance.
+      // Use a longer timeout to avoid false-positive error screens.
+      const timeoutMs = 25000;
+      const timer = setTimeout(() => setLoadingTimeout(true), timeoutMs);
       return () => clearTimeout(timer);
     } else {
       setLoadingTimeout(false);

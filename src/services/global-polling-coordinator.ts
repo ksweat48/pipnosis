@@ -143,9 +143,15 @@ class GlobalPollingCoordinator {
     logger.debug(LogCategory.POLLING_COORDINATOR, `Starting polling for all ${this.ALL_TRADING_PAIRS.length} pairs...`);
     logger.debug(LogCategory.POLLING_COORDINATOR, `  Forex/Indices: ${this.FOREX_PAIRS.length} pairs (market-hours aware)`);
 
-    this.isPaused = false;
-    this.pauseReason = null;
-    this.startAllPolling();
+    if (!marketStatus.isOpen) {
+      logger.debug(LogCategory.POLLING_COORDINATOR, 'Market is closed — starting in paused mode');
+      this.isPaused = true;
+      this.pauseReason = 'market_closed';
+    } else {
+      this.isPaused = false;
+      this.pauseReason = null;
+      this.startAllPolling();
+    }
 
     this.startMarketStatusMonitoring();
 

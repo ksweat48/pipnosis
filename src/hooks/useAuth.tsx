@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mountedRef.current = true;
 
     // Add timeout wrapper to prevent hanging on failed auth
-    const getSessionWithTimeout = (timeoutMs = 5000) => {
+    const getSessionWithTimeout = (timeoutMs = 15000) => {
       return Promise.race([
         supabase.auth.getSession(),
         new Promise((_, reject) =>

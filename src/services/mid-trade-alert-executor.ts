@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { SystemTableRPCWrapper } from './system-table-rpc-wrapper';
 import { TIME_MS } from '../config/time-constants';
+import { getForexMarketStatus } from '@/utils/marketHours';
 
 class MidTradeAlertExecutor {
   private intervalId: NodeJS.Timeout | null = null;
@@ -52,6 +53,10 @@ class MidTradeAlertExecutor {
   private async checkAndExecuteExpiredAlerts(): Promise<void> {
     if (this.isExecuting) {
       return; // Prevent concurrent executions
+    }
+
+    if (!getForexMarketStatus().isOpen) {
+      return; // No alerts to execute when market is closed
     }
 
     this.isExecuting = true;

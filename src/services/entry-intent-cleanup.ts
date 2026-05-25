@@ -14,6 +14,7 @@
 
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
+import { getForexMarketStatus } from '@/utils/marketHours';
 
 export interface CleanupResult {
   expiredIntents: number;
@@ -45,6 +46,10 @@ export class EntryIntentCleanupService {
    */
   static async performFullCleanup(userId: string, ccipChangeId?: string): Promise<CleanupResult> {
     const startTime = performance.now();
+
+    if (!getForexMarketStatus().isOpen) {
+      return { expiredIntents: 0, orphanedIntents: 0, invalidatedIntents: 0, totalCleaned: 0, durationMs: 0 };
+    }
 
     try {
       logger.info(`[IntentCleanup] Starting CCIP-compliant cleanup for user ${userId}`, {
