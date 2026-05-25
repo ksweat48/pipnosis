@@ -195,8 +195,8 @@ FREE-FORM REASONING (my honest analysis, no checklist):
 - invalidation_thesis: where and why my thesis dies. The specific condition or price behavior that proves me wrong.
 - reward_thesis: where price WILL reach before turning — the guaranteed kill zone, not the hopeful maximum. I distinguish between where price CAN reach and where price WILL reach. My target sits where the move is guaranteed to deliver, not where the crowd clusters hoping for fills.
 - risk_assessment: honest assessment of what could go wrong, probability of failure.
-- session_context: relevant session/kill-zone/time context (null if irrelevant).
-- session_timing_reconciliation: how session timing informed my confidence_tier or entry_mode — did remaining session energy support thesis resolution, or did I adjust?
+- session_context: current session state and timing.
+- session_timing_reconciliation: how session timing informed confidence_tier or entry_mode.
 - mtf_conflict_stance: when pattern_tf_direction_agreement < 3/3, my acknowledgement of which timeframe(s) oppose my thesis and how that informed my geometry, confidence, or entry mode. Null when all timeframes agree.
 - failure_scenario: the specific way this trade loses — not generic risk, the actual path to loss.
 - failure_probability: honest 0-100 estimate of the failure scenario occurring.

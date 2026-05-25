@@ -124,7 +124,8 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   invalidation_thesis: { type: 'string' },
   reward_thesis: { type: 'string' },
   risk_assessment: { type: 'string' },
-  session_context: { type: ['string', 'null'] },
+  session_context: { type: 'string' },
+  session_timing_reconciliation: { type: 'string' },
   failure_scenario: { type: 'string' },
   failure_probability: { type: 'number' },
 
