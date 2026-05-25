@@ -22,6 +22,7 @@ export function SettingsPage() {
   const { currentVersion, checkForUpdates, isChecking, updateAvailable, applyUpdate } = usePWAUpdate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [preferences, setPreferences] = useState({
     emailNotifications: true,
@@ -254,13 +255,12 @@ export function SettingsPage() {
 
       if (error) {
         console.error('Error saving preferences:', error);
-        toast.error('Save Failed', 'Failed to save preferences. Please try again.');
       } else {
-        toast.success('Preferences Saved', 'Your preferences have been updated successfully');
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
       }
     } catch (error) {
       console.error('Error saving preferences:', error);
-      toast.error('Save Failed', 'Failed to save preferences. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -1130,13 +1130,22 @@ export function SettingsPage() {
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={handleSavePreferences}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                  disabled={saving || saveSuccess}
+                  className={`flex items-center gap-2 px-6 py-2 text-white rounded-lg transition-all duration-300 ${
+                    saveSuccess
+                      ? 'bg-emerald-500 scale-105'
+                      : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700'
+                  }`}
                 >
                   {saving ? (
                     <>
                       <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
                       <span>Saving...</span>
+                    </>
+                  ) : saveSuccess ? (
+                    <>
+                      <CheckCircle size={18} />
+                      <span>Saved!</span>
                     </>
                   ) : (
                     <>
@@ -1411,13 +1420,22 @@ export function SettingsPage() {
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={handleSavePreferences}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                  disabled={saving || saveSuccess}
+                  className={`flex items-center gap-2 px-6 py-2 text-white rounded-lg transition-all duration-300 ${
+                    saveSuccess
+                      ? 'bg-emerald-500 scale-105'
+                      : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700'
+                  }`}
                 >
                   {saving ? (
                     <>
                       <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
                       <span>Saving...</span>
+                    </>
+                  ) : saveSuccess ? (
+                    <>
+                      <CheckCircle size={18} />
+                      <span>Saved!</span>
                     </>
                   ) : (
                     <>

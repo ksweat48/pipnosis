@@ -40,12 +40,12 @@ export function SmartGoalPanel() {
   useEffect(() => {
     if (!user) return;
     supabase
-      .from('trading_preferences')
-      .select('multi_trade_mode')
-      .eq('user_id', user.id)
+      .from('user_profiles')
+      .select('trading_preferences')
+      .eq('id', user.id)
       .maybeSingle()
       .then(({ data }) => {
-        if (data?.multi_trade_mode) setMultiTradeEnabled(true);
+        if (data?.trading_preferences?.multiTradeMode) setMultiTradeEnabled(true);
       });
   }, [user]);
 
