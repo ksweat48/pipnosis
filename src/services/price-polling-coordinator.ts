@@ -24,6 +24,7 @@
 
 import TinyEmitter from 'tiny-emitter';
 import { systemReadinessRegistry } from './system-readiness-registry';
+import { getForexMarketStatus } from '@/utils/marketHours';
 
 export interface PriceData {
   symbol: string;
@@ -51,9 +52,11 @@ class PricePollingCoordinator extends TinyEmitter {
 
   // Configuration
   private readonly POLL_INTERVAL_MS = 2000; // 2 seconds = excellent UX
+  private readonly MARKET_CLOSED_POLL_INTERVAL_MS = 30000; // 30 seconds when market closed
   private readonly MAX_CONSECUTIVE_ERRORS = 5;
   private readonly ERROR_BACKOFF_MS = 10000; // 10 seconds
   private readonly FUNCTION_URL = '/.netlify/functions/get-latest-prices';
+  private marketClosedMode = false;
 
   /**
    * Start polling for price updates
@@ -102,6 +105,25 @@ class PricePollingCoordinator extends TinyEmitter {
    * CDN-cached responses = fast & cheap
    */
   private async fetchPrices(): Promise<void> {
+    // Market-hours gate: slow down when market is closed
+    const marketStatus = getForexMarketStatus();
+    if (!marketStatus.isOpen && !this.marketClosedMode) {
+      this.marketClosedMode = true;
+      console.log('[PriceCoordinator] Market closed - switching to 30s interval');
+      if (this.pollingInterval) {
+        clearInterval(this.pollingInterval);
+        this.pollingInterval = setInterval(() => this.fetchPrices(), this.MARKET_CLOSED_POLL_INTERVAL_MS);
+      }
+      return;
+    } else if (marketStatus.isOpen && this.marketClosedMode) {
+      this.marketClosedMode = false;
+      console.log('[PriceCoordinator] Market open - switching to 2s interval');
+      if (this.pollingInterval) {
+        clearInterval(this.pollingInterval);
+        this.pollingInterval = setInterval(() => this.fetchPrices(), this.POLL_INTERVAL_MS);
+      }
+    }
+
     // Circuit breaker: stop if too many errors
     if (this.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
       console.error('[PriceCoordinator] Circuit breaker: too many errors, backing off...');

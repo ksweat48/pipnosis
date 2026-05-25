@@ -15,6 +15,7 @@ import { marketDataService } from './market-data-service';
 import { tradeProcessingLockService } from './trade-processing-lock-service';
 import { positionMonitoringAuthority } from './monitoring/position-monitoring-authority';
 import type { MonitoredPosition, PriceData } from './monitoring/position-monitoring-authority';
+import { getForexMarketStatus } from '@/utils/marketHours';
 
 class PositionMonitorService {
   private intervalId: NodeJS.Timeout | null = null;
@@ -63,6 +64,14 @@ class PositionMonitorService {
 
   start() {
     if (this.isRunning) return;
+
+    const marketStatus = getForexMarketStatus();
+    if (!marketStatus.isOpen) {
+      logger.debug(LogCategory.POSITION_MONITOR, 'Market closed - position monitor starting in low-power mode (30s intervals)');
+      this.isRunning = true;
+      this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 30000);
+      return;
+    }
 
     logger.debug(LogCategory.POSITION_MONITOR, 'Starting position monitor service');
     this.isRunning = true;
@@ -262,6 +271,7 @@ class PositionMonitorService {
 
   private async monitorCriticalPositions(): Promise<void> {
     if (this.criticalSymbols.size === 0) return;
+    if (!getForexMarketStatus().isOpen) return;
 
     try {
       const userId = await this.getCachedUserId();
@@ -289,6 +299,8 @@ class PositionMonitorService {
   }
 
   private async monitorNormalPositions(): Promise<void> {
+    if (!getForexMarketStatus().isOpen) return;
+
     try {
       const userId = await this.getCachedUserId();
       if (!userId) return;
