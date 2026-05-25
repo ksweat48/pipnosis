@@ -8,9 +8,9 @@
 export const BULLETPROOF_CONFIG = {
   // Phase 1: Database Resilience
   enableDatabaseRetry: true,
-  maxDatabaseRetries: 3,
+  maxDatabaseRetries: 1,
   databaseRetryDelayMs: 1000,
-  databaseTimeoutMs: 10000,
+  databaseTimeoutMs: 5000,
 
   // Phase 2: Race Condition Prevention
   enableMutexLocks: true,
