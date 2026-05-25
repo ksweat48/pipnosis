@@ -84,6 +84,7 @@ export interface SmartGoalSession {
   symbolSelectionSource?: 'prompt' | 'ui' | 'asset_filter' | 'default'; // How symbols were chosen
   lastPairsUpdate?: string; // Timestamp of last active_pairs_count update
   noTradeFoundAt?: string; // SSOT: Set by engine when NO_TRADE is authoritative (emitNoTradeEvent)
+  maxConcurrentTrades?: number;
 }
 
 class SmartGoalSessionManager {
@@ -138,7 +139,8 @@ class SmartGoalSessionManager {
       },
       startTime: new Date(),
       nextScanTime: new Date(),
-      lastScanTime: undefined
+      lastScanTime: undefined,
+      maxConcurrentTrades: multiTradeEnabled ? 3 : 1
     };
 
     this.activeSessions.set(sessionId, session);
@@ -524,7 +526,8 @@ class SmartGoalSessionManager {
         tp1_learning_awarded: data.tp1_learning_awarded,
         activePairsCount: data.active_pairs_count,
         lastPairsUpdate: data.last_pairs_update,
-        noTradeFoundAt: data.no_trade_found_at ?? undefined
+        noTradeFoundAt: data.no_trade_found_at ?? undefined,
+        maxConcurrentTrades: data.max_concurrent_trades ?? 1
       };
 
       this.activeSessions.set(data.id, reconstructed);

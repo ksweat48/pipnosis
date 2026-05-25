@@ -1542,9 +1542,7 @@ export const GoalSessionDashboard: React.FC = () => {
         )}
 
         {openTrades.length > 0 && (
-          <div className="mb-4 relative group">
-            <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl opacity-30 blur animate-pulse" />
-            <div className="relative bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500/50 rounded-xl p-4">
+          <div className="mb-4 space-y-4">
               {openTrades.map((trade, index) => {
                 const isLong = trade.direction === 'buy';
 
@@ -1559,7 +1557,9 @@ export const GoalSessionDashboard: React.FC = () => {
                 const pips = dollarPerPipValue > 0 ? currentPnL / dollarPerPipValue : 0;
 
                 return (
-                  <div key={trade.id} className="space-y-4">
+                  <div key={trade.id} className="relative group">
+                    <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl opacity-30 blur animate-pulse" />
+                    <div className="relative bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500/50 rounded-xl p-4 space-y-4">
                     {/* Header with Symbol and Actions */}
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div>
@@ -1689,10 +1689,10 @@ export const GoalSessionDashboard: React.FC = () => {
                         </div>
                       );
                     })()}
+                    </div>
                   </div>
                 );
               })}
-            </div>
           </div>
         )}
 
@@ -1737,9 +1737,9 @@ export const GoalSessionDashboard: React.FC = () => {
           <div className="relative group overflow-hidden rounded-xl">
             <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-amber-500/10 group-hover:from-orange-500/20 group-hover:to-amber-500/20 transition-all duration-300" />
             <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-orange-500/30 transition-all duration-300">
-              <div className="text-sm text-gray-400 mb-1">Trades</div>
+              <div className="text-sm text-gray-400 mb-1">Live Trades</div>
               <div className="text-lg font-bold text-orange-400">
-                {(openTrades.length + (progress?.stats?.closedTradesCount || 0))} / {activeSession.strategy.targetTradeCount}
+                {openTrades.length} / {activeSession.maxConcurrentTrades || 1}
               </div>
             </div>
           </div>
