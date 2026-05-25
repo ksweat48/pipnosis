@@ -180,7 +180,7 @@ export function SmartGoalPanel() {
         <div className="grid grid-cols-3 gap-2">
           {[
             { label: 'Conservative', amount: suggestedAmounts.low },
-            { label: 'Balanced', amount: suggestedAmounts.medium },
+            { label: 'Moderate', amount: suggestedAmounts.medium },
             { label: 'Aggressive', amount: suggestedAmounts.high },
           ].map(({ label, amount }) => {
             const isSelected = dollarRisk === amount && !customAmount;

@@ -646,7 +646,8 @@ async function aggregateCandlesForSymbol(
     }
 
     const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
-    const lookbackTime = new Date(effectiveNow.getTime() - lookbackMinutes * 60 * 1000);
+    const effectiveLookbackMinutes = Math.max(lookbackMinutes, timeframeMinutes * 3);
+    const lookbackTime = new Date(effectiveNow.getTime() - effectiveLookbackMinutes * 60 * 1000);
 
     const { data: existingCandles } = await supabase
       .from('forex_candles')
@@ -669,9 +670,14 @@ async function aggregateCandlesForSymbol(
 
     const oldestTickCandleStart = roundTimeToCandle(firstPriceTime, timeframeMinutes);
 
+    const sourceTimeframeForAgg = AGGREGATION_HIERARCHY[timeframe];
+    const fallbackStart = sourceTimeframeForAgg
+      ? roundTimeToCandle(lookbackTime, timeframeMinutes)
+      : oldestTickCandleStart;
+
     const startFrom = lastSavedInWindow
       ? new Date(lastSavedInWindow.getTime() + timeframeMinutes * 60 * 1000)
-      : oldestTickCandleStart;
+      : fallbackStart;
     const endAt = previousCandleStart;
 
     let currentCandleToCreate = startFrom;
