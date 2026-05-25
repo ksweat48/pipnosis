@@ -8,6 +8,7 @@ import { useUserBalance } from '@/hooks/useUserBalance';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { supabase } from '@/lib/supabase';
 import { pageContext } from '@/services/page-context';
+import { navigationDataCache } from '@/services/navigation-data-cache';
 import { TrendingUp, TrendingDown, DollarSign, Target, Award, AlertTriangle, Clock, Calendar, BarChart3, PieChart, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TradeStatistics {
@@ -37,9 +38,9 @@ interface SymbolPerformance {
 export function AnalysisPage() {
   const { user } = useAuth();
   const { balance, totalPnL } = useUserBalance(user?.id || null);
-  const [statistics, setStatistics] = useState<TradeStatistics | null>(null);
-  const [symbolPerformance, setSymbolPerformance] = useState<SymbolPerformance[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [statistics, setStatistics] = useState<TradeStatistics | null>(() => navigationDataCache.getStale('analysis:stats') || null);
+  const [symbolPerformance, setSymbolPerformance] = useState<SymbolPerformance[]>(() => navigationDataCache.getStale('analysis:symbols') || []);
+  const [loading, setLoading] = useState(() => !navigationDataCache.getStale('analysis:stats'));
   const [timePeriod, setTimePeriod] = useState<'today' | 'week' | 'month' | 'all'>('all');
 
   // Collapsible sections state - default to collapsed (true)
@@ -68,11 +69,22 @@ export function AnalysisPage() {
 
   const fetchAnalytics = async () => {
     try {
-      setLoading(true);
+      if (!navigationDataCache.isFresh('analysis:stats')) {
+        setLoading(!statistics);
+      }
 
-      const { data: statsData, error: statsError } = await supabase
-        .rpc('get_trade_statistics', { p_user_id: user?.id });
+      const [statsResult, tradesResult] = await Promise.all([
+        supabase.rpc('get_trade_statistics', { p_user_id: user?.id }),
+        supabase
+          .from('goal_session_trades')
+          .select('symbol, profit_loss')
+          .eq('user_id', user?.id)
+          .eq('status', 'closed')
+          .not('closed_at', 'is', null)
+          .not('profit_loss', 'is', null)
+      ]);
 
+      const { data: statsData, error: statsError } = statsResult;
       if (statsError) throw statsError;
       if (statsData && statsData.length > 0) {
         const stats = statsData[0];
@@ -80,21 +92,12 @@ export function AnalysisPage() {
           ? Math.abs(stats.total_profit / stats.total_loss)
           : stats.total_profit > 0 ? 999 : 0;
 
-        setStatistics({
-          ...stats,
-          profit_factor: profitFactor
-        });
+        const computedStats = { ...stats, profit_factor: profitFactor };
+        setStatistics(computedStats);
+        navigationDataCache.set('analysis:stats', computedStats);
       }
 
-      // Fetch from goal_session_trades (single source of truth)
-      const { data: goalTradesData, error: goalTradesError } = await supabase
-        .from('goal_session_trades')
-        .select('symbol, profit_loss')
-        .eq('user_id', user?.id)
-        .eq('status', 'closed')
-        .not('closed_at', 'is', null)
-        .not('profit_loss', 'is', null);
-
+      const { data: goalTradesData, error: goalTradesError } = tradesResult;
       if (goalTradesError) throw goalTradesError;
 
       // Use only goal_session_trades (no legacy trade_history)
@@ -134,6 +137,7 @@ export function AnalysisPage() {
       symbolArray.sort((a, b) => b.net_pnl - a.net_pnl);
 
       setSymbolPerformance(symbolArray);
+      navigationDataCache.set('analysis:symbols', symbolArray);
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch analytics:', error);

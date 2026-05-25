@@ -15,6 +15,7 @@ import { calculatePnL } from '@/types/position';
 import { pollingConfigService } from '@/services/polling-config-service';
 import { audioAlertService } from '@/services/audio-alert-service';
 import { pageContext } from '@/services/page-context';
+import { navigationDataCache } from '@/services/navigation-data-cache';
 import { smartGoalSessionManager } from '@/services/smart-goal-session-manager';
 import {
   detectTrueCloseReason,
@@ -96,10 +97,10 @@ export function PositionsPage() {
   const { confirm } = useConfirmDialog();
   const navigate = useNavigate();
 
-  const [openPositions, setOpenPositions] = useState<Position[]>([]);
-  const [pendingOrders, setPendingOrders] = useState<Position[]>([]);
-  const [recentTrades, setRecentTrades] = useState<RecentTrade[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [openPositions, setOpenPositions] = useState<Position[]>(() => navigationDataCache.getStale('positions:open') || []);
+  const [pendingOrders, setPendingOrders] = useState<Position[]>(() => navigationDataCache.getStale('positions:pending') || []);
+  const [recentTrades, setRecentTrades] = useState<RecentTrade[]>(() => navigationDataCache.getStale('positions:recent') || []);
+  const [loading, setLoading] = useState(() => !navigationDataCache.getStale('positions:open'));
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
   const [showTradeClosedDialog, setShowTradeClosedDialog] = useState(false);
@@ -120,7 +121,11 @@ export function PositionsPage() {
   useEffect(() => {
     if (user) {
       fetchAllData();
-      const interval = setInterval(fetchAllData, 3000);
+      const interval = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          fetchAllData();
+        }
+      }, 5000);
       return () => clearInterval(interval);
     }
   }, [user]);
@@ -184,6 +189,9 @@ export function PositionsPage() {
       setOpenPositions(validOpenPositions);
       setPendingOrders(pending);
       setRecentTrades(recent);
+      navigationDataCache.set('positions:open', validOpenPositions);
+      navigationDataCache.set('positions:pending', pending);
+      navigationDataCache.set('positions:recent', recent);
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch positions data:', error);

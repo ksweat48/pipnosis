@@ -1,7 +1,7 @@
 // Pipnosis AI Trading - Service Worker
 // Network-first strategy — never serve stale app code
 
-const CACHE_VERSION = '1779734754063';
+const CACHE_VERSION = '1779735654523';
 const CACHE_NAME = `pipnosis-cache-v${CACHE_VERSION}`;
 
 const PRECACHE_ASSETS = [
@@ -62,18 +62,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Hashed assets — network first, cache as offline fallback
+  // Hashed assets — cache first (immutable, hash changes on content change)
   if (url.pathname.startsWith('/assets/')) {
     event.respondWith(
-      fetch(request).then((response) => {
-        if (response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
-        }
-        return response;
-      }).catch(() => {
-        return caches.match(request).then((cached) => {
-          return cached || new Response('Offline', { status: 503 });
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          if (response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+          }
+          return response;
         });
       })
     );

@@ -7,6 +7,7 @@ import { useCreditBalance } from '@/hooks/useCreditBalance';
 import { useClubMembership } from '@/hooks/useClubMembership';
 import { getMembershipCTA } from '@/utils/membershipCTA';
 import { supabase } from '@/lib/supabase';
+import { prefetchRoute } from '@/lib/prefetch-route';
 import { BetaFeedbackDialog } from './BetaFeedbackDialog';
 import { format } from '@/utils/displayFormatters';
 
@@ -65,6 +66,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                   <Link
                     key={item.path}
                     to={item.path}
+                    onMouseEnter={() => prefetchRoute(item.path)}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
                       active
                         ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
