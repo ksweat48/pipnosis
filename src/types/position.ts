@@ -21,10 +21,14 @@ export type CloseReason =
   | 'session_ended'
   | 'risk_limit'
   | 'trailing_stop'
-  | 'weekend_protection'  // System closure - NOT Alpha's fault
-  | 'holiday_closure'     // System closure - NOT Alpha's fault
-  | 'force_closed'        // System closure - NOT Alpha's fault
-  | 'market_closed';      // System closure - NOT Alpha's fault
+  | 'weekend_protection'
+  | 'holiday_closure'
+  | 'force_closed'
+  | 'market_closed'
+  | 'emergency_atr_stop'
+  | 'entry_edge_loss'
+  | 'breakeven_stop'
+  | 'system_close';
 
 /**
  * Runtime array of all valid CloseReason values.
@@ -45,7 +49,11 @@ export const CLOSE_REASONS: readonly CloseReason[] = [
   'weekend_protection',
   'holiday_closure',
   'force_closed',
-  'market_closed'
+  'market_closed',
+  'emergency_atr_stop',
+  'entry_edge_loss',
+  'breakeven_stop',
+  'system_close'
 ] as const;
 
 /**
@@ -56,7 +64,11 @@ export const SYSTEM_CLOSE_REASONS: CloseReason[] = [
   'weekend_protection',
   'holiday_closure',
   'force_closed',
-  'market_closed'
+  'market_closed',
+  'emergency_atr_stop',
+  'entry_edge_loss',
+  'breakeven_stop',
+  'system_close'
 ];
 
 /**
