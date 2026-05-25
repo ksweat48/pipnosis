@@ -265,13 +265,6 @@ export function validateATRValue(
   // Check reasonable ranges as percentage of price
   const atrPercent = (atr / price) * 100;
 
-  // Crypto: 0.5% - 10% is reasonable
-  if (symbol.toUpperCase().includes('BTC') || symbol.toUpperCase().includes('ETH')) {
-    if (atrPercent < 0.5 || atrPercent > 10) {
-      return { valid: false, reason: `ATR ${atrPercent.toFixed(2)}% of price is outside typical crypto range (0.5-10%)` };
-    }
-  }
-
   // Forex: 0.3% - 2% is reasonable
   if (!symbol.toUpperCase().includes('XAU') && !symbol.toUpperCase().includes('US30')) {
     if (atrPercent < 0.3 || atrPercent > 2) {

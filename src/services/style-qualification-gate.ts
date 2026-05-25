@@ -36,7 +36,7 @@ type CanonicalStyle = CanonicalTradeStyle;
 export interface StyleQualificationInput {
   symbol: string;
   style: CanonicalStyle;
-  assetClass: 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX';
+  assetClass: 'FOREX' | 'METAL' | 'INDEX';
   expectedFillTimeHours: number;
   alphaFinalConfidence: number;
   atrPercent: number;
@@ -75,10 +75,10 @@ const STYLE_CONTRACTS = {
     minFillTimeMinutes: 5,
     maxFillTimeMinutes: 240,
     typicalDurationMinutes: '30-240',
-    minTargetPips: { FOREX: 10, CRYPTO: 30, METAL: 10, INDEX: 15 },
-    maxTargetPips: { FOREX: 120, CRYPTO: 300, METAL: 120, INDEX: 150 },
-    minStopPips: { FOREX: 5, CRYPTO: 15, METAL: 5, INDEX: 8 },
-    maxStopPips: { FOREX: 50, CRYPTO: 150, METAL: 50, INDEX: 70 },
+    minTargetPips: { FOREX: 10, METAL: 10, INDEX: 15 },
+    maxTargetPips: { FOREX: 120, METAL: 120, INDEX: 150 },
+    minStopPips: { FOREX: 5, METAL: 5, INDEX: 8 },
+    maxStopPips: { FOREX: 50, METAL: 50, INDEX: 70 },
     description: 'M5 entry, TP1 = M5 leg exhaustion partial; TP2 = full intraday target. 30 minutes - 4 hours.'
   }
 } as const;

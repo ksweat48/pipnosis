@@ -264,8 +264,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
    * Cascade order:
    * 1. TP reduction (accept smaller profit)
    * 2. Risk downgrade (tighter stops)
-   * 3. SL relaxation (crypto only)
-   * 4. TP1-only mode (partial profit target)
+   * 3. TP1-only mode (partial profit target)
    *
    * GOVERNANCE: Style is IMMUTABLE. No style promotion/upgrade is permitted.
    * If all repairs fail, the trade is rejected for the requested style.
@@ -361,43 +360,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 2 FAILED: Risk downgrade didn't achieve target R:R`);
     }
 
-    // REPAIR 3: Bounded SL Relaxation (CRYPTO HIGH only)
-    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
-    if (
-      input.policy.allowBoundedSlRelaxation &&
-      input.assetClass === 'CRYPTO' &&
-      currentRiskMode === 'HIGH' &&
-      currentStyle === 'MICRO_INTRADAY'
-    ) {
-      const relaxedSlMin = Math.max(0.25, 2.5 * input.atrPercent); // Floor: max(0.25%, 2.5×ATR%)
-      const tpCeiling = input.atrPercent * tpMaxMultiple;
-      const relaxedRR = relaxedSlMin > 0 ? tpCeiling / relaxedSlMin : 0;
-
-      if (relaxedRR >= input.policy.minRR && relaxedSlMin < currentSlMin) {
-        adjustments.push({
-          field: 'sl.minPercent',
-          from: currentSlMin,
-          to: relaxedSlMin,
-          reason: 'SL_FLOOR_TOO_HIGH'
-        });
-
-        logger.info(
-          LogCategory.AI_TRADING,
-          `[Repair Cascade] ✅ REPAIR 3 SUCCESS: SL relaxation ${currentSlMin.toFixed(2)}% → ${relaxedSlMin.toFixed(2)}% (RR now ${relaxedRR.toFixed(2)}:1)`
-        );
-
-        return {
-          style: currentStyle,
-          riskMode: currentRiskMode,
-          finalSlMinPercent: relaxedSlMin,
-          finalRR: relaxedRR,
-          repairUsed: 'SL_RELAXATION'
-        };
-      }
-      logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 3 FAILED: SL relaxation didn't achieve target R:R`);
-    }
-
-    // REPAIR 4: TP1-Only Mode (partial profit, lower target)
+    // REPAIR 3: TP1-Only Mode (partial profit, lower target)
     // Accept just TP1 (typically 50% of full TP) to achieve lower but viable R:R
     const tp1Multiple = Math.max(2, tpMaxMultiple * 0.4); // TP1 at 40% of original TP
     const tp1TpCeiling = input.atrPercent * tp1Multiple;

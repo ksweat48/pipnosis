@@ -74,7 +74,7 @@ export interface ConstraintViolation {
    * The specific violation context, actual values, and what Alpha should do
    * must be expressed in the `message` field as free text.
    */
-  type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL' | 'BELOW_NOISE_FLOOR' | 'INFEASIBLE_SETUP' | 'TIGHT_CONSTRAINTS' | 'CRYPTO_SCALE_MISMATCH';
+  type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL' | 'BELOW_NOISE_FLOOR' | 'INFEASIBLE_SETUP' | 'TIGHT_CONSTRAINTS';
   severity: 'WARNING' | 'ERROR' | 'CATASTROPHIC';
   /**
    * CCIP-ALPHA-AUDIT-TEXT: Free-text explanation of this specific violation.

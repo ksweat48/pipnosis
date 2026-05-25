@@ -561,19 +561,13 @@ class ChartCandlePoller {
       const currentStatus = getForexMarketStatus();
       const isMarketOpen = currentStatus.isOpen;
 
-      // CRYPTO FIX: Detect market open/close transitions but DON'T pause/resume
-      // Per-symbol checks in pollCandles() will skip closed symbols
-      // This allows crypto to continue polling 24/7 even when forex is closed
+      // Detect market open/close transitions
       if (isMarketOpen !== this.lastMarketStatus) {
         if (!isMarketOpen) {
-          // Forex market just closed - crypto continues
-          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] 🔴 Forex market closed (crypto continues 24/7)');
-          // Clear stale data trackers for forex symbols only
+          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] Forex market closed');
           this.staleDataTracker.clear();
         } else {
-          // Forex market just opened
-          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] 🟢 Forex market opened (crypto already active)');
-          // Clear database cache to force fresh data fetch
+          logger.info(LogCategory.CHART_POLLER, '[MarketHoursMonitor] Forex market opened');
           databaseResilienceWrapper.clearCache();
           this.staleDataTracker.clear();
         }

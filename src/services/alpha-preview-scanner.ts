@@ -17,7 +17,7 @@
  * - Cooldown is enforced platform-wide via platformScanManager (database timestamp)
  *   NOT per-instance memory. SessionIntelligenceMonitor checks cooldown before
  *   calling scan(). This scanner only enforces in-flight deduplication.
- * - Market hours awareness: crypto-only filter when forex closed
+ * - Market hours awareness: respects forex market schedule
  */
 
 import { multiSymbolSnapshotBuilder } from './multi-symbol-snapshot-builder';

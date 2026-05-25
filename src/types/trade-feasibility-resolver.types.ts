@@ -7,7 +7,7 @@
  * CRITICAL: Pipnosis is INTRADAY-ONLY. NO SWING TRADES.
  */
 
-export type AssetClass = "FOREX" | "CRYPTO" | "METAL" | "INDEX";
+export type AssetClass = "FOREX" | "METAL" | "INDEX";
 
 export type TradeStyle = "SCALP" | "MICRO" | "INTRADAY";
 

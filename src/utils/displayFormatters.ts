@@ -103,7 +103,7 @@ export function formatProfitLoss(
  * Format position price with symbol-specific precision.
  * Context-aware: mobile context enforces 2 decimal places (CCIP mobile standard).
  * - mobile:  2 decimals for ALL symbols
- * - desktop/admin/chart: symbol-specific precision (e.g. 5 for forex, 2 for crypto/gold)
+ * - desktop/admin/chart: symbol-specific precision (e.g. 5 for forex, 2 for gold)
  * - JPY pairs: 3 decimals (desktop)
  * - Standard forex: 5 decimals (desktop)
  * - Gold (XAU): 2 decimals (desktop)

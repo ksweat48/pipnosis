@@ -300,7 +300,6 @@ class WallCalibrationEngine {
 
   private mapAssetClass(category: string): AssetCalibrationClass {
     switch (category) {
-      case 'crypto': return 'CRYPTO';
       case 'metal': return 'METAL';
       case 'index': return 'INDEX';
       default: return 'FOREX';

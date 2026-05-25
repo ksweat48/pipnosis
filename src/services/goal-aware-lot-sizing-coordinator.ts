@@ -180,7 +180,7 @@ class GoalAwareLotSizingCoordinator {
     // Use conservative typical spread estimates per symbol type.
     const spreadBufferPips = pipInfo.symbolType === 'forex'
       ? (symbol.includes('JPY') ? 0.5 : 0.5)  // 0.5 pip buffer on all major forex pairs
-      : 0;                                       // no spread buffer on crypto (handled separately)
+      : 0;                                       // no spread buffer on metals/indices
     const effectiveSlDistancePips = slDistancePips + spreadBufferPips;
 
     // STEP 2: RISK-FIRST lot sizing (institutional standard)

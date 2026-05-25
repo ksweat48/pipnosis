@@ -50,12 +50,10 @@ export interface PCVLConfig {
     forex: { min: number; max: number };
     metal: { min: number; max: number };
     index: { min: number; max: number };
-    crypto: { min: number; max: number };
   };
   contract_size_validation: {
     forex: { min: number; max: number };
     metal: { min: number; max: number };
     index: { min: number; max: number };
-    crypto: { min: number; max: number };
   };
 }

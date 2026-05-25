@@ -63,7 +63,7 @@ import { isIndex } from '@/utils/currencyHelpers';
  * position-monitoring-authority.ts is the sole authority for overrun closure decisions.
  */
 export const MAX_LOSS_OVERRUN = {
-  DEFAULT: 1.75,  // 1.75x intended risk — applies to FOREX, CRYPTO, METAL
+  DEFAULT: 1.75,  // 1.75x intended risk — applies to FOREX, METAL
   INDEX: 1.5,     // 1.5x intended risk — applies to US30, NAS100 (faster moves, larger pip value)
 } as const;
 
