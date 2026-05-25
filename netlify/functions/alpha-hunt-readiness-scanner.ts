@@ -1,13 +1,19 @@
 /**
  * Alpha Hunt Readiness Scanner — Scheduled Netlify Function
  *
- * GOVERNANCE CONTRACT (CCIP-2026-0510J — Armed Precision Upgrade):
+ * GOVERNANCE CONTRACT (CCIP-2026-0525A — MTF-Aligned Armed Precision):
  * ──────────────────────────────────────────────────────────────────
  * Binary readiness signal. One question per symbol:
  *   "Has a high-precision, confirmed trigger just printed that warrants a scan RIGHT NOW?"
  *
+ * Multi-Timeframe Alignment (mirrors Alpha's MICRO_INTRADAY hierarchy):
+ *   M5  (Entry TF)      — trigger detection layer, ATR measurement
+ *   M15 (Direction TF)  — phase/regime classification, directional context
+ *   H1  (Context TF)    — structural room measurement
+ *
  * States:
- *   armed      — confirmed trigger fired, regime match, adversarial clear, PC1-PC7 all met
+ *   armed      — confirmed trigger fired on M5, M15 phase readable & regime-compatible,
+ *                H1 structural room adequate, adversarial clear, PC1-PC7 all met
  *   not_ready  — anything less
  *
  * This scanner is a PARALLEL ADVISORY channel. It does NOT gate Alpha's pre-filter,
@@ -19,7 +25,7 @@
  * nuggets on his own. This monitor only tells the user "something confirmed just
  * printed — now is an optimal moment to scan Alpha".
  *
- * Seven Trigger Archetypes (all must be CONFIRMED — no 'developing' tier):
+ * Seven Trigger Archetypes (all must be CONFIRMED on M5 — no 'developing' tier):
  *   1. BOS_CONFIRMED         — swing high/low broken AND closed beyond
  *   2. SWEEP_RECLAIM         — wick swept extreme, body closed back inside
  *   3. MANIPULATION_CANDLE   — large-wick reversal candle close confirms rejection
@@ -29,12 +35,12 @@
  *   7. MEAN_REVERSION        — extreme RSI + rejection candle at range boundary
  *
  * Seven Preconditions:
- *   PC1 — Market phase readable
- *   PC2 — Phase-native setup material exists
- *   PC3 — Structural room ≥ style ATR threshold
- *   PC4 — Confirmed trigger archetype fired
+ *   PC1 — Market phase readable (M15)
+ *   PC2 — Phase-native setup material exists (M15 phase + M5 trigger compatibility)
+ *   PC3 — Structural room ≥ style ATR threshold (H1 + M5 combined lookback)
+ *   PC4 — Confirmed trigger archetype fired (M5)
  *   PC5 — Quality score ≥ MIN_QUALITY_SCORE (70)
- *   PC6 — Invalidation distance ≤ 1.0 ATR (tight-stop geometry — INTERNAL)
+ *   PC6 — Invalidation distance ≤ 1.2 ATR (tight-stop geometry — INTERNAL, M5 ATR)
  *   PC7 — Reward room ≥ 2.0 × invalidation distance (R:R runway — INTERNAL)
  *
  * PC6 and PC7 use structural invalidation measurements. The numbers stay in
@@ -67,11 +73,15 @@ type TriggerArchetype =
   | 'FVG_OB_REACTION'
   | 'MEAN_REVERSION';
 
-const PRIMARY_TF = 'M15';
-const CONTROL_TF = 'H1';
+const ENTRY_TF = 'M5';
+const DIRECTION_TF = 'M15';
+const CONTEXT_TF = 'H1';
+const ENTRY_LOOKBACK = 60;
+const DIRECTION_LOOKBACK = 60;
+const CONTEXT_LOOKBACK = 50;
 const EXPIRE_MINUTES = 5;
 const MIN_ATR_ROOM = 1.2;
-const MAX_INVALIDATION_ATR = 1.0;
+const MAX_INVALIDATION_ATR = 1.2;
 const MIN_REWARD_RATIO = 2.0;
 const MIN_QUALITY_SCORE = 70;
 const MULTI_TOUCH_N = 3;
@@ -167,7 +177,7 @@ function toPips(d: number, symbol: string): number {
   return d / (PIP_SIZE[symbol] ?? 0.0001);
 }
 
-// ─── Phase Detection (PC1) ───────────────────────────────────────────────────
+// ─── Phase Detection (PC1) — runs on M15 (Direction TF) ─────────────────────
 
 function detectPhase(candles: CandleRow[]): {
   phase: PhaseLabel;
@@ -248,17 +258,17 @@ function detectPhase(candles: CandleRow[]): {
   return { phase: 'UNCLEAR', evidence: 'No dominant phase', directionLean: 'NEUTRAL', atr };
 }
 
-// ─── Structural Room (PC3) ───────────────────────────────────────────────────
+// ─── Structural Room (PC3) — uses H1 context + M5 entry candles ─────────────
 
 function measureStructuralRoom(
-  primary: CandleRow[],
-  control: CandleRow[],
+  entry: CandleRow[],
+  context: CandleRow[],
   symbol: string,
   dir: DirectionLean,
   atr: number,
 ): { pips: number; roomInATR: number; direction: DirectionLean; targetPrice: number } {
-  const last = primary[primary.length - 1];
-  const all = [...control, ...primary].slice(-40);
+  const last = entry[entry.length - 1];
+  const all = [...context, ...entry].slice(-40);
   const lookback = all.slice(-30, -3);
   if (lookback.length === 0) return { pips: 0, roomInATR: 0, direction: 'NEUTRAL', targetPrice: last.close };
 
@@ -275,7 +285,7 @@ function measureStructuralRoom(
   return { pips: toPips(Math.max(up, dn), symbol), roomInATR: Math.max(up, dn) / safeATR, direction: 'NEUTRAL', targetPrice: last.close };
 }
 
-// ─── Confirmed Trigger Detection (PC4) ───────────────────────────────────────
+// ─── Confirmed Trigger Detection (PC4) — runs on M5 (Entry TF) ─────────────
 // Returns the highest-priority CONFIRMED trigger or null. No developing tier.
 
 function detectConfirmedTrigger(
@@ -354,7 +364,7 @@ function detectConfirmedTrigger(
         archetype: 'MANIPULATION_CANDLE',
         direction: 'BUY',
         invalidationPrice: last.low - atr * 0.15,
-        evidence: `Bullish manipulation: lower wick ${(lowerWick / atr).toFixed(2)}× ATR rejected`,
+        evidence: `Bullish manipulation: lower wick ${(lowerWick / atr).toFixed(2)}x ATR rejected`,
         sensorEvidence: { wick_body_ratio: lowerWick / body, wick_atr: lowerWick / atr },
       };
     }
@@ -363,7 +373,7 @@ function detectConfirmedTrigger(
         archetype: 'MANIPULATION_CANDLE',
         direction: 'SELL',
         invalidationPrice: last.high + atr * 0.15,
-        evidence: `Bearish manipulation: upper wick ${(upperWick / atr).toFixed(2)}× ATR rejected`,
+        evidence: `Bearish manipulation: upper wick ${(upperWick / atr).toFixed(2)}x ATR rejected`,
         sensorEvidence: { wick_body_ratio: upperWick / body, wick_atr: upperWick / atr },
       };
     }
@@ -410,7 +420,7 @@ function detectConfirmedTrigger(
         archetype: 'COMPRESSION_BREAKOUT',
         direction: 'BUY',
         invalidationPrice: Math.min(...last4R.map((_, i) => candles[candles.length - 5 + i].low)) - atr * 0.15,
-        evidence: `Compression resolved with expansion close ${(totalRange / atr).toFixed(2)}× ATR`,
+        evidence: `Compression resolved with expansion close ${(totalRange / atr).toFixed(2)}x ATR`,
         sensorEvidence: { breakout_range_atr: totalRange / atr, compression_bars: 4 },
       };
     }
@@ -419,16 +429,13 @@ function detectConfirmedTrigger(
         archetype: 'COMPRESSION_BREAKOUT',
         direction: 'SELL',
         invalidationPrice: Math.max(...last4R.map((_, i) => candles[candles.length - 5 + i].high)) + atr * 0.15,
-        evidence: `Compression resolved with expansion close ${(totalRange / atr).toFixed(2)}× ATR`,
+        evidence: `Compression resolved with expansion close ${(totalRange / atr).toFixed(2)}x ATR`,
         sensorEvidence: { breakout_range_atr: totalRange / atr, compression_bars: 4 },
       };
     }
   }
 
   // ── 6. FVG_OB_REACTION (gap boundary reaction) ─────────────────────────────
-  // FVG = 3-bar imbalance where candle[n-2].high < candle[n].low (bullish) or
-  // candle[n-2].low > candle[n].high (bearish). Reaction = current bar rejecting
-  // the gap edge.
   if (candles.length >= 6) {
     for (let i = candles.length - 6; i < candles.length - 1; i++) {
       const c0 = candles[i];
@@ -445,7 +452,7 @@ function detectConfirmedTrigger(
             archetype: 'FVG_OB_REACTION',
             direction: 'BUY',
             invalidationPrice: gapLo - atr * 0.15,
-            evidence: `Bullish FVG reaction at ${gapLo.toFixed(5)}–${gapHi.toFixed(5)}`,
+            evidence: `Bullish FVG reaction at ${gapLo.toFixed(5)}-${gapHi.toFixed(5)}`,
             sensorEvidence: { gap_low: gapLo, gap_high: gapHi, gap_age_bars: candles.length - 1 - (i + 2) },
           };
         }
@@ -460,7 +467,7 @@ function detectConfirmedTrigger(
             archetype: 'FVG_OB_REACTION',
             direction: 'SELL',
             invalidationPrice: gapHi + atr * 0.15,
-            evidence: `Bearish FVG reaction at ${gapLo.toFixed(5)}–${gapHi.toFixed(5)}`,
+            evidence: `Bearish FVG reaction at ${gapLo.toFixed(5)}-${gapHi.toFixed(5)}`,
             sensorEvidence: { gap_low: gapLo, gap_high: gapHi, gap_age_bars: candles.length - 1 - (i + 2) },
           };
         }
@@ -517,8 +524,6 @@ function regimeAllowsTrigger(phase: PhaseLabel, archetype: TriggerArchetype): bo
 }
 
 // ─── Adversarial Clear Check ─────────────────────────────────────────────────
-// Quick adversarial cross-check: did the SAME BAR that produced the trigger also
-// run stops in the OPPOSITE direction (fake-breakout risk)?
 
 function checkAdversarialClear(
   candles: CandleRow[],
@@ -533,11 +538,8 @@ function checkAdversarialClear(
   const recentLow = Math.min(...lookback.map(c => c.low));
 
   if (trigger.direction === 'BUY') {
-    // fake-breakout risk: bar wicked HIGHER than recentHigh then closed below
-    // (indicates a long trap despite bullish trigger)
     const trappedLong = last.high > recentHigh + atr * 0.2 && last.close < recentHigh;
     if (trappedLong) return { clear: false, evidence: 'long-trap-wick-detected' };
-    // Or prev bar was a clean bullish BOS already (trigger is stale)
     const stale = prev.close > recentHigh && trigger.archetype !== 'SWEEP_RECLAIM';
     if (stale) return { clear: false, evidence: 'trigger-stale-bos-already-printed' };
   } else if (trigger.direction === 'SELL') {
@@ -550,7 +552,7 @@ function checkAdversarialClear(
   return { clear: true, evidence: 'no-adversarial-evidence' };
 }
 
-// ─── Quality Scoring (PC5) ───────────────────────────────────────────────────
+// ─── Quality Scoring (PC5) ──────────────────────────────────────────────────
 
 function scoreQuality(
   phase: PhaseLabel,
@@ -563,7 +565,6 @@ function scoreQuality(
 ): number {
   let score = 0;
 
-  // Trigger archetype base (0–30). High-signal archetypes score higher.
   const archetypeScore: Record<TriggerArchetype, number> = {
     BOS_CONFIRMED: 30,
     SWEEP_RECLAIM: 30,
@@ -575,32 +576,27 @@ function scoreQuality(
   };
   score += archetypeScore[archetype];
 
-  // Reward ratio (0–25)
   score += Math.min(25, Math.floor((rewardRatio - MIN_REWARD_RATIO) * 10) + 15);
 
-  // Invalidation tightness (0–15). Smaller is better within the PC6 ceiling.
   const tightness = Math.max(0, 1 - invalidationATR / MAX_INVALIDATION_ATR);
   score += Math.floor(tightness * 15);
 
-  // Structural room depth (0–15)
   score += Math.min(15, Math.floor((roomInATR / MIN_ATR_ROOM - 1) * 10) + 5);
 
-  // Phase clarity (0–10)
   if (phase === 'EXPANSION' && direction !== 'NEUTRAL') score += 10;
   else if (phase === 'RETRACEMENT' && direction !== 'NEUTRAL') score += 9;
   else if ((phase === 'DISTRIBUTION' || phase === 'ACCUMULATION') && direction !== 'NEUTRAL') score += 7;
   else if (phase === 'REVERSAL' && direction !== 'NEUTRAL') score += 6;
   else score += 3;
 
-  // EMA alignment (0–5)
   if (candles.length >= 50) {
     const closes = candles.map(c => c.close);
     const e20 = calcEMA(closes, 20);
     const e50 = calcEMA(closes, 50);
     if (e20.length > 0 && e50.length > 0) {
-      const last = candles[candles.length - 1].close;
-      const bull = last > e20[e20.length - 1] && e20[e20.length - 1] > e50[e50.length - 1];
-      const bear = last < e20[e20.length - 1] && e20[e20.length - 1] < e50[e50.length - 1];
+      const lastClose = candles[candles.length - 1].close;
+      const bull = lastClose > e20[e20.length - 1] && e20[e20.length - 1] > e50[e50.length - 1];
+      const bear = lastClose < e20[e20.length - 1] && e20[e20.length - 1] < e50[e50.length - 1];
       if ((direction === 'BUY' && bull) || (direction === 'SELL' && bear)) score += 5;
     }
   }
@@ -672,107 +668,109 @@ async function assess(
   symbol: string, style: TradingStyle, session: string,
   sessionMinutesRemaining: number | null,
 ): Promise<HuntAssessment> {
-  const { data: primaryRows, error: pErr } = await supabase
-    .rpc('get_best_candles', {
-      p_symbol: symbol,
-      p_timeframe: PRIMARY_TF,
-      p_limit: 60
-    });
-  if (pErr || !primaryRows || primaryRows.length < 20) {
-    return notReady(symbol, style, session, `Insufficient ${PRIMARY_TF} candles`, sessionMinutesRemaining);
-  }
-  const { data: controlRows } = await supabase
-    .rpc('get_best_candles', {
-      p_symbol: symbol,
-      p_timeframe: CONTROL_TF,
-      p_limit: 30
-    });
+  // Fetch all three MTF layers in parallel (mirrors Alpha's MICRO_INTRADAY hierarchy)
+  const [entryResult, directionResult, contextResult] = await Promise.all([
+    supabase.rpc('get_best_candles', { p_symbol: symbol, p_timeframe: ENTRY_TF, p_limit: ENTRY_LOOKBACK }),
+    supabase.rpc('get_best_candles', { p_symbol: symbol, p_timeframe: DIRECTION_TF, p_limit: DIRECTION_LOOKBACK }),
+    supabase.rpc('get_best_candles', { p_symbol: symbol, p_timeframe: CONTEXT_TF, p_limit: CONTEXT_LOOKBACK }),
+  ]);
 
-  const primary = [...primaryRows].reverse() as CandleRow[];
-  const control = controlRows ? [...controlRows].reverse() as CandleRow[] : [];
+  if (entryResult.error || !entryResult.data || entryResult.data.length < 20) {
+    return notReady(symbol, style, session, `Insufficient ${ENTRY_TF} candles`, sessionMinutesRemaining);
+  }
+  if (directionResult.error || !directionResult.data || directionResult.data.length < 20) {
+    return notReady(symbol, style, session, `Insufficient ${DIRECTION_TF} candles`, sessionMinutesRemaining);
+  }
+
+  const entry = [...entryResult.data].reverse() as CandleRow[];
+  const directionCandles = [...directionResult.data].reverse() as CandleRow[];
+  const context = contextResult.data ? [...contextResult.data].reverse() as CandleRow[] : [];
   const precond: string[] = [];
 
-  // PC1
-  const { phase, evidence: phaseEvidence, directionLean, atr } = detectPhase(primary);
+  // PC1 — Phase detection on M15 (direction timeframe)
+  const { phase, evidence: phaseEvidence, directionLean } = detectPhase(directionCandles);
   if (phase === 'UNCLEAR') {
-    return notReady(symbol, style, session, 'Phase unreadable', sessionMinutesRemaining);
+    return notReady(symbol, style, session, 'Phase unreadable (M15)', sessionMinutesRemaining);
   }
   precond.push('PC1_PHASE_READABLE');
 
-  // PC4 — attempt confirmed trigger first (cheapest reject)
-  const trigger = detectConfirmedTrigger(primary, phase, atr);
+  // M5 ATR for trigger geometry measurement (entry timeframe precision)
+  const m5Atr = calcATR(entry, 14);
+
+  // PC4 — Trigger detection on M5 (entry timeframe)
+  const trigger = detectConfirmedTrigger(entry, phase, m5Atr);
   if (!trigger) {
     return notReady(
       symbol, style, session,
-      `${phase} phase — no confirmed trigger this bar`, sessionMinutesRemaining,
+      `${phase} phase — no confirmed trigger on M5`, sessionMinutesRemaining,
       phase, phaseEvidence, directionLean, precond,
     );
   }
 
-  // Regime compatibility
+  // Regime compatibility (M15 phase gates M5 trigger archetypes)
   const regimeMatch = regimeAllowsTrigger(phase, trigger.archetype);
   if (!regimeMatch) {
     return notReady(
       symbol, style, session,
-      `${trigger.archetype} detected but not valid in ${phase} regime`, sessionMinutesRemaining,
+      `${trigger.archetype} on M5 not valid in M15 ${phase} regime`, sessionMinutesRemaining,
       phase, phaseEvidence, directionLean, precond,
     );
   }
 
-  // PC2 implicit-passed because trigger fired with phase-archetype match
+  // PC2 implicit-passed because M5 trigger fired with M15 phase-archetype match
   precond.push('PC2_SETUP_MATERIAL');
   precond.push('PC4_TRIGGER');
 
-  // PC3 — structural room in trigger direction
+  // PC3 — structural room using H1 context + M5 entry candles
   const { pips: roomPips, roomInATR, direction: roomDir, targetPrice } = measureStructuralRoom(
-    primary, control, symbol, trigger.direction, atr,
+    entry, context, symbol, trigger.direction, m5Atr,
   );
   if (roomInATR < MIN_ATR_ROOM) {
     return notReady(
       symbol, style, session,
-      `${trigger.archetype} fired but only ${roomInATR.toFixed(2)}× ATR room (need ${MIN_ATR_ROOM}×)`,
+      `${trigger.archetype} fired but only ${roomInATR.toFixed(2)}x ATR room (need ${MIN_ATR_ROOM}x)`,
       sessionMinutesRemaining, phase, phaseEvidence, trigger.direction, precond, roomPips, roomDir,
     );
   }
   precond.push('PC3_STRUCTURAL_ROOM');
 
-  // PC6 — invalidation tightness (INTERNAL)
-  const last = primary[primary.length - 1];
-  const invalidationDist = Math.abs(last.close - trigger.invalidationPrice);
-  const invalidationATR = atr > 0 ? invalidationDist / atr : 999;
+  // PC6 — invalidation tightness (INTERNAL, measured in M5 ATR)
+  const lastEntry = entry[entry.length - 1];
+  const invalidationDist = Math.abs(lastEntry.close - trigger.invalidationPrice);
+  const invalidationATR = m5Atr > 0 ? invalidationDist / m5Atr : 999;
   if (invalidationATR > MAX_INVALIDATION_ATR) {
     return notReady(
       symbol, style, session,
-      `${trigger.archetype} fired but structural invalidation ${invalidationATR.toFixed(2)}× ATR exceeds PC6 ceiling`,
+      `${trigger.archetype} fired but invalidation ${invalidationATR.toFixed(2)}x M5 ATR exceeds PC6`,
       sessionMinutesRemaining, phase, phaseEvidence, trigger.direction, precond, roomPips, roomDir,
     );
   }
   precond.push('PC6_TIGHT_INVALIDATION');
 
   // PC7 — reward room ratio (INTERNAL)
-  const rewardDist = Math.abs(targetPrice - last.close);
+  const rewardDist = Math.abs(targetPrice - lastEntry.close);
   const rewardRatio = invalidationDist > 0 ? rewardDist / invalidationDist : 0;
   if (rewardRatio < MIN_REWARD_RATIO) {
     return notReady(
       symbol, style, session,
-      `${trigger.archetype} fired but reward ratio ${rewardRatio.toFixed(2)}× below PC7 (${MIN_REWARD_RATIO}×)`,
+      `${trigger.archetype} fired but reward ratio ${rewardRatio.toFixed(2)}x below PC7 (${MIN_REWARD_RATIO}x)`,
       sessionMinutesRemaining, phase, phaseEvidence, trigger.direction, precond, roomPips, roomDir,
     );
   }
   precond.push('PC7_REWARD_RUNWAY');
 
-  // Adversarial cross-check
-  const adv = checkAdversarialClear(primary, trigger, atr);
+  // Adversarial cross-check on M5 candles
+  const adv = checkAdversarialClear(entry, trigger, m5Atr);
   if (!adv.clear) {
     return notReady(
       symbol, style, session,
-      `${trigger.archetype} fired but adversarial risk present (${adv.evidence})`,
+      `${trigger.archetype} fired but adversarial risk on M5 (${adv.evidence})`,
       sessionMinutesRemaining, phase, phaseEvidence, trigger.direction, precond, roomPips, roomDir,
     );
   }
 
-  // PC5 — quality score
-  const qs = scoreQuality(phase, trigger.direction, trigger.archetype, roomInATR, invalidationATR, rewardRatio, primary);
+  // PC5 — quality score (uses M5 entry candles for EMA alignment)
+  const qs = scoreQuality(phase, trigger.direction, trigger.archetype, roomInATR, invalidationATR, rewardRatio, entry);
   if (qs < MIN_QUALITY_SCORE) {
     return notReady(
       symbol, style, session,
@@ -796,7 +794,7 @@ async function assess(
     trigger_archetype: trigger.archetype,
     direction_lean: trigger.direction,
     quality_score: qs,
-    hunt_summary: `${trigger.archetype} confirmed in ${phase} — scan Alpha now`,
+    hunt_summary: `${trigger.archetype} confirmed on M5 in ${phase} — scan Alpha now`,
     last_scanned_at: now.toISOString(),
     expires_at: new Date(now.getTime() + EXPIRE_MINUTES * 60 * 1000).toISOString(),
     armed_at: now.toISOString(),
