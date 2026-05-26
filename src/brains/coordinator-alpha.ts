@@ -4553,8 +4553,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       // CCIP-2026-0518A: Use trade_geometry.probability as Alpha's confidence.
       // Fallback chain: trade_geometry.probability → (100 - failure_probability) → tier midpoint.
-      const tradeGeomProb = parsed?.answer_sheet?.trade_geometry?.probability;
+      const tradeGeomProbRaw = parsed?.answer_sheet?.trade_geometry?.probability;
       const failureProbRaw = parsed?.answer_sheet?.failure_probability ?? parsed?.answer_sheet?.Q5_failure_probability;
+      // CCIP-2026-0526C: Normalize decimal probabilities (0.6 means 60%, not 1%)
+      const tradeGeomProb = typeof tradeGeomProbRaw === 'number' && tradeGeomProbRaw > 0 && tradeGeomProbRaw < 1
+        ? tradeGeomProbRaw * 100
+        : tradeGeomProbRaw;
       let tradeConfidenceContinuous: number;
       if (typeof tradeGeomProb === 'number' && tradeGeomProb > 0 && tradeGeomProb <= 100) {
         tradeConfidenceContinuous = Math.round(tradeGeomProb);

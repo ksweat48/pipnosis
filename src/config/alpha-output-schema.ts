@@ -83,7 +83,7 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
       entry: { type: 'number' },
       sl: { type: 'number' },
       tp: { type: 'number' },
-      probability: { type: 'number' },
+      probability: { type: 'integer' },
       reward_pips: { type: 'number' },
       risk_pips: { type: 'number' },
     },
@@ -127,7 +127,7 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   session_context: { type: 'string' },
   session_timing_reconciliation: { type: 'string' },
   failure_scenario: { type: 'string' },
-  failure_probability: { type: 'number' },
+  failure_probability: { type: 'integer' },
 
   // ═══════════════════════════════════════════════════════════════════
   // SWEEP / LIQUIDITY — hard-validated fields (used by coordinator)
