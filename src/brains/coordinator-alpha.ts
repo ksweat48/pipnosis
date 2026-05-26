@@ -3965,95 +3965,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }
         }
 
-        // ═══════════════════════════════════════════════════════════════════
-        // CCIP-2026-0521B: RR HALLUCINATION GATE (data-integrity correction)
-        // ───────────────────────────────────────────────────────────────────
-        // When Alpha's own answer_sheet admits rr_profitability_check =
-        // "UNPROFITABLE" AND the actual geometry confirms RR < 1.0 AND
-        // entry_mode = execute_now — this is an arithmetic hallucination.
-        // Alpha acknowledged bad geometry but still chose immediate entry.
-        // This is a semantic contradiction (not a directional override):
-        // re-route to wait_pullback so better entry geometry can form.
-        // ═══════════════════════════════════════════════════════════════════
-        if (isExecuteNow && isDirectional) {
-          const rrCheck = pickField('rr_profitability_check');
-          const rrCheckStr = typeof rrCheck === 'string' ? rrCheck.toUpperCase() : '';
-          const rrGeomFlag = (decision as Record<string, unknown>).rr_below_floor === true;
-          const rrActualVal = (decision as Record<string, unknown>).rr_actual;
-          const confirmedSubOne = typeof rrActualVal === 'number' && rrActualVal < 1.0;
+        // CCIP-2026-0526C: REMOVED CCIP-2026-0521B RR hallucination gate.
+        // Alpha must choose wait_pullback or push_confirmation himself when
+        // geometry is unprofitable. The coordinator does not override Alpha's
+        // entry mode selection. Alpha's identity prompt instructs him to use
+        // alternative entry modes to fix RR geometry.
 
-          if (rrCheckStr === 'UNPROFITABLE' && (rrGeomFlag || confirmedSubOne)) {
-            const dMut = decision as Record<string, unknown>;
-            dMut.entry_mode = 'wait_pullback';
-            dMut.rr_hallucination_gate_fired = true;
-            dMut.rr_hallucination_original_mode = 'execute_now';
-
-            console.warn(
-              `[Alpha Coordinator] CCIP-2026-0521B: RR HALLUCINATION GATE FIRED — ` +
-              `${marketContext.symbol} rr_profitability_check=UNPROFITABLE, actual_rr=${typeof rrActualVal === 'number' ? rrActualVal.toFixed(3) : 'unknown'}, ` +
-              `entry_mode forced execute_now→wait_pullback. Alpha acknowledged bad geometry but chose immediate entry — semantic contradiction corrected.`
-            );
-
-            import('../lib/supabase').then(({ supabase }) => {
-              supabase.from('ssot_violations').insert({
-                violation_type: 'RR_HALLUCINATION_GATE',
-                source_file: 'coordinator-alpha.ts',
-                description: `Alpha claimed UNPROFITABLE geometry (RR=${typeof rrActualVal === 'number' ? rrActualVal.toFixed(3) : '?'}) but chose execute_now — forced to wait_pullback`,
-                severity: 'high',
-                symbol: marketContext.symbol,
-                user_id: userId || null,
-              }).then(({ error }) => {
-                if (error) console.warn('[Alpha Coordinator] RR hallucination log insert failed:', error.message);
-              });
-            }).catch(() => {});
-          }
-        }
-
-        // ═══════════════════════════════════════════════════════════════════
-        // CCIP-2026-0526A: ENTRY MODE CONSISTENCY REROUTE
-        // ───────────────────────────────────────────────────────────────────
-        // When Alpha chose execute_now but his own answer_sheet contains
-        // signals that objectively indicate a non-immediate entry is better,
-        // reroute to wait_pullback. This is not a block — it is correcting
-        // a semantic contradiction between Alpha's analysis and his mode
-        // choice, similar to the RR hallucination gate above.
-        // ═══════════════════════════════════════════════════════════════════
-        if (isExecuteNow && isDirectional) {
-          let reroute = false;
-          let rerouteReason = '';
-
-          const sharpnessVal = pickField('entry_sharpness_check');
-          const maeVal = pickField('m5_mae_vs_risk_ratio');
-          const entryLocQuality = pickField('entry_location_quality');
-
-          if (conviction === false) {
-            reroute = true;
-            rerouteReason = 'conviction_after_challenge=false';
-          } else if (typeof sharpnessVal === 'string' && sharpnessVal.toUpperCase() === 'DULL') {
-            reroute = true;
-            rerouteReason = 'entry_sharpness_check=DULL';
-          } else if (typeof maeVal === 'number' && maeVal > 0.45) {
-            reroute = true;
-            rerouteReason = `m5_mae_vs_risk_ratio=${maeVal.toFixed(3)}>0.45`;
-          } else if (typeof entryLocQuality === 'string' && (entryLocQuality.toUpperCase() === 'CHASING' || entryLocQuality.toUpperCase() === 'EXTENDED')) {
-            reroute = true;
-            rerouteReason = `entry_location_quality=${entryLocQuality}`;
-          }
-
-          if (reroute) {
-            const dMut = decision as Record<string, unknown>;
-            dMut.entry_mode = 'wait_pullback';
-            dMut.entry_mode_rerouted = true;
-            dMut.entry_mode_reroute_reason = rerouteReason;
-            dMut.entry_mode_original = 'execute_now';
-
-            console.warn(
-              `[Alpha Coordinator] CCIP-2026-0526A: ENTRY MODE REROUTE — ` +
-              `${marketContext.symbol} ${rerouteReason}, ` +
-              `entry_mode execute_now→wait_pullback. Alpha's own analysis indicates better entry available.`
-            );
-          }
-        }
+        // CCIP-2026-0526C: REMOVED CCIP-2026-0526A entry mode reroute.
+        // Alpha is solely responsible for choosing the correct entry mode.
+        // The coordinator follows Alpha's lead without modification.
       } catch (gateErr) {
         console.error('[Alpha Coordinator] CCIP-2026-0508C gate evaluation error:', gateErr);
       }

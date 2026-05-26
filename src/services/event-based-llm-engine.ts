@@ -37,6 +37,7 @@ import { performanceAnalyzer } from './performance-analyzer';
 import { developerModeLogger } from './developer-mode-logger';
 import { getCurrencyPipInfo, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { alphaThoughtStream } from './alpha-thought-stream';
+import { alphaLearningTracker } from './alpha-learning-tracker';
 
 export interface EventBasedEngineConfig {
   symbol: string;
@@ -48,11 +49,17 @@ export interface EventBasedEngineConfig {
   tradeStyle?: string;
   goalContext?: {
     goalSessionId?: string;
-    targetAmount: number;
+    targetAmount?: number;
+    targetValue?: number;
     currentProgress: number;
-    remainingAmount: number;
-    tradesCompleted: number;
-    tradesPlanned: number;
+    remainingAmount?: number;
+    progressPercentage?: number;
+    timeframe?: string;
+    riskMode?: string;
+    tradeStyle?: string;
+    tradesRemaining?: number;
+    tradesCompleted?: number;
+    tradesPlanned?: number;
   };
 }
 
@@ -384,14 +391,65 @@ class EventBasedLLMEngine {
 
     // Call Alpha + Omega
     // PRIORITY 3 FIX: Pass userId to makeTradeDecision for proper tracking
+    // CCIP-2026-0526C: Pass goalContext so thought stream works for single-pair scans
+    const goalTargetValue = config.goalContext?.targetAmount || config.goalContext?.targetValue || 0;
+    const goalCurrentProgress = config.goalContext?.currentProgress || 0;
+    const goalContextForAlpha = config.goalContext?.goalSessionId ? {
+      hasGoal: true,
+      currentBalance: config.initialBalance || 10000,
+      targetGoal: goalTargetValue,
+      currentProgress: goalCurrentProgress,
+      remainingGoal: config.goalContext.remainingAmount || (goalTargetValue - goalCurrentProgress),
+      goalPercentage: 0,
+      pipsNeededEstimate: 0,
+      riskMode: config.riskMode,
+      sessionId: config.goalContext.goalSessionId,
+      tradeStyle: config.tradeStyle || config.goalContext.tradeStyle,
+    } as import('../brains/coordinator-alpha').GoalContext : undefined;
+
     const decision = await alphaOmegaOrchestrator.makeTradeDecision(
       fullMarketState,
       NEUTRAL_TRADER_SCORE,
       proposedSL,
       proposedTP,
-      undefined, // No goal context in backtest mode
+      goalContextForAlpha,
       this.userId || undefined
     );
+
+    // CCIP-2026-0526C: Log ALL decisions to alpha_decisions (Path 2 parity with Path 1)
+    if (config.goalContext?.goalSessionId && this.userId) {
+      try {
+        const omegaVotes = decision.omega_votes || {};
+        const voteEntries = Object.values(omegaVotes).filter(Boolean);
+        const buyVotes = voteEntries.filter((v: any) => v?.vote === 'BUY' || v?.direction === 'BUY' || v?.bias === 'BUY').length;
+        const sellVotes = voteEntries.filter((v: any) => v?.vote === 'SELL' || v?.direction === 'SELL' || v?.bias === 'SELL').length;
+        const majorityDirection = buyVotes > sellVotes ? 'BUY' : sellVotes > buyVotes ? 'SELL' : 'MIXED';
+
+        await alphaLearningTracker.logDecision(
+          this.userId,
+          decision,
+          omegaVotes as any,
+          {
+            direction: majorityDirection as 'BUY' | 'SELL' | 'MIXED',
+            confidence: decision.confidence || 0,
+            agreement_count: Math.max(buyVotes, sellVotes),
+            total_votes: voteEntries.length,
+          },
+          decision.conflictInfo || { detected: false, type: 'NONE' as const },
+          {
+            symbol: config.symbol,
+            timeframe: config.timeframe,
+            currentPrice: marketState.price,
+            atr: marketState.atr,
+            session: 'unknown',
+          },
+          NEUTRAL_TRADER_SCORE,
+          config.goalContext.goalSessionId
+        );
+      } catch (logErr) {
+        console.warn('[Autonomous Brain] Failed to log alpha_decision (non-blocking):', logErr);
+      }
+    }
 
     if (decision.action === 'NO_TRADE') {
       console.log(`[Autonomous Brain] ✗ Alpha declined trade: ${decision.reasoning}`);
