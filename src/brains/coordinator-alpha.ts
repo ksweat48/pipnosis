@@ -4008,6 +4008,52 @@ Return PURE JSON only — all required fields from the schema in my system promp
             }).catch(() => {});
           }
         }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // CCIP-2026-0526A: ENTRY MODE CONSISTENCY REROUTE
+        // ───────────────────────────────────────────────────────────────────
+        // When Alpha chose execute_now but his own answer_sheet contains
+        // signals that objectively indicate a non-immediate entry is better,
+        // reroute to wait_pullback. This is not a block — it is correcting
+        // a semantic contradiction between Alpha's analysis and his mode
+        // choice, similar to the RR hallucination gate above.
+        // ═══════════════════════════════════════════════════════════════════
+        if (isExecuteNow && isDirectional) {
+          let reroute = false;
+          let rerouteReason = '';
+
+          const sharpnessVal = pickField('entry_sharpness_check');
+          const maeVal = pickField('m5_mae_vs_risk_ratio');
+          const entryLocQuality = pickField('entry_location_quality');
+
+          if (conviction === false) {
+            reroute = true;
+            rerouteReason = 'conviction_after_challenge=false';
+          } else if (typeof sharpnessVal === 'string' && sharpnessVal.toUpperCase() === 'DULL') {
+            reroute = true;
+            rerouteReason = 'entry_sharpness_check=DULL';
+          } else if (typeof maeVal === 'number' && maeVal > 0.45) {
+            reroute = true;
+            rerouteReason = `m5_mae_vs_risk_ratio=${maeVal.toFixed(3)}>0.45`;
+          } else if (typeof entryLocQuality === 'string' && (entryLocQuality.toUpperCase() === 'CHASING' || entryLocQuality.toUpperCase() === 'EXTENDED')) {
+            reroute = true;
+            rerouteReason = `entry_location_quality=${entryLocQuality}`;
+          }
+
+          if (reroute) {
+            const dMut = decision as Record<string, unknown>;
+            dMut.entry_mode = 'wait_pullback';
+            dMut.entry_mode_rerouted = true;
+            dMut.entry_mode_reroute_reason = rerouteReason;
+            dMut.entry_mode_original = 'execute_now';
+
+            console.warn(
+              `[Alpha Coordinator] CCIP-2026-0526A: ENTRY MODE REROUTE — ` +
+              `${marketContext.symbol} ${rerouteReason}, ` +
+              `entry_mode execute_now→wait_pullback. Alpha's own analysis indicates better entry available.`
+            );
+          }
+        }
       } catch (gateErr) {
         console.error('[Alpha Coordinator] CCIP-2026-0508C gate evaluation error:', gateErr);
       }
