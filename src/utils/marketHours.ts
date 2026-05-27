@@ -6,42 +6,17 @@ export interface MarketStatus {
 }
 
 /**
- * Synchronous US market holiday check covering major closures.
- * For database-backed full holiday checking, use marketScheduleService.isHoliday()
+ * Synchronous forex market holiday check.
+ * IMPORTANT: Forex markets ARE OPEN on US stock holidays (Memorial Day, Labor Day,
+ * MLK Day, Presidents Day, Thanksgiving, Independence Day). Only Christmas and
+ * New Year's Day reliably close the interbank forex market globally.
  */
 function isTradingHoliday(estTime: Date): boolean {
   const month = estTime.getMonth();
   const date = estTime.getDate();
-  const dayOfWeek = estTime.getDay();
-  const year = estTime.getFullYear();
 
-  // Fixed-date holidays
   if (month === 11 && date === 25) return true; // Christmas
   if (month === 0 && date === 1) return true;   // New Year's Day
-  if (month === 6 && date === 4) return true;   // Independence Day
-
-  // Memorial Day: last Monday of May
-  if (month === 4 && dayOfWeek === 1 && date > 24) return true;
-
-  // Labor Day: first Monday of September
-  if (month === 8 && dayOfWeek === 1 && date <= 7) return true;
-
-  // Thanksgiving: fourth Thursday of November
-  if (month === 10 && dayOfWeek === 4 && date >= 22 && date <= 28) return true;
-
-  // MLK Day: third Monday of January
-  if (month === 0 && dayOfWeek === 1 && date >= 15 && date <= 21) return true;
-
-  // Presidents Day: third Monday of February
-  if (month === 1 && dayOfWeek === 1 && date >= 15 && date <= 21) return true;
-
-  // Good Friday (approximate - varies by year, use 2024-2030 dates)
-  const goodFridays: Record<number, [number, number]> = {
-    2024: [2, 29], 2025: [3, 18], 2026: [3, 3], 2027: [2, 26],
-    2028: [3, 14], 2029: [2, 30], 2030: [3, 18]
-  };
-  const gf = goodFridays[year];
-  if (gf && month === gf[0] && date === gf[1]) return true;
 
   return false;
 }
