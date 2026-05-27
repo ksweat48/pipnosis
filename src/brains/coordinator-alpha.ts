@@ -2775,7 +2775,7 @@ MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step b
 - MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1 on TP2. REASONING ORDER IS FIXED — find TP2 first, then find TP1 inside.
   "tp2" (FIND FIRST) = Where the displacement EXHAUSTS — the structural magnet price is sprinting toward (M5 swing extreme, equal highs/lows cluster, untouched liquidity pool, or FVG fill zone). This is WHERE the sprint ends. MANDATORY. Do NOT fabricate TP2 by pointing at an M15 structural wall — name the M5 exhaustion point where the displacement energy runs out.
   "tp1" (FIND SECOND, INSIDE TP2) = The first structural fill on the sprint path. The highest-probability level price will reach quickly between entry and TP2. Scan M5 for: a prior M5 swing already printed between entry and TP2, M5 equal highs/lows clustering on the path, or an M5 FVG fill zone between entry and TP2. MANDATORY. Must be closer to entry than TP2.
-  ${filterTF} shows you the displacement narrative. ${primaryTF} shows you where the sprint lands. The destination is always the ${primaryTF} structural magnet.
+  M15 shows you the displacement narrative. M5 shows you where the sprint lands. The destination is always the M5 structural magnet.
   tp1 must be closer to entry than tp2. TP2 R:R must be >= TP1 R:R.
   Document the displacement trigger and the structural magnet for each level.
 
