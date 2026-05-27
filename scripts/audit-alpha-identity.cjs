@@ -238,6 +238,17 @@ const RAW_DATA_FORBIDDEN = [
   // Q5_failure_probability, and counter_thesis_probability. Any reintroduction
   // of `confidence: tradeConfidence` in coordinator-alpha.ts re-opens the bug.
   { pattern: /\bconfidence\s*:\s*tradeConfidence\b(?!Continuous)/, label: '0514H confidence: tradeConfidence reintroduction — use tradeConfidenceContinuous (CCIP-2026-0514H)' },
+  // CCIP-2026-0527A: EMA signal density fix. Block reintroduction of individual
+  // EMA ±1 codes that create correlated vote-weight bias. The 6 codes are now
+  // consolidated into a single ema_trend_composite. Also blocks Volume Profile
+  // English words and the mislabeled leg_direction field.
+  { pattern: /price_vs_ema20=\$\{/, label: 'Individual price_vs_ema20 code in prompt (0527A — use ema_trend_composite)' },
+  { pattern: /price_vs_ema50=\$\{/, label: 'Individual price_vs_ema50 code in prompt (0527A — use ema_trend_composite)' },
+  { pattern: /price_vs_ema200=\$\{/, label: 'Individual price_vs_ema200 code in prompt (0527A — use ema_trend_composite)' },
+  { pattern: /ema_stack=\$\{/, label: 'Individual ema_stack code in prompt (0527A — use ema_trend_composite)' },
+  { pattern: /ema20_vs_ema50=\$\{/, label: 'Individual ema20_vs_ema50 code in prompt (0527A — use ema_trend_composite)' },
+  { pattern: /\bVolume\s+Profile\s*:\s*\$\{/, label: 'Volume Profile English word injection (0527A — use volumeRatio numeric)' },
+  { pattern: /\bleg_direction=\$\{/, label: 'leg_direction mislabel in prompt (0527A — renamed to last_candle_body)' },
 ];
 
 // CCIP-2026-0513J SEALED-PROMPT DOCTRINE strict rules — only applied to

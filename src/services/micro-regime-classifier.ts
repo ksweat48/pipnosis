@@ -68,6 +68,7 @@ export interface MicroRegimeIndicators {
   emaDisplacement: number;
   rsi: number;
   volumeProfile: 'rising' | 'falling' | 'stable';
+  volumeRatio: number;
   rangeCompression: number;
 }
 
@@ -181,6 +182,7 @@ export class MicroRegimeClassifier {
       emaDisplacement,
       rsi: currentRSI,
       volumeProfile,
+      volumeRatio,
       rangeCompression,
     };
 

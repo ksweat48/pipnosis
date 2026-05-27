@@ -1114,7 +1114,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
             microRegimeContext += `  ATR Expansion: ${regimeResult.indicators.atrExpansion.toFixed(2)}x (top-30%>${regimeResult.thresholds.atrExpansionP70.toFixed(2)}, top-15%>${regimeResult.thresholds.atrExpansionP85.toFixed(2)}, bottom-30%<${regimeResult.thresholds.atrExpansionP30.toFixed(2)})\n`;
             microRegimeContext += `  EMA50 Displacement: ${regimeResult.indicators.emaDisplacement.toFixed(2)}% (p80=${regimeResult.thresholds.emaDisplacementP80.toFixed(2)}, p90=${regimeResult.thresholds.emaDisplacementP90.toFixed(2)}, p95=${regimeResult.thresholds.emaDisplacementP95.toFixed(2)})\n`;
             microRegimeContext += `  RSI: ${regimeResult.indicators.rsi.toFixed(0)}\n`;
-            microRegimeContext += `  Volume Profile: ${regimeResult.indicators.volumeProfile}\n`;
+            microRegimeContext += `  Volume Ratio (recent5 / prior5): ${regimeResult.indicators.volumeRatio.toFixed(2)}x\n`;
             microRegimeContext += `  Range Compression: ${regimeResult.indicators.rangeCompression.toFixed(2)}x (bottom-20%<${regimeResult.thresholds.rangeCompressionP20.toFixed(2)}, bottom-35%<${regimeResult.thresholds.rangeCompressionP35.toFixed(2)})\n`;
             microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
           } else {
@@ -1127,7 +1127,7 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
             microRegimeContext += `  ATR Expansion ratio (current ATR vs 20-period average): ${regimeResult.indicators.atrExpansion.toFixed(2)}x\n`;
             microRegimeContext += `  EMA50 Displacement (price distance from EMA50 as % of EMA): ${regimeResult.indicators.emaDisplacement.toFixed(2)}%\n`;
             microRegimeContext += `  RSI(14): ${regimeResult.indicators.rsi.toFixed(0)}\n`;
-            microRegimeContext += `  Volume Profile (recent 5 vs prior 5 candles): ${regimeResult.indicators.volumeProfile}\n`;
+            microRegimeContext += `  Volume Ratio (recent5 / prior5): ${regimeResult.indicators.volumeRatio.toFixed(2)}x\n`;
             microRegimeContext += `  Range Compression (recent 5-candle avg range vs prior 15): ${regimeResult.indicators.rangeCompression.toFixed(2)}x\n`;
             microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
           }
@@ -1961,16 +1961,15 @@ noise_floor: ${noiseFloorPips.toFixed(1)} pips
         // numeric codes only per Sealed-Prompt Doctrine. Alpha classifies
         // phase and sweep polarity from raw measurements.
         //   move_phase_code: 0=fresh (<0.75x ATR), 1=developing (0.75-1.5x), 2=exhausted (>1.5x)
-        //   leg_direction: +1 (current leg up — most recent break swept the low),
-        //                  -1 (current leg down — most recent break swept the high), 0 (flat)
+        //   last_candle_body: +1 (last candle closed up), -1 (closed down), 0 (flat)
         //   sweep_of_high_detected / sweep_of_low_detected: raw booleans
         //   sweep_reversal_confirmed: bool (subsequent candles printed in reclaim direction)
         // ═══════════════════════════════════════════════════════════════════
         if (atrForStopLoss > 0) {
           const m5AtrPips = (atrForStopLoss / pipInfo.pipValue);
 
-          // Find M5 swing origin within the 30-candle primary window. legDirCode
-          // is +1 if current candle closed up, -1 if down, 0 if flat — raw, no labels.
+          // CCIP-2026-0527A: Renamed from leg_direction to last_candle_body. This code
+          // measures only whether the LAST M5 candle closed up or down — NOT structural leg direction.
           let swingOriginPriceM5 = recentPrimary[0].close;
           const legDirCode = lastCandle.close > lastCandle.open ? 1 : lastCandle.close < lastCandle.open ? -1 : 0;
           for (let i = recentPrimary.length - 2; i >= 0; i--) {
@@ -2047,7 +2046,7 @@ m5_atr_pips=${m5AtrPips.toFixed(1)}
 atr_traveled_multiple=${atrTraveledFinal.toFixed(2)}
 atr_traveled_pips=${(atrTraveledFinal * m5AtrPips).toFixed(1)}
 move_phase_code=${movePhaseCode}
-leg_direction=${legDirCode}
+last_candle_body=${legDirCode}
 m15_anchor_known=${hasMicroM15Anchor}
 m15_anchor_origin=${hasMicroM15Anchor ? m15AnchorOrigin.toFixed(pipInfo.decimalPlaces) : 'N/A'}
 m15_anchor_dist_pips=${hasMicroM15Anchor ? m15AnchorDistPips.toFixed(1) : 'N/A'}
@@ -2062,23 +2061,36 @@ MANDATORY JSON FIELD — Include in your response:
   "m5_atr_traveled": ${atrTraveledFinal.toFixed(2)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] M5 phase_code=${movePhaseCode} leg_dir=${legDirCode} atr_x=${atrTraveledFinal.toFixed(2)} sweep_high=${sweepOfHighDetected} sweep_low=${sweepOfLowDetected} reversal=${sweepReversalConfirmed} extreme_break=${mostRecentExtremeBreakCode}`);
+          console.log(`[Alpha Coordinator] M5 phase_code=${movePhaseCode} last_candle=${legDirCode} atr_x=${atrTraveledFinal.toFixed(2)} sweep_high=${sweepOfHighDetected} sweep_low=${sweepOfLowDetected} reversal=${sweepReversalConfirmed} extreme_break=${mostRecentExtremeBreakCode}`);
         }
 
-        // CCIP-2026-0513K-COORDINATOR-PROMPT-SEALING: raw codes only. price_vs_ema*
-        // is +1 (price above EMA), -1 (price below), 0 (EMA unavailable). ema20_vs_ema50
-        // same convention. ema_stack: +1 aligned up, -1 aligned down, 0 mixed/unknown.
-        // ema20_slope: +1 rising, -1 falling, 0 flat. Teaching sentence removed.
+        // CCIP-2026-0527A: EMA SIGNAL DENSITY FIX. Previously 6 correlated ±1 codes
+        // (price_vs_ema20, price_vs_ema50, price_vs_ema200, ema_stack, ema20_vs_ema50,
+        // ema20_slope) created compound vote-weight bias during pullbacks. Now consolidated
+        // into a single weighted composite score (-1.0 to +1.0) plus raw EMA prices for
+        // geometric reasoning. Alpha sees ONE trend assessment, not 6 correlated votes.
         const priceVsEma20Code = ema20Val > 0 ? (priceAboveEma20 ? 1 : -1) : 0;
         const priceVsEma50Code = ema50Val > 0 ? (priceAboveEma50 ? 1 : -1) : 0;
         const priceVsEma200Code = ema200Val > 0 ? (priceAboveEma200 ? 1 : -1) : 0;
         const ema20VsEma50Code = (ema20Val > 0 && ema50Val > 0) ? (ema20AboveEma50 ? 1 : -1) : 0;
+
+        // Weighted composite: EMA20 position (40%), EMA50 position (25%),
+        // EMA20 vs EMA50 alignment (20%), slope (15%). EMA200 excluded — not
+        // meaningful on 30 M5 candles (only 2.5h of data).
+        let emaCompositeNumerator = 0;
+        let emaCompositeDenominator = 0;
+        if (ema20Val > 0) { emaCompositeNumerator += priceVsEma20Code * 0.40; emaCompositeDenominator += 0.40; }
+        if (ema50Val > 0) { emaCompositeNumerator += priceVsEma50Code * 0.25; emaCompositeDenominator += 0.25; }
+        if (ema20Val > 0 && ema50Val > 0) { emaCompositeNumerator += ema20VsEma50Code * 0.20; emaCompositeDenominator += 0.20; }
+        if (ema20Val > 0) { emaCompositeNumerator += ema20SlopeCode * 0.15; emaCompositeDenominator += 0.15; }
+        const emaComposite = emaCompositeDenominator > 0 ? emaCompositeNumerator / emaCompositeDenominator : 0;
+
         const emaContextBlock = (ema20Val > 0 || ema50Val > 0) ? `
-${primaryTfConfig.label} EMA CONTEXT (raw readings):
-- ema20=${ema20Val > 0 ? ema20Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | price_vs_ema20=${priceVsEma20Code}${ema20Pips !== null ? ` | distance_pips=${ema20Pips.toFixed(1)}` : ''}
-- ema50=${ema50Val > 0 ? ema50Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | price_vs_ema50=${priceVsEma50Code}${ema50Pips !== null ? ` | distance_pips=${ema50Pips.toFixed(1)}` : ''}${ema200Val > 0 ? `
-- ema200=${ema200Val.toFixed(pipInfo.decimalPlaces)} | price_vs_ema200=${priceVsEma200Code}${ema200Pips !== null ? ` | distance_pips=${ema200Pips.toFixed(1)}` : ''}` : ''}
-- ema_stack=${emaStackCode} | ema_stack_known=${emaStackKnown} | ema20_vs_ema50=${ema20VsEma50Code} | ema20_slope=${ema20SlopeCode} | ema20_slope_pips_per_candle=${ema20Slope.toFixed(2)}` : '';
+${primaryTfConfig.label} EMA CONTEXT:
+- ema20=${ema20Val > 0 ? ema20Val.toFixed(pipInfo.decimalPlaces) : 'N/A'}${ema20Pips !== null ? ` | dist=${ema20Pips.toFixed(1)}p` : ''}
+- ema50=${ema50Val > 0 ? ema50Val.toFixed(pipInfo.decimalPlaces) : 'N/A'}${ema50Pips !== null ? ` | dist=${ema50Pips.toFixed(1)}p` : ''}${ema200Val > 0 ? `
+- ema200=${ema200Val.toFixed(pipInfo.decimalPlaces)}${ema200Pips !== null ? ` | dist=${ema200Pips.toFixed(1)}p` : ''}` : ''}
+- ema_trend_composite=${emaComposite.toFixed(2)} | ema20_slope_pips_per_candle=${ema20Slope.toFixed(2)}` : '';
 
         primaryTfCandlePrompt = `
 
@@ -2339,7 +2351,6 @@ M15 RAW READINGS (last ${recentM15Dir.length} candles):
 - range_pips=${m15DirRangePips.toFixed(1)}
 - window_high=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)}
 - window_low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}
-- close_vs_prev_close=${m15CloseVsPrevCode}
 - consecutive_same_direction_candles=${m15DirConsecutive}
 - last_candle_rejection_wick=${m15DirRejectionWick}
 - bos_bull=${m15DirBOSBull}
