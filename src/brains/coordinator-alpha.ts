@@ -2757,12 +2757,12 @@ Actions: BUY (bullish edge), SELL (bearish edge), NO_TRADE (no structural edge o
 When analyzing multiple pairs, execute the best opportunity. Scanner re-evaluates every cycle.
 BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
-TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY) — MICRO_INTRADAY:
-You choose ALL profit targets. No pre-computed ceiling exists. TP placement is driven entirely by market structure.
-Process: (1) Find the directional edge. (2) Name the structural target. (3) Place TP there. (4) Calculate the R:R that results.
+TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY) — DISPLACEMENT TARGETS:
+You choose ALL profit targets. No pre-computed ceiling exists. TP placement is driven entirely by where the displacement exhausts.
+Process: (1) Identify the displacement trigger. (2) Name the structural magnet price will sprint toward. (3) Place TP there. (4) Calculate the R:R that results.
 
-MICRO_INTRADAY uses TWO take-profits. TP1 captures a fast partial — the scalp slice. TP2 captures the full intraday target.
-Minimum R:R 1.0:1 net of spread applies to TP2.
+MICRO_INTRADAY uses TWO take-profits. TP1 captures the first structural fill on the sprint path. TP2 captures where the displacement exhausts (the structural magnet).
+Minimum R:R 1.0:1 net of spread applies to TP2. Trades should resolve within 30-120 minutes — if the target requires longer, it is too far.
 
 MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step before outputting JSON):
   Step A: Calculate my SL distance in pips — abs(entry - stopLoss).
@@ -2773,11 +2773,11 @@ MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step b
   Geometry example (Step D): SL is 57 pips. My TP2 must be >= 57 pips. A TP2 of 50 pips with a 57-pip SL = 0.88:1 = not a trade.
 
 - MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1 on TP2. REASONING ORDER IS FIXED — find TP2 first, then find TP1 inside.
-  "tp2" (FIND FIRST) = The full intraday target — the M5 structural destination (M5 swing extreme, equal highs/lows cluster, or M5 FVG fill zone) that defines why this move exists. MANDATORY. Do NOT fabricate TP2 by pointing at an M15 structural wall — name the M5 exhaustion point that defines the leg.
-  "tp1" (FIND SECOND, INSIDE TP2) = The fast partial — the scalp slice. The highest-probability first fill point between entry and TP2. Scan M5 for: a prior M5 swing already printed between entry and TP2, M5 equal highs/lows clustering on the path, or an M5 FVG fill zone between entry and TP2. MANDATORY. Must be closer to entry than TP2.
-  M15 tells you the direction. It does not set the destination. The destination is M5 exhaustion.
+  "tp2" (FIND FIRST) = Where the displacement EXHAUSTS — the structural magnet price is sprinting toward (M5 swing extreme, equal highs/lows cluster, untouched liquidity pool, or FVG fill zone). This is WHERE the sprint ends. MANDATORY. Do NOT fabricate TP2 by pointing at an M15 structural wall — name the M5 exhaustion point where the displacement energy runs out.
+  "tp1" (FIND SECOND, INSIDE TP2) = The first structural fill on the sprint path. The highest-probability level price will reach quickly between entry and TP2. Scan M5 for: a prior M5 swing already printed between entry and TP2, M5 equal highs/lows clustering on the path, or an M5 FVG fill zone between entry and TP2. MANDATORY. Must be closer to entry than TP2.
+  ${filterTF} shows you the displacement narrative. ${primaryTF} shows you where the sprint lands. The destination is always the ${primaryTF} structural magnet.
   tp1 must be closer to entry than tp2. TP2 R:R must be >= TP1 R:R.
-  Document the M5 exhaustion signal for each level and the R:R achievable from it.
+  Document the displacement trigger and the structural magnet for each level.
 
 ${entryModePromptSection}
 
