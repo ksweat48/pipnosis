@@ -208,15 +208,9 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // TP GEOMETRY (TP1 omission, partial value, M5 anchoring, kill guarantee)
+  // TP GEOMETRY
   // CCIP-2026-0518D: tp_crowd_awareness records where crowd TPs cluster
   // ═══════════════════════════════════════════════════════════════════
-  tp1_omitted: { type: ['boolean', 'null'] },
-  tp1_omission_reason: { type: ['string', 'null'] },
-  tp1_partial_value_pips: { type: ['number', 'null'] },
-  tp1_partial_value_ratio: { type: ['number', 'null'] },
-  tp2_omitted: { type: ['boolean', 'null'] },
-  tp2_omission_reason: { type: ['string', 'null'] },
   tp_crowd_awareness: { type: ['string', 'null'] },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -262,15 +256,12 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       'entry',
       'stopLoss',
       'takeProfit',
-      'tp1',
-      'tp2',
       'confidence_tier',
       'reasoning',
       'trader_statement',
       'entry_mode',
       'sl_structural_reference',
-      'tp1_reasoning',
-      'tp2_reasoning',
+      'tp_reasoning',
       'max_entry_deviation_pips',
       'spread_estimate_pips',
       'counter_thesis_probability',
@@ -281,8 +272,6 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       entry: { type: ['number', 'null'] },
       stopLoss: { type: ['number', 'null'] },
       takeProfit: { type: ['number', 'null'] },
-      tp1: { type: ['number', 'null'] },
-      tp2: { type: ['number', 'null'] },
       confidence_tier: {
         type: 'string',
         enum: Array.from(VALID_CONFIDENCE_TIERS),
@@ -296,8 +285,7 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
         ],
       },
       sl_structural_reference: { type: ['string', 'null'] },
-      tp1_reasoning: { type: ['string', 'null'] },
-      tp2_reasoning: { type: ['string', 'null'] },
+      tp_reasoning: { type: ['string', 'null'] },
       max_entry_deviation_pips: { type: ['number', 'null'] },
       spread_estimate_pips: { type: ['number', 'null'] },
       counter_thesis_probability: { type: ['integer', 'null'] },

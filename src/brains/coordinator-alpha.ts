@@ -2772,12 +2772,10 @@ MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step b
   EURUSD example (Step B): Minimum SL = 3.0 pips. If my structural SL is at 2.8 pips, I widen to the next structural extreme that is >= 3.0 pips. I do NOT submit a 2.8 pip SL — it will be hard-blocked before execution.
   Geometry example (Step D): SL is 57 pips. My TP2 must be >= 57 pips. A TP2 of 50 pips with a 57-pip SL = 0.88:1 = not a trade.
 
-- MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1 on TP2. REASONING ORDER IS FIXED — find TP2 first, then find TP1 inside.
-  "tp2" (FIND FIRST) = Where the displacement EXHAUSTS — the structural magnet price is sprinting toward (M5 swing extreme, equal highs/lows cluster, untouched liquidity pool, or FVG fill zone). This is WHERE the sprint ends. MANDATORY. Do NOT fabricate TP2 by pointing at an M15 structural wall — name the M5 exhaustion point where the displacement energy runs out.
-  "tp1" (FIND SECOND, INSIDE TP2) = The first structural fill on the sprint path. The highest-probability level price will reach quickly between entry and TP2. Scan M5 for: a prior M5 swing already printed between entry and TP2, M5 equal highs/lows clustering on the path, or an M5 FVG fill zone between entry and TP2. MANDATORY. Must be closer to entry than TP2.
+- MICRO_INTRADAY: ONE take-profit. Minimum R:R 1.0:1.
+  "takeProfit" = Where the displacement EXHAUSTS — the structural magnet price is sprinting toward (M5 swing extreme, equal highs/lows cluster, untouched liquidity pool, or FVG fill zone). This is WHERE the sprint ends. MANDATORY. Do NOT fabricate TP by pointing at an M15 structural wall — name the M5 exhaustion point where the displacement energy runs out.
   M15 shows you the displacement narrative. M5 shows you where the sprint lands. The destination is always the M5 structural magnet.
-  tp1 must be closer to entry than tp2. TP2 R:R must be >= TP1 R:R.
-  Document the displacement trigger and the structural magnet for each level.
+  Document the displacement trigger and the structural magnet.
 
 ${entryModePromptSection}
 
@@ -3323,18 +3321,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
         if (tpPips > arena.tpPips.max + WALL_COMPARISON_EPSILON) {
           wallAdvisories.push(`[ADVISORY] TP ${tpPips.toFixed(1)}p above wall max ${arena.tpPips.max.toFixed(1)}p`);
-        }
-
-        // TP1 geometry: must be positive and must not exceed TP2.
-        // These are physical impossibilities (not style preferences) — kept as hard checks.
-        if (decision.tp1Price != null) {
-          const tp1Pips = calculatePipDistance(marketContext.symbol, decision.entry, decision.tp1Price);
-          if (tp1Pips <= 0) {
-            wallAdvisories.push(`[ADVISORY] TP1 ${tp1Pips.toFixed(1)}p is non-positive`);
-          }
-          if (tp1Pips > tpPips) {
-            wallAdvisories.push(`[ADVISORY] TP1 ${tp1Pips.toFixed(1)}p exceeds TP2 ${tpPips.toFixed(1)}p`);
-          }
         }
 
         decision.wall_violations = wallAdvisories;
@@ -5606,106 +5592,20 @@ Return PURE JSON only — all required fields from the schema in my system promp
         console.warn(`[Alpha Envelope DIAGNOSTIC] ${envelopeValidation.violations.join('; ')} (non-blocking, dual-arena is SSOT)`);
       }
 
-      // CCIP GOVERNANCE (2026-02-16): Alpha is SOLE AUTHORITY for TP placement.
-      // System NEVER computes, overrides, or fallback-calculates TP values.
-      // tp1ProbabilityCalculator call REMOVED - violated Alpha's decision authority.
-      // All TP values come directly from Alpha's LLM response.
-      let tp1Price: number | null = null;
-      let tp1Reasoning: string | null = null;
-      let tp2Price: number | null = null;
-      let tp2Reasoning: string | null = null;
+      // CCIP-2026-0527A: Single-TP architecture. Dual-TP system removed.
+      // Alpha outputs one takeProfit — where the thesis exhausts.
+      // tp1Price/tp2Price retained as null for backwards-compat with downstream interfaces.
+      const tp1Price: number | null = null;
+      const tp1Reasoning: string | null = null;
+      const tp2Price: number | null = null;
+      const tp2Reasoning: string | null = null;
 
-      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — MICRO_INTRADAY uses TP1 + TP2.
-      {
-        const alphaTP1 = parsed.tp1;
-        const minTP1RR = getMinTP1RRForStyle(tradeStyle);
-        if (alphaTP1 != null && Number.isFinite(alphaTP1)) {
-          tp1Price = alphaTP1;
-          const tp1Pips = calculatePipDistance(symbol, entry, alphaTP1);
-          const tp1Distance = Math.abs(alphaTP1 - entry);
-          const tp1RR = slDistance > 0 ? tp1Distance / slDistance : 0;
-          // CCIP-2026-0511B: Prefer Alpha's own M5-anchored reasoning. The generic
-          // pip/RR fallback only engages when Alpha fails to emit tp1_reasoning —
-          // the schema now requires it, so the fallback is a safety net for older
-          // model responses or schema drift.
-          const alphaTp1Reasoning = typeof (parsed as Record<string, unknown>).tp1_reasoning === 'string'
-            ? ((parsed as Record<string, unknown>).tp1_reasoning as string).trim()
-            : (typeof (parsed as { answer_sheet?: Record<string, unknown> }).answer_sheet?.tp1_reasoning === 'string'
-                ? (((parsed as { answer_sheet: Record<string, unknown> }).answer_sheet.tp1_reasoning as string).trim())
-                : '');
-          tp1Reasoning = alphaTp1Reasoning
-            ? alphaTp1Reasoning
-            : `Alpha conservative target at ${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1 R:R)`;
-          console.log(`[Alpha TP Authority] ${tradeStyle}: TP1=${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1) | TP2=${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1)`);
+      // Extract single TP reasoning from Alpha's response
+      const tpReasoning = typeof (parsed as Record<string, unknown>).tp_reasoning === 'string'
+        ? ((parsed as Record<string, unknown>).tp_reasoning as string).trim()
+        : `Alpha target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
 
-          // CCIP (2026-02-17): TP1 R:R check is DIAGNOSTIC ONLY.
-          // SSOT: Dual-arena wall check in coordinate() is the single validation authority for TP1 pip distance.
-          // The R:R hard block was removed because noise-floor-inflated SL values made the 1.5:1 minimum
-          // structurally impossible -- TP1 (a partial-profit target) was required to exceed TP2.
-          if (minTP1RR != null && tp1RR < minTP1RR) {
-            console.warn(`[Alpha TP1 DIAGNOSTIC] TP1 R:R ${tp1RR.toFixed(2)}:1 below ${tradeStyle} advisory ${minTP1RR.toFixed(1)}:1 (TP1=${tp1Pips.toFixed(1)} pips, SL=${slPips.toFixed(1)} pips) — NOT blocking, dual-arena wall is SSOT`);
-          }
-        } else {
-          // CCIP-2026-0322A: Hard block — no TP1 for a dual-TP style is a malformed response.
-          // The midpoint fallback was removed because it silently created TP1 = ~50% of TP2,
-          // which could equal TP2 numerically after rounding and produced misleading audit data.
-          // SSOT: coordinator-alpha.ts is the sole rejection authority for malformed Alpha responses.
-          console.error(
-            `[Alpha TP1 HARD BLOCK] ${tradeStyle} response missing mandatory "tp1" field. ` +
-            `This is a malformed LLM response — TP1 is required for all dual-TP styles. ` +
-            `Returning NO_TRADE to prevent a structurally incomplete trade execution. ` +
-            `Symbol: ${symbol}. CCIP-2026-0322A.`
-          );
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: currentPrice,
-            stopLoss: currentPrice,
-            takeProfit: currentPrice,
-            confidence: Math.max(10, Math.min(100, tradeConfidence)),
-            reasoning: `TP1_MISSING_HARD_BLOCK: ${tradeStyle} response did not include a "tp1" field. ` +
-              `A dual-TP trade cannot execute without both TP1 and TP2. Alpha will re-evaluate next scan.`,
-            block_reason: 'TP1_MISSING',
-            omega_summary: '',
-            risk_pct: 0,
-            narrativeValidation: narrativeValidation || undefined,
-            decision_origin: 'ALPHA_BLOCKED_COMPLIANCE' as const,
-            alpha_original_decision: {
-              action: action as 'BUY' | 'SELL',
-              entry: entry ?? currentPrice,
-              stopLoss: stopLoss ?? currentPrice,
-              takeProfit: takeProfit ?? currentPrice,
-              confidence: tradeConfidenceContinuous,
-              entry_mode: entryMode,
-              reasoning: parsed.reasoning,
-            },
-          };
-        }
-        tp2Price = takeProfit;
-        // CCIP-2026-0511B: Prefer Alpha's own M5-anchored TP2 reasoning.
-        const alphaTp2Reasoning = typeof (parsed as Record<string, unknown>).tp2_reasoning === 'string'
-          ? ((parsed as Record<string, unknown>).tp2_reasoning as string).trim()
-          : (typeof (parsed as { answer_sheet?: Record<string, unknown> }).answer_sheet?.tp2_reasoning === 'string'
-              ? (((parsed as { answer_sheet: Record<string, unknown> }).answer_sheet.tp2_reasoning as string).trim())
-              : '');
-        tp2Reasoning = alphaTp2Reasoning
-          ? alphaTp2Reasoning
-          : `Alpha full target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
-
-        // CCIP-2026-0418A: When TP1 and TP2 are identical, the market only offered one
-        // structural level — collapse to single-TP rather than blocking.
-        // Rule: if market can only give TP1, TP2 is not required.
-        //       if market gives TP2, TP1 is mandatory (and must differ from TP2).
-        // Collapsing to single-TP allows the trade to execute on the one level Alpha found.
-        if (tp1Price != null && tp2Price != null && Math.abs(tp1Price - tp2Price) < 0.0001) {
-          console.warn(
-            `[Alpha TP1=TP2 COLLAPSE] ${tradeStyle} produced identical TP1 and TP2 values (${tp1Price}). ` +
-            `Market only offered one structural level — collapsing to single-TP. TP2 dropped. Symbol: ${symbol}.`
-          );
-          tp2Price = null;
-          tp2Reasoning = null;
-        }
-      }
+      console.log(`[Alpha TP Authority] ${tradeStyle}: TP=${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1)`);
 
       // CCIP-2026-0324G: trader_statement extraction and word count enforcement.
       // The output schema requires 80+ words. This post-LLM check extracts the field,
@@ -5828,16 +5728,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
           if (ROUND_NUMBER_RE.test(val)) advisories.push(`${key}_references_round_number`);
         }
 
-        // TP1 distance > M5 leg length ⇒ asking the next leg to do current-leg work.
-        if (tp1Price != null && tpM5LegLengthPips != null) {
-          const tp1PipsFromEntry = calculatePipDistance(symbol, entry, tp1Price);
-          if (tp1PipsFromEntry > tpM5LegLengthPips * 1.05) {
-            advisories.push(`tp1_distance_${tp1PipsFromEntry.toFixed(1)}p_exceeds_m5_leg_${tpM5LegLengthPips.toFixed(1)}p`);
-          }
-        }
-
-        if (tp2Price != null && (!tp2M5AnchorReference || tp2M5AnchorPrice == null || !tp2SequentialLegJustification)) {
-          advisories.push('tp2_present_but_m5_anchor_or_sequential_justification_missing');
+        if (takeProfit != null && (!tp2M5AnchorReference || tp2M5AnchorPrice == null || !tp2SequentialLegJustification)) {
+          advisories.push('tp_present_but_m5_anchor_or_sequential_justification_missing');
         }
 
         if (advisories.length > 0) {
@@ -5870,11 +5762,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
         entry,
         stopLoss,
         takeProfit,
-        tp1Price,
-        tp1Confidence: tp1Price != null ? 80 : null,
-        tp1Reasoning,
-        tp2Price,
-        tp2Reasoning,
+        tp1Price: null,
+        tp1Confidence: null,
+        tp1Reasoning: null,
+        tp2Price: null,
+        tp2Reasoning: tpReasoning,
         confidence: Math.round(Math.min(100, Math.max(0, adjustedConfidence))),
         reasoning: parsed.reasoning || 'No reasoning provided',
         omega_summary: '',

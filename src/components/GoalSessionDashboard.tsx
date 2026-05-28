@@ -8,8 +8,6 @@ import { TradingMonitorStack } from './TradingMonitorStack';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { TradeClosedActionDialog } from './TradeClosedActionDialog';
 import { NoTradesFoundDialog } from './NoTradesFoundDialog';
-import { TP1DecisionModal } from './TP1DecisionModal';
-import type { TP1DecisionData } from './TP1DecisionModal';
 import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
 import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
@@ -50,9 +48,6 @@ export const GoalSessionDashboard: React.FC = () => {
   const [isClosingSession, setIsClosingSession] = useState(false);
   const [closureTimeoutId, setClosureTimeoutId] = useState<NodeJS.Timeout | null>(null);
   const [processedTradeClosures, setProcessedTradeClosures] = useState<Set<string>>(new Set());
-  const [showTP1Modal, setShowTP1Modal] = useState(false);
-  const [tp1DecisionData, setTP1DecisionData] = useState<TP1DecisionData | null>(null);
-  const processedTP1Hits = useRef<Set<string>>(new Set());
   // CCIP-SSOT (2026-03-02 TRADE-CLOSE-MODAL-SSOT): Guard ref so the fallback
   // condition check on line ~176 does not crash. GoalSessionDashboard no longer
   // owns trade-close modal display — RealtimeTradeNotificationListener is the
@@ -227,160 +222,7 @@ export const GoalSessionDashboard: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, activeSession?.sessionId]);
 
-  // CCIP-FIX (2026-03-02 SUBSCRIPTION-CHURN-SSOT + TP1-COLUMN-SSOT):
-  // 1. Deps changed from [user, activeSession] to stable primitives to prevent 3-second churn.
-  // 2. Column names corrected to match DB SSOT schema:
-  //    - unrealized_pnl  -> current_pnl    (SSOT: universal PNL column for open/closed trades)
-  //    - take_profit_2   -> tp2_price       (SSOT: dual-TP system column name from migration 20260103072555)
-  useEffect(() => {
-    if (!user || !activeSession) return;
 
-    const sessionId = activeSession.sessionId;
-    const goalAmount = activeSession.config.goalAmount;
-
-    const tp1Channel = supabase
-      .channel(`tp1-hits-${sessionId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'goal_session_trades',
-          filter: `goal_session_id=eq.${sessionId}`
-        },
-        (payload) => {
-          const tp1JustHit =
-            payload.new?.tp1_hit === true &&
-            payload.old?.tp1_hit === false &&
-            payload.new?.status === 'open';
-
-          if (!tp1JustHit) return;
-
-          // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform — every trade is
-          // dual-TP MICRO_INTRADAY. Legacy single-TP rows from before consolidation may
-          // still exist in the DB with tp2_price = NULL; suppress the TP1 modal for those
-          // since the trade is closing on its single TP without a TP2 decision point.
-          const tp2Price = payload.new.tp2_price != null ? parseFloat(payload.new.tp2_price) : null;
-          if (tp2Price === null) {
-            console.log('[GoalSessionDashboard] TP1 hit on legacy single-TP trade — suppressing TP1 modal, trade is closing normally');
-            return;
-          }
-
-          const tradeId = payload.new.id as string;
-          if (processedTP1Hits.current.has(tradeId)) return;
-          processedTP1Hits.current.add(tradeId);
-
-          console.log('[GoalSessionDashboard] TP1 hit detected for dual-TP trade', tradeId);
-
-          // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Mark modal as shown in DB immediately.
-          // This prevents checkMissedTP1 from re-showing the modal after a page reload.
-          supabase.rpc('mark_tp1_modal_shown', {
-            p_trade_id: tradeId,
-            p_user_id: user!.id,
-          }).then(({ data: wasFirstShow, error }) => {
-            if (error) console.warn('[GoalSessionDashboard] mark_tp1_modal_shown failed (non-critical):', error.message);
-            else if (!wasFirstShow) {
-              console.log('[GoalSessionDashboard] TP1 modal already shown for trade', tradeId, '— suppressing duplicate');
-              processedTP1Hits.current.add(tradeId);
-              return;
-            }
-          });
-
-          const currentProfit = parseFloat(payload.new.current_pnl ?? '0') ||
-            parseFloat(payload.new.profit_loss ?? '0') || 0;
-
-          setTP1DecisionData({
-            tradeId,
-            sessionId,
-            symbol: payload.new.symbol,
-            direction: payload.new.direction,
-            tp1Price: parseFloat(payload.new.take_profit ?? '0'),
-            tp2Price,
-            currentProfit,
-            goalAmount,
-          });
-          setShowTP1Modal(true);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(tp1Channel);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, activeSession?.sessionId]);
-
-  // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Missed-event guard for TP1 modal.
-  // If the component mounts AFTER the Realtime tp1_hit event was already emitted
-  // (e.g. page reload while trade is active between TP1 and TP2), the subscription
-  // above will never fire. This effect queries on mount and whenever the session
-  // changes to catch any open trade that already has tp1_hit=true but has not yet
-  // been shown the TP1 decision modal.
-  useEffect(() => {
-    if (!user || !activeSession) return;
-
-    let cancelled = false;
-
-    const checkMissedTP1 = async () => {
-      // CCIP-FIX (2026-03-02 TP1-COLUMN-SSOT): Column names corrected to match DB SSOT schema:
-      //   take_profit_2  -> tp2_price    (dual-TP SSOT, migration 20260103072555)
-      //   unrealized_pnl -> current_pnl  (universal PNL SSOT, migration 20260114001122)
-      //
-      // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Added .eq('tp1_modal_shown', false).
-      // Previously the query returned any tp1_hit=true open trade — including ones where the
-      // modal was already shown and dismissed. After a page reload the modal would re-appear.
-      // tp1_modal_shown is set to true by mark_tp1_modal_shown() the moment the modal opens,
-      // so this query only returns trades that genuinely missed the modal event.
-      const { data: openTP1Trade } = await supabase
-        .from('goal_session_trades')
-        .select('id, symbol, direction, take_profit, tp2_price, current_pnl, profit_loss')
-        .eq('goal_session_id', activeSession.sessionId)
-        .eq('status', 'open')
-        .eq('tp1_hit', true)
-        .eq('tp1_modal_shown', false)
-        .maybeSingle();
-
-      if (cancelled || !openTP1Trade) return;
-      if (processedTP1Hits.current.has(openTP1Trade.id)) return;
-
-      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Suppress TP1 modal for legacy single-TP rows.
-      const recoveredTP2Price = openTP1Trade.tp2_price != null ? parseFloat(openTP1Trade.tp2_price) : null;
-      if (recoveredTP2Price === null) {
-        console.log('[GoalSessionDashboard] Recovered TP1 event is for legacy single-TP trade — suppressing modal');
-        return;
-      }
-
-      processedTP1Hits.current.add(openTP1Trade.id);
-      console.log('[GoalSessionDashboard] Recovered missed TP1 modal for dual-TP trade', openTP1Trade.id);
-
-      // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Mark modal as shown in DB before displaying.
-      supabase.rpc('mark_tp1_modal_shown', {
-        p_trade_id: openTP1Trade.id,
-        p_user_id: user!.id,
-      }).then(({ error }) => {
-        if (error) console.warn('[GoalSessionDashboard] mark_tp1_modal_shown (recovery) failed (non-critical):', error.message);
-      });
-
-      const currentProfit =
-        parseFloat(openTP1Trade.current_pnl ?? '0') ||
-        parseFloat(openTP1Trade.profit_loss ?? '0') || 0;
-
-      setTP1DecisionData({
-        tradeId: openTP1Trade.id,
-        sessionId: activeSession.sessionId,
-        symbol: openTP1Trade.symbol,
-        direction: openTP1Trade.direction,
-        tp1Price: parseFloat(openTP1Trade.take_profit ?? '0'),
-        tp2Price: recoveredTP2Price,
-        currentProfit,
-        goalAmount: activeSession.config.goalAmount,
-      });
-      setShowTP1Modal(true);
-    };
-
-    checkMissedTP1();
-    return () => { cancelled = true; };
-  }, [user, activeSession?.sessionId]);
 
   useEffect(() => {
     if (!activeSession) {
@@ -785,40 +627,6 @@ export const GoalSessionDashboard: React.FC = () => {
     navigate('/ai-trade?tab=achievements');
   };
 
-  const handleTP1ContinueToTP2 = async () => {
-    console.log('[GoalSessionDashboard] TP1 decision: continue to TP2');
-    if (tp1DecisionData && user) {
-      await supabase.from('tp1_decision_log').insert({
-        user_id: user.id,
-        trade_id: tp1DecisionData.tradeId,
-        session_id: tp1DecisionData.sessionId,
-        decision: 'continue_to_tp2',
-        auto_decided: false,
-      }).then(({ error }) => {
-        if (error) console.warn('[GoalSessionDashboard] tp1_decision_log insert failed (non-critical):', error.message);
-      });
-    }
-    setShowTP1Modal(false);
-    setTP1DecisionData(null);
-  };
-
-  const handleTP1CloseSession = async () => {
-    console.log('[GoalSessionDashboard] TP1 decision: close session now');
-    if (tp1DecisionData && user) {
-      await supabase.from('tp1_decision_log').insert({
-        user_id: user.id,
-        trade_id: tp1DecisionData.tradeId,
-        session_id: tp1DecisionData.sessionId,
-        decision: 'close_session',
-        auto_decided: false,
-      }).then(({ error }) => {
-        if (error) console.warn('[GoalSessionDashboard] tp1_decision_log insert failed (non-critical):', error.message);
-      });
-    }
-    setShowTP1Modal(false);
-    setTP1DecisionData(null);
-    await handleCloseForNow();
-  };
 
 
   const handleStopSession = async () => {
@@ -2046,12 +1854,6 @@ export const GoalSessionDashboard: React.FC = () => {
         />
       )}
 
-      <TP1DecisionModal
-        isOpen={showTP1Modal}
-        data={tp1DecisionData}
-        onContinueToTP2={handleTP1ContinueToTP2}
-        onCloseSession={handleTP1CloseSession}
-      />
     </div>
   );
 };

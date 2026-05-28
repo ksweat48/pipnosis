@@ -224,14 +224,7 @@ class RealtimeSLTPMonitor {
       return;
     }
 
-    // Check if it's a TP milestone (TP1)
-    if ('milestone' in decision && decision.milestone === 'tp1') {
-      console.log(`[RealtimeSLTPMonitor] 🎯 TP1 HIT: ${position.symbol} @ ${decision.price.toFixed(5)}`);
-      await this.handleTP1Hit(position, decision.price);
-      return;
-    }
-
-    // It's a closure decision (SL, TP2, or legacy TP)
+    // It's a closure decision (SL or TP)
     if ('shouldClose' in decision && decision.shouldClose) {
       // SSOT AUTHORITY: Try to acquire database-backed lock FIRST
       // This prevents multiple monitoring systems from processing the same trade
@@ -247,8 +240,7 @@ class RealtimeSLTPMonitor {
 
       try {
         const icon = decision.reason === 'stop_loss' ? '🛑' : '🎯';
-        const reasonText = decision.reason === 'stop_loss' ? 'STOP LOSS' :
-                           decision.reason === 'take_profit_2' ? 'TP2' : 'TAKE PROFIT';
+        const reasonText = decision.reason === 'stop_loss' ? 'STOP LOSS' : 'TAKE PROFIT';
 
         console.log(`[RealtimeSLTPMonitor] ${icon} ${reasonText} DETECTED: ${position.symbol} @ ${decision.price.toFixed(5)}`);
 
@@ -320,215 +312,9 @@ class RealtimeSLTPMonitor {
   }
 
   /**
-   * Handle TP1 hit: Mark TP1 as hit, partial-close per `partial_close_pct` (default 50%),
-   * auto-move SL to breakeven+ATR buffer, keep monitoring runner to TP2.
-   * CCIP-2026-0515A: lot_size is reduced to (1 - partial_close_pct) of original. Scalp
-   * trades skip the partial close. The DB trigger and authority both perform the
-   * reduction atomically; whoever wins the optimistic lock writes the new lot_size.
-   * SSOT: Delegates to authority for all database updates
-   *
-   * CCIP 2026-03-02: ATR fallback added — SL move is now GUARANTEED after TP1.
-   * Previous code silently skipped when ATR was null; that left trades unprotected.
-   *
-   * CCIP 2026-03-04 TP1-ONCE-PER-TRADE: markTP1Hit() uses an optimistic DB lock
-   * (.eq('tp1_hit', false)) so only one monitor wins the write race. When
-   * already_processed=true, all downstream logic (SL move, notification) is skipped.
-   * A 'tp1_milestone' notification (not 'take_profit_hit') is sent so the
-   * realtime-trade-notification-listener does NOT misroute it as a trade closure modal.
+   * CCIP-2026-0527A: handleTP1Hit and handleTP2Hit removed. Single-TP architecture.
+   * Trades close at take_profit via the unified closure path above.
    */
-  private async handleTP1Hit(position: MonitoredPosition, currentPrice: number): Promise<void> {
-    try {
-      console.log(`[RealtimeSLTPMonitor] TP1 HIT @ ${currentPrice.toFixed(5)} - marking flag, lot size unchanged`);
-
-      // SSOT: Use authority to mark TP1 — optimistic lock ensures only one monitor wins
-      const result = await positionMonitoringAuthority.markTP1Hit(position.id, position.user_id, currentPrice);
-
-      if (result.already_processed) {
-        console.log(`[RealtimeSLTPMonitor] TP1 already processed for ${position.id} — skipping duplicate`);
-        return;
-      }
-
-      if (!result.success) {
-        console.error(`[RealtimeSLTPMonitor] Failed to mark TP1:`, result.error);
-        return;
-      }
-
-      // Update position in memory (flag only, NOT size)
-      position.tp1_hit = true;
-
-      // ── BACKUP BE SL FAILSAFE ──────────────────────────────────────────────
-      // PRIMARY authority is the database trigger (check_and_close_positions_on_price_update).
-      // It moves the SL atomically in the same UPDATE as tp1_hit=true, on every price tick.
-      // This TypeScript path is a BACKUP that only fires if the trigger has NOT yet moved the
-      // SL (e.g. the tick that triggered TP1 arrived before the trigger fired, or realtime
-      // prices are being inserted at low frequency for this symbol).
-      //
-      // CCIP-2026-BE001: Re-fetch tp1_breakeven_price from the DB immediately after markTP1Hit
-      // succeeds to check if the trigger already handled it. In-memory position.tp1_breakeven_price
-      // is always null at this point (the in-memory copy predates the trigger's UPDATE).
-      // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
-      // MICRO_INTRADAY ALWAYS moves SL to break-even on TP1 hit (TP1 = fast scalp partial,
-      // TP2 = full intraday target — protect P/L runner via BE on partial fill).
-      void position.requested_style;
-      const isScalp = false;
-
-      if (isScalp) {
-        console.log(`[RealtimeSLTPMonitor] (legacy SCALP path retained but unreachable)`);
-      } else {
-        const { data: freshTrade } = await import('@/lib/supabase').then(m =>
-          m.supabase
-            .from('goal_session_trades')
-            .select('tp1_breakeven_price, stop_loss, sl_moved_to_breakeven_at')
-            .eq('id', position.id)
-            .maybeSingle()
-        );
-
-        if (freshTrade?.tp1_breakeven_price != null || freshTrade?.sl_moved_to_breakeven_at != null) {
-          // Trigger already handled it — sync in-memory state and skip TS BE move
-          position.stop_loss = freshTrade.stop_loss;
-          position.tp1_breakeven_price = freshTrade.tp1_breakeven_price;
-          console.log(`[RealtimeSLTPMonitor] BE SL already set by trigger — skipping TS backup path`);
-        } else {
-          // Trigger has NOT fired yet — execute the backup BE SL move
-          let atr = await this.fetchATR(position.symbol);
-
-          let isFallbackATR = false;
-          if (atr === null) {
-            atr = this.getFallbackATR(position.symbol);
-            isFallbackATR = true;
-            console.warn(
-              `[RealtimeSLTPMonitor] ATR unavailable for ${position.symbol} — ` +
-              `using fallback ATR=${atr.toFixed(5)} (TS backup path, trigger did not fire).`
-            );
-          }
-
-          const slResult = await positionMonitoringAuthority.autoMoveSLAfterTP1(
-            position.id,
-            position.user_id,
-            position.direction,
-            position.entry_price,
-            atr,
-            isFallbackATR,
-            position.requested_style
-          );
-
-          if (slResult.skipped === 'scalp') {
-            console.log(`[RealtimeSLTPMonitor] BE skipped by authority (SCALP guard)`);
-          } else if (slResult.success && slResult.newSL !== undefined) {
-            position.stop_loss = slResult.newSL;
-            position.tp1_breakeven_price = slResult.newSL;
-            console.log(`[RealtimeSLTPMonitor] TS backup: SL moved to ${slResult.newSL.toFixed(5)} after TP1 (ATR=${atr.toFixed(5)})`);
-          } else {
-            console.error(
-              `[RealtimeSLTPMonitor] CRITICAL: TS backup BE SL move failed for trade ${position.id}:`,
-              slResult.error
-            );
-          }
-        }
-      }
-
-      // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Send 'tp1_milestone' notification.
-      // Previously 'take_profit_hit' was sent here, which the realtime-trade-notification-listener
-      // routed to fetchAndShowTradeClosedModal() for a still-open trade — producing a blank modal.
-      // 'tp1_milestone' is handled by the listener as audio-only (no modal).
-      // The TP1 Decision Modal is owned by GoalSessionDashboard's Realtime subscription on tp1_hit.
-      await notificationCoordinator.send({
-        userId: position.user_id,
-        type: 'tp1_milestone',
-        title: `TP1 Hit: ${position.symbol}`,
-        message: `First take profit level reached at ${currentPrice.toFixed(5)}. Trade is now protected and running for TP2.`,
-        tradeId: position.id,
-        sessionId: position.goal_session_id,
-        priority: 'high',
-        metadata: {
-          symbol: position.symbol,
-          tp1_price: currentPrice,
-          tp_level: 'tp1',
-          milestone_only: true,
-        },
-      }).catch(err => {
-        console.warn(`[RealtimeSLTPMonitor] TP1 milestone notification failed (non-blocking):`, err);
-      });
-
-      // CCIP-2026-0320D: Push notification — user receives device alert when TP1 is hit.
-      // PnL is computed at TP1 price using the trade's lot size (SSOT: calculatePnL authority).
-      // newSL reflects the post-auto-move stop loss already written to position in memory above.
-      const lotSizeForPnL = position.lot_size ?? position.position_size;
-      const pnlAtTP1 = calculatePnL(position.direction, position.entry_price, currentPrice, lotSizeForPnL, position.symbol);
-
-      pushNotificationDispatcher.sendTP1MilestoneAlert({
-        userId: position.user_id,
-        tradeId: position.id,
-        symbol: position.symbol,
-        direction: position.direction,
-        tp1Price: currentPrice,
-        newSL: position.stop_loss,
-        pnlAtTP1,
-      }).catch(err => {
-        console.warn(`[RealtimeSLTPMonitor] TP1 push notification failed (non-blocking):`, err);
-      });
-
-      // Keep monitoring for TP2 - don't remove from monitoring
-      console.log(`[RealtimeSLTPMonitor] TP1 complete. Full position still active. Monitoring continues for TP2...`);
-
-    } catch (error) {
-      console.error(`[RealtimeSLTPMonitor] Error handling TP1:`, error);
-    }
-  }
-
-  /**
-   * Handle TP2 hit: Close full position
-   * CRITICAL: Position size was never reduced at TP1, so this closes the complete position
-   * SSOT: Delegates to authority for milestone marking
-   * NOTE: This method is now unused as TP2 is handled directly in checkPositionSLTP
-   * Keeping for backward compatibility during transition
-   */
-  private async handleTP2Hit(position: MonitoredPosition, currentPrice: number): Promise<void> {
-    // SSOT AUTHORITY: Try to acquire database-backed lock FIRST
-    // This prevents multiple monitoring systems from processing the same trade
-    const lockAcquired = await tradeProcessingLockService.acquireLock(
-      position.id,
-      'RealtimeSLTPMonitor'
-    );
-
-    if (!lockAcquired) {
-      console.log(`[RealtimeSLTPMonitor] Skipping TP2 closure for trade ${position.id} - locked by another system`);
-      return;
-    }
-
-    try {
-      console.log(`[RealtimeSLTPMonitor] TP2 HIT @ ${currentPrice.toFixed(5)} - closing full position...`);
-
-      // SSOT: Use authority to mark TP2
-      const result = await positionMonitoringAuthority.markTP2Hit(position.id, position.user_id);
-
-      if (!result.success) {
-        console.error(`[RealtimeSLTPMonitor] Failed to mark TP2:`, result.error);
-      }
-
-      // Remove from monitoring - full close
-      this.removePosition(position.id, position.symbol);
-
-      // Close the full trade via coordinator
-      await tradeClosureCoordinator.closeTrade({
-        tradeId: position.id,
-        currentPrice,
-        closeReason: 'take_profit_2',
-        userId: position.user_id,
-        goalSessionId: position.goal_session_id,
-        forceClose: false,
-      }).catch(error => {
-        console.error(`[RealtimeSLTPMonitor] Failed to close at TP2:`, error);
-      });
-
-      console.log(`[RealtimeSLTPMonitor] TP2 closure complete!`);
-    } catch (error) {
-      console.error(`[RealtimeSLTPMonitor] Error handling TP2:`, error);
-    } finally {
-      // SSOT AUTHORITY: Release lock
-      await tradeProcessingLockService.releaseLock(position.id);
-    }
-  }
 
   private removePosition(tradeId: string, symbol: string): void {
     const positions = this.openPositions.get(symbol);

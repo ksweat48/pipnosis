@@ -30,6 +30,8 @@ export type CloseReason =
   | 'breakeven_stop'
   | 'system_close';
 
+// NOTE: take_profit_1 and take_profit_2 kept in type for backwards-compat with historical trades in DB
+
 /**
  * Runtime array of all valid CloseReason values.
  * SSOT: This must mirror the CloseReason union above AND the DB CHECK constraint.
@@ -78,8 +80,8 @@ export const SYSTEM_CLOSE_REASONS: CloseReason[] = [
 export const MILESTONE_CLOSE_REASONS: CloseReason[] = [
   'stop_loss',
   'take_profit',
-  'take_profit_1',
-  'take_profit_2',
+  'take_profit_1',  // historical only
+  'take_profit_2',  // historical only
   'trailing_stop'
 ];
 
@@ -143,7 +145,7 @@ export interface GoalSessionTrade {
   regime_bucket: string | null;
   risk_dollars: number | null;
 
-  // TP1/TP2 split tracking fields (added 2026-02-21)
+  // Legacy TP1/TP2 fields — retained for historical data reads only. New trades use single TP.
   tp1_hit?: boolean | null;
   tp1_hit_at?: string | null;
   tp2_hit?: boolean | null;

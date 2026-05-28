@@ -269,27 +269,6 @@ class CoreValidationGate {
         };
       }
 
-      if (tp1Price !== undefined && tp1Price !== null) {
-        if (tp1Price <= entryPrice) {
-          return {
-            passed: false,
-            severity: 'FATAL',
-            reason: `TP1 on wrong side for BUY: Entry=${entryPrice.toFixed(5)}, TP1=${tp1Price.toFixed(5)} (TP1 must be above entry)`,
-            errorType: 'GEOMETRY_INVALID'
-          };
-        }
-      }
-
-      if (tp2Price !== undefined && tp2Price !== null) {
-        if (tp2Price <= entryPrice) {
-          return {
-            passed: false,
-            severity: 'FATAL',
-            reason: `TP2 on wrong side for BUY: Entry=${entryPrice.toFixed(5)}, TP2=${tp2Price.toFixed(5)} (TP2 must be above entry)`,
-            errorType: 'GEOMETRY_INVALID'
-          };
-        }
-      }
     } else {
       // SELL trades: SL above entry, TP below entry
       if (stopLoss <= entryPrice) {
@@ -308,28 +287,6 @@ class CoreValidationGate {
           reason: `TP on wrong side for SELL: Entry=${entryPrice.toFixed(5)}, TP=${takeProfit.toFixed(5)} (TP must be below entry)`,
           errorType: 'GEOMETRY_INVALID'
         };
-      }
-
-      if (tp1Price !== undefined && tp1Price !== null) {
-        if (tp1Price >= entryPrice) {
-          return {
-            passed: false,
-            severity: 'FATAL',
-            reason: `TP1 on wrong side for SELL: Entry=${entryPrice.toFixed(5)}, TP1=${tp1Price.toFixed(5)} (TP1 must be below entry)`,
-            errorType: 'GEOMETRY_INVALID'
-          };
-        }
-      }
-
-      if (tp2Price !== undefined && tp2Price !== null) {
-        if (tp2Price >= entryPrice) {
-          return {
-            passed: false,
-            severity: 'FATAL',
-            reason: `TP2 on wrong side for SELL: Entry=${entryPrice.toFixed(5)}, TP2=${tp2Price.toFixed(5)} (TP2 must be below entry)`,
-            errorType: 'GEOMETRY_INVALID'
-          };
-        }
       }
     }
 

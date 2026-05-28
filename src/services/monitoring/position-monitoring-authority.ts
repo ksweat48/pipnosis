@@ -257,47 +257,7 @@ class PositionMonitoringAuthority {
       };
     }
 
-    // PRIORITY 2: Check Dual TP System (if configured)
-    const hasDualTP = position.tp1_price && position.tp2_price;
-
-    if (hasDualTP) {
-      // CCIP-2026-0515A: TP1 partial close (default 50%, per-trade configurable).
-      // Authority writes the partial close (lot_size reduction + BE SL) inside markTP1Hit
-      // and the DB trigger. Frontend monitor returns the milestone for notification flow.
-      const shouldHitTP1 = !position.tp1_hit && (position.direction === 'buy'
-        ? price >= position.tp1_price!
-        : price <= position.tp1_price!);
-
-      if (shouldHitTP1) {
-        return {
-          milestone: 'tp1',
-          price,
-          shouldContinue: true, // Keep monitoring for TP2 with full position (100%)
-        };
-      }
-
-      // Check TP2 (second milestone - FULL CLOSE at 100%)
-      // TP2 closes the entire position (not just remaining 30%)
-      const shouldHitTP2 = position.tp1_hit && !position.tp2_hit && (position.direction === 'buy'
-        ? price >= position.tp2_price!
-        : price <= position.tp2_price!);
-
-      if (shouldHitTP2) {
-        return {
-          shouldClose: true,
-          reason: 'take_profit_2',
-          price,
-          metadata: {
-            milestone: 'tp2',
-          },
-        };
-      }
-
-      // Neither TP1 nor TP2 triggered
-      return null;
-    }
-
-    // PRIORITY 3: Legacy Single TP System
+    // PRIORITY 2: Single TP check (CCIP-2026-0527A: dual-TP removed)
     const shouldCloseAtTakeProfit = position.direction === 'buy'
       ? price >= position.take_profit
       : price <= position.take_profit;

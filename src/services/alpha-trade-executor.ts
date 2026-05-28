@@ -139,16 +139,9 @@ function buildExpectedOutcomeFromDecision(
     : 0;
   const rr = slPips > 0 ? (tpPips / slPips).toFixed(1) : 'N/A';
 
-  const tp1 = decision.tp1Price;
-  const tp2 = decision.tp2Price ?? takeProfit;
-
   let plan = `Entry: ${entryPrice.toFixed(pipInfo.precision)} | SL: ${stopLoss.toFixed(pipInfo.precision)} (${slPips} pips risk)`;
 
-  if (tp1 && tp2 && tp1 !== tp2) {
-    const tp1Pips = Math.round(Math.abs(tp1 - entryPrice) / pipInfo.pipSize);
-    const tp2Pips = Math.round(Math.abs(tp2 - entryPrice) / pipInfo.pipSize);
-    plan += ` | TP1: ${tp1.toFixed(pipInfo.precision)} (${tp1Pips}p) → TP2: ${tp2.toFixed(pipInfo.precision)} (${tp2Pips}p) | R:R ${rr}:1`;
-  } else if (takeProfit > 0) {
+  if (takeProfit > 0) {
     plan += ` | TP: ${takeProfit.toFixed(pipInfo.precision)} (${tpPips} pips) | R:R ${rr}:1`;
   }
 
@@ -249,8 +242,6 @@ class AlphaTradeExecutor {
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
         takeProfit: decision.takeProfit,
-        tp1Price: decision.tp1Price,
-        tp2Price: decision.tp2Price
       },
       { snapshotTimestamp },
       userId
@@ -1429,9 +1420,6 @@ class AlphaTradeExecutor {
         // collapsing every trade to the midpoint (65 / 75 / 88).
         confidence: (decision as any).confidence_continuous ?? decision.confidence,
         confidenceTier: (decision as any).confidence_tier ?? null,
-        tp1Price: decision.tp1Price,
-        tp2Price: decision.tp2Price,
-        tp1Confidence: decision.tp1Confidence,
         thesis: decision.thesis,
         sessionId
       }
@@ -1840,9 +1828,6 @@ class AlphaTradeExecutor {
         entryPrice,
         stopLoss: decision.stopLoss,
         takeProfit: decision.takeProfit,
-        tp1: decision.tp1Price,
-        tp2: decision.tp2Price,
-        tp1Confidence: decision.tp1Confidence,
         lotSize,
         sessionId,
       }
@@ -1945,13 +1930,13 @@ class AlphaTradeExecutor {
       };
     }
 
-    const resolvedTakeProfit = decision.tp2Price ?? decision.takeProfit;
+    const resolvedTakeProfit = decision.takeProfit;
     if (!Number.isFinite(resolvedTakeProfit) || resolvedTakeProfit <= 0) {
       logger.error(
         LogCategory.GOVERNANCE,
         '[AlphaTradeExecutor] ALPHA_AUTHORITY_VIOLATION: takeProfit is missing or invalid — monitored intent BLOCKED. ' +
         'Alpha must always provide takeProfit. No fallback is permitted. CCIP-2026-0319B.',
-        { symbol: decision.symbol, takeProfit: decision.takeProfit, tp2Price: decision.tp2Price, action: decision.action }
+        { symbol: decision.symbol, takeProfit: decision.takeProfit, action: decision.action }
       );
       return {
         success: false,
@@ -2076,8 +2061,8 @@ class AlphaTradeExecutor {
         // or substitute them. The entry monitor reads these columns directly.
         alpha_stop_loss: decision.stopLoss,
         alpha_take_profit: resolvedTakeProfit,
-        alpha_tp1_price: decision.tp1Price ?? null,
-        alpha_tp2_price: decision.tp2Price ?? null,
+        alpha_tp1_price: null,
+        alpha_tp2_price: null,
         invalidation_price: decision.stopLoss,
         zone_source: zoneSource
       })
@@ -2104,8 +2089,6 @@ class AlphaTradeExecutor {
         intentId: intent.id,
         alpha_stop_loss: decision.stopLoss,
         alpha_take_profit: resolvedTakeProfit,
-        alpha_tp1_price: decision.tp1Price ?? null,
-        alpha_tp2_price: decision.tp2Price ?? null,
         source: 'Alpha sole authority — no fallback path exists'
       }
     );
@@ -2309,45 +2292,8 @@ class AlphaTradeExecutor {
       }
     }
 
-    // CCIP-2026-0427E-STYLE-CONSOLIDATION: Single-style platform (MICRO_INTRADAY).
-    // MICRO_INTRADAY ALWAYS supports TP1 (fast scalp partial) + TP2 (full intraday target).
+    // CCIP-2026-0527A: Single-TP architecture. No TP1/TP2 split.
     void canonicalStyle;
-    const isScalpTrade = false;
-    const finalTP2 = decision.tp2Price;
-
-    // CCIP-2026-0320B: TP1 Midpoint Governance Safety Net
-    // Alpha is SOLE authority for TP placement (CCIP-2026-02-16).
-    // However, when Alpha provides NO tp1 for non-SCALP styles that have a full TP target,
-    // the monitoring system cannot trigger TP1 milestone → SL-to-breakeven protection.
-    // Audit trace (2026-03-20): XAUUSD SELL peaked at +$447 with tp1_price=null,
-    // no partial protection triggered, reversed to -$915 (a $1,362 swing preventable by TP1).
-    // GOVERNANCE: Compute midpoint TP1 ONLY as a last-resort fallback when:
-    //   1. Trade is NOT scalp (scalps use tp1 as sole target)
-    //   2. Alpha provided no tp1 (tp1Price is null/undefined)
-    //   3. A full TP target exists (finalTP2 is non-null)
-    // The midpoint is the standard market practice for partial profit protection.
-    // This does NOT override Alpha — it fills the gap when Alpha is silent on TP1.
-    let rawTP1 = decision.tp1Price;
-
-    if (!isScalpTrade && (rawTP1 == null || !Number.isFinite(rawTP1 as number)) && finalTP2 != null && Number.isFinite(finalTP2)) {
-      const midpointTP1 = entryPrice + (finalTP2 - entryPrice) * 0.5;
-      rawTP1 = midpointTP1;
-      logger.info(
-        LogCategory.TRADE_EXECUTION,
-        '[AlphaTradeExecutor] TP1 MIDPOINT FALLBACK: Alpha provided no TP1. Computed midpoint as governance safety net.',
-        {
-          symbol: decision.symbol,
-          style: canonicalStyle,
-          entryPrice,
-          finalTP2,
-          computedTP1: midpointTP1,
-          action: decision.action,
-          governance: 'CCIP-2026-0320B'
-        }
-      );
-    }
-
-    const finalTP1 = rawTP1;
 
     // Calculate total confidence penalty from all adjustments (0-100 range)
     let totalPenalty = 0;
@@ -2427,8 +2373,8 @@ class AlphaTradeExecutor {
       entry_price: entryPrice,
       stop_loss: finalSL,
       take_profit: finalTP,
-      tp1_price: finalTP1,
-      tp2_price: finalTP2,
+      tp1_price: null,
+      tp2_price: null,
       lot_size: lotSize,
       position_size: lotSize,
       risk_dollars: riskDollars,
@@ -2851,9 +2797,9 @@ class AlphaTradeExecutor {
         pullback_target_price: pullbackMidpoint,
         pullback_improvement_pips: null,
         alpha_stop_loss: decision.stopLoss,
-        alpha_take_profit: decision.tp2Price ?? decision.takeProfit,
-        alpha_tp1_price: decision.tp1Price ?? null,
-        alpha_tp2_price: decision.tp2Price ?? null,
+        alpha_take_profit: decision.takeProfit,
+        alpha_tp1_price: null,
+        alpha_tp2_price: null,
         invalidation_price: decision.stopLoss
       };
 
@@ -2963,12 +2909,7 @@ class AlphaTradeExecutor {
       }
     }
 
-    // CCIP-2026-0319B: Alpha's SL/TP are written into market_context as defense-in-depth.
-    // The authoritative values are always on the dedicated columns (alpha_stop_loss,
-    // alpha_take_profit, alpha_tp1_price, alpha_tp2_price). These JSONB copies exist
-    // only for backward-compatible reads by older code paths. The entry monitor must
-    // always prefer the dedicated columns.
-    const resolvedTP = decision.tp2Price ?? decision.takeProfit;
+    // CCIP-2026-0527A: Single-TP architecture. market_context retains TP fields for legacy reads.
     const context: Record<string, any> = {
       atr_value: slDistance > 0 ? slDistance : undefined,
       volatility,
@@ -2978,12 +2919,12 @@ class AlphaTradeExecutor {
       confidence: decision.confidence,
       style: decision.resolvedStyle,
       stop_loss: decision.stopLoss,
-      take_profit: resolvedTP,
-      tp1_price: decision.tp1Price ?? null,
-      tp1_confidence: decision.tp1Confidence ?? null,
-      tp1_reasoning: decision.tp1Reasoning ?? null,
-      tp2_price: decision.tp2Price ?? null,
-      tp2_reasoning: decision.tp2Reasoning ?? null,
+      take_profit: decision.takeProfit,
+      tp1_price: null,
+      tp1_confidence: null,
+      tp1_reasoning: null,
+      tp2_price: null,
+      tp2_reasoning: null,
       alpha_entry_advisory: {
         verdict: alphaAdvisory?.verdict || (decision.entry_mode === 'wait_pullback' ? 'PULLBACK_EXPECTED' : 'GOOD_ENTRY'),
         pullback_zone_min: alphaAdvisory?.pullback_zone_min || null,

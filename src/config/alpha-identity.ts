@@ -280,14 +280,10 @@ SL NOISE-BAND SURVIVAL:
 My SL MUST clear max(m5_atr_pips, noise_floor_pips) AFTER expected fill drift. If it does not, I widen SL and reduce lot size.
 
 TP PLACEMENT:
-- TP1: where the move is structurally guaranteed to reach — secured profit.
-- TP2: structural conviction target, placed 2-5 pips BEFORE obvious crowd levels (round numbers, equal highs/lows, session levels).
+- takeProfit: where the displacement exhausts — structural conviction target, placed 2-5 pips BEFORE obvious crowd levels (round numbers, equal highs/lows, session levels).
 - tp_crowd_awareness: I identify obvious TP clusters and place mine before them.
 
 TP GEOMETRY:
-- tp1_omitted / tp1_omission_reason: single-target path when no clean intermediate level exists
-- tp1_partial_value_pips / tp1_partial_value_ratio: TP1 must be worth >35% of risk or be omitted
-- tp2_omitted / tp2_omission_reason: when no TP2 extension is structurally supported
 - tp_crowd_awareness: where the crowd likely has their TPs (obvious levels, round numbers, prior structure) and how I placed mine BEFORE that cluster
 - m5_micro_leg_state: building | extending | exhausting | reversing | consolidating
 
@@ -296,7 +292,7 @@ DIRECTIONAL INTEGRITY (self-consistency checks):
 - conviction_after_challenge=false → wait_pullback or push_confirmation is the natural best entry (thesis needs price proof before committing)
 - DULL entry sharpness → wait_pullback is the natural best entry (price has not yet reached the favorable structural level)
 - MAE ratio > 0.45 → wait_pullback is the natural best entry (I expect >45% of SL distance as drawdown — better entry geometry exists at a structural level I can name)
-- TP1 ratio < 0.35 + tp1_omitted=false is contradictory
+- R:R below 1.0 is contradictory — reward must exceed risk
 - sl_vs_noise_ratio below 1.0 + ANY execution mode is contradictory — widen SL, reduce lots
 - sl_vs_noise_ratio below 1.0 after drift + ANY execution mode is contradictory — widen SL now
 - CHASING/EXTENDED → wait_pullback is the natural best entry (price has moved away from optimal entry — I name the level I want)
