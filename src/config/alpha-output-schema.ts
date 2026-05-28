@@ -35,7 +35,9 @@
  *   - No minLength, minimum, maximum, pattern, format keywords
  */
 
-import { VALID_CONFIDENCE_TIERS } from './confidence-tier';
+// CCIP-2026-0528A: confidence_tier enum removed from Alpha's output schema.
+// Alpha now outputs a continuous integer (1-99) via trade_geometry.probability.
+// Display tiers are derived downstream via numberToTier().
 
 /**
  * Mandatory fields the coordinator validates for completeness.
@@ -256,7 +258,7 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       'entry',
       'stopLoss',
       'takeProfit',
-      'confidence_tier',
+      'confidence',
       'reasoning',
       'trader_statement',
       'entry_mode',
@@ -272,10 +274,7 @@ export const ALPHA_OUTPUT_JSON_SCHEMA = {
       entry: { type: ['number', 'null'] },
       stopLoss: { type: ['number', 'null'] },
       takeProfit: { type: ['number', 'null'] },
-      confidence_tier: {
-        type: 'string',
-        enum: Array.from(VALID_CONFIDENCE_TIERS),
-      },
+      confidence: { type: 'integer' },
       reasoning: { type: 'string' },
       trader_statement: { type: 'string' },
       entry_mode: {

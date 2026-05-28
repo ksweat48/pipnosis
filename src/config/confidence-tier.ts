@@ -1,32 +1,18 @@
 /**
- * CCIP-2026-0427F-ALWAYS-EXECUTE: Four-tier confidence vocabulary (rebrand).
+ * CCIP-2026-0528A: Continuous Confidence Architecture.
  *
- * GOVERNANCE PRINCIPLE
- * ────────────────────
- * Alpha outputs a TEXT TIER — never a raw number. The tier-to-number conversion
- * is INTERNAL ONLY for downstream systems (TPS, PCPE, learning engine).
+ * Alpha outputs a direct integer (1-99) representing genuine probability.
+ * Display tiers are DERIVED from the numeric value for UI display only.
  *
- * Alpha must ALWAYS produce a directional decision (BUY or SELL). NO_TRADE has
- * been eliminated from the vocabulary. Quality below 60% is expressed via the
- * 'low_quality' tier — the user, not Alpha, decides whether to execute.
- *
- * ACTIVE FOUR-TIER MODEL
- * ──────────────────────
- *  low_quality          (<60%, midpoint 50)  Best-effort read with limited evidence.
- *                                            Surfaced to the user for manual judgement.
- *  confident            (60–69%, midpoint 65) Solid structure, direction named, stop
- *                                             anchored, path credible.
- *  very_confident       (70–79%, midpoint 75) Strong structure with named evidence
- *                                             across structure, momentum, and liquidity.
- *  extremely_confident  (80%+,   midpoint 88) Near-perfect alignment across all
- *                                             dimensions. Execute now only.
+ * DISPLAY TIER RANGES (derived from numeric confidence):
+ *  low_quality          (< 60)   Best-effort read with limited evidence.
+ *  confident            (60-69)  Solid structure, direction named, positive EV.
+ *  very_confident       (70-79)  Strong multi-dimensional evidence.
+ *  extremely_confident  (80+)    Near-perfect alignment, high conviction.
  *
  * LEGACY TIERS
- * ────────────
- * Historical records may still display legacy tier strings (no_read, low,
- * cautious, moderate, high, very_high, extreme). These are normalised on read
- * via numberToTier() / display via formatConfidenceTier(). Alpha is no longer
- * permitted to emit any legacy tier.
+ * Historical records may still carry legacy tier strings. These are normalised
+ * via numberToTier() / display via formatConfidenceTier().
  */
 
 export type ConfidenceTier =
@@ -34,7 +20,6 @@ export type ConfidenceTier =
   | 'confident'
   | 'very_confident'
   | 'extremely_confident'
-  // Legacy tiers retained for type compatibility with historical records only
   | 'no_read'
   | 'low'
   | 'cautious'
@@ -44,8 +29,7 @@ export type ConfidenceTier =
   | 'extreme';
 
 /**
- * Tiers Alpha is permitted to output. Always-execute model: Alpha must pick one
- * of these four for every BUY/SELL decision.
+ * Active display tiers used by the UI.
  */
 export const ACTIONABLE_CONFIDENCE_TIERS = new Set<string>([
   'low_quality',
@@ -54,10 +38,6 @@ export const ACTIONABLE_CONFIDENCE_TIERS = new Set<string>([
   'extremely_confident',
 ]);
 
-/**
- * Tiers Alpha is permitted to output in the current schema. Identical to
- * ACTIONABLE_CONFIDENCE_TIERS now that NO_TRADE has been retired.
- */
 export const ACTIVE_CONFIDENCE_TIERS = new Set<string>([
   'low_quality',
   'confident',
@@ -66,22 +46,20 @@ export const ACTIVE_CONFIDENCE_TIERS = new Set<string>([
 ]);
 
 /**
- * Recommended-execution floor. Trades at or above this midpoint are flagged in
+ * Recommended-execution floor. Trades at or above this value are flagged in
  * the UI as recommended; below it the user is shown a "Low Quality" badge.
  */
 export const RECOMMENDED_CONFIDENCE_FLOOR = 60;
 
 /**
- * Fixed midpoint conversion: ConfidenceTier -> numeric (0-100). INTERNAL ONLY.
- * Alpha never sees these numbers.
+ * Fixed midpoint conversion for legacy tier strings. Used when reading old
+ * database records that only have a text tier and no numeric confidence.
  */
 export const CONFIDENCE_TIER_TO_NUMBER: Record<ConfidenceTier, number> = {
-  // Active tiers
   low_quality:         50,
   confident:           65,
   very_confident:      75,
   extremely_confident: 88,
-  // Legacy tiers (historical display only)
   no_read:   10,
   low:       25,
   cautious:  40,
@@ -92,12 +70,10 @@ export const CONFIDENCE_TIER_TO_NUMBER: Record<ConfidenceTier, number> = {
 };
 
 export const CONFIDENCE_TIER_LABELS: Record<ConfidenceTier, string> = {
-  // Active tiers
   low_quality:         'Low Quality',
   confident:           'Confident',
   very_confident:      'Very Confident',
   extremely_confident: 'Extremely Confident',
-  // Legacy tiers
   no_read:   'No Read',
   low:       'Low',
   cautious:  'Cautious',
@@ -110,75 +86,6 @@ export const CONFIDENCE_TIER_LABELS: Record<ConfidenceTier, string> = {
 export const VALID_CONFIDENCE_TIERS = new Set<string>(Object.keys(CONFIDENCE_TIER_TO_NUMBER));
 
 /**
- * CCIP-2026-0510C: Continuous-confidence bands.
- *
- * Every tier owns a numeric range. `deriveContinuousConfidence()` places the
- * decision inside its band using a blend of Q5_failure_probability and
- * probability_of_target_hit, so two "confident" reads no longer collapse to
- * the same 65. Legacy tiers map to a degenerate single-point band.
- */
-export const CONFIDENCE_TIER_BANDS: Record<ConfidenceTier, [number, number]> = {
-  low_quality:         [0, 59],
-  confident:           [60, 69],
-  very_confident:      [70, 79],
-  extremely_confident: [80, 95],
-  // Legacy tiers retain their fixed midpoints
-  no_read:   [10, 10],
-  low:       [25, 25],
-  cautious:  [40, 40],
-  moderate:  [55, 55],
-  high:      [75, 75],
-  very_high: [82, 82],
-  extreme:   [90, 90],
-};
-
-function clamp(value: number, lo: number, hi: number): number {
-  if (Number.isNaN(value)) return lo;
-  return Math.min(hi, Math.max(lo, value));
-}
-
-/**
- * CCIP-2026-0510C: derive a continuous confidence score inside the tier band.
- *
- * Blends two Alpha-produced signals:
- *   quality     = 100 - Q5_failure_probability   (structural soundness)
- *   probability = probability_of_target_hit      (reward likelihood)
- * Average of the two, linearly mapped into the tier's band. When either signal
- * is missing we fall back to whichever is available, or to the band midpoint.
- */
-export function deriveContinuousConfidence(
-  tier: ConfidenceTier | string | null | undefined,
-  q5FailureProbability: number | null | undefined,
-  probabilityOfTargetHit: number | null | undefined
-): number {
-  const active = normalizeTier(tier ?? undefined);
-  const [lo, hi] = CONFIDENCE_TIER_BANDS[active] ?? [0, 0];
-  if (lo === hi) return lo;
-
-  const quality = q5FailureProbability != null && !Number.isNaN(q5FailureProbability)
-    ? clamp(100 - q5FailureProbability, 0, 100)
-    : null;
-  const reward = probabilityOfTargetHit != null && !Number.isNaN(probabilityOfTargetHit)
-    ? clamp(probabilityOfTargetHit, 0, 100)
-    : null;
-
-  let blend: number;
-  if (quality != null && reward != null) {
-    blend = (quality + reward) / 2;
-  } else if (quality != null) {
-    blend = quality;
-  } else if (reward != null) {
-    blend = reward;
-  } else {
-    return Math.round((lo + hi) / 2);
-  }
-
-  const normalised = clamp(blend, 0, 100) / 100;
-  const value = lo + normalised * (hi - lo);
-  return Math.round(clamp(value, lo, hi));
-}
-
-/**
  * Convert Alpha's text tier to the numeric confidence used by all downstream
  * systems. Returns 0 if the tier is unrecognised (signals a schema violation).
  */
@@ -188,9 +95,8 @@ export function tierToNumber(tier: string | undefined | null): number {
 }
 
 /**
- * Convert a numeric confidence back to the nearest active tier label for
- * display. Used when the database row only carries a numeric confidence
- * (legacy records) and the UI needs a tier badge.
+ * Convert a numeric confidence to the display tier label.
+ * This is the PRIMARY conversion path under CCIP-2026-0528A.
  */
 export function numberToTier(confidence: number): ConfidenceTier {
   if (confidence >= 80) return 'extremely_confident';
@@ -201,44 +107,50 @@ export function numberToTier(confidence: number): ConfidenceTier {
 
 /**
  * Normalise any (possibly legacy) tier string to the active four-tier
- * vocabulary. Used at every read boundary so the UI never has to think about
- * legacy values.
+ * vocabulary.
  */
 export function normalizeTier(tier: string | undefined | null): ConfidenceTier {
   if (!tier) return 'low_quality';
   if (ACTIVE_CONFIDENCE_TIERS.has(tier)) return tier as ConfidenceTier;
-  // Map legacy strings via their numeric midpoint
   const numeric = CONFIDENCE_TIER_TO_NUMBER[tier as ConfidenceTier];
   if (typeof numeric === 'number') return numberToTier(numeric);
   return 'low_quality';
 }
 
 /**
- * Format a tier for user display: "Confident (65%)".
+ * Format confidence for user display: "Confident (65%)".
+ * Prefers numeric value when available.
  */
 export function formatConfidenceTier(
   tier: ConfidenceTier | string | null | undefined,
   numericFallback?: number | null
 ): string {
+  if (numericFallback != null && numericFallback > 0) {
+    const derived = numberToTier(numericFallback);
+    const label = CONFIDENCE_TIER_LABELS[derived];
+    return `${label} (${numericFallback}%)`;
+  }
   if (tier && VALID_CONFIDENCE_TIERS.has(tier)) {
     const active = normalizeTier(tier);
     const label = CONFIDENCE_TIER_LABELS[active];
     const pct = CONFIDENCE_TIER_TO_NUMBER[active];
     return `${label} (${pct}%)`;
   }
-  if (numericFallback != null) {
-    const derived = numberToTier(numericFallback);
-    const label = CONFIDENCE_TIER_LABELS[derived];
-    return `${label} (${numericFallback}%)`;
-  }
   return 'N/A';
 }
 
 /**
- * True when the tier represents a recommended-execution trade (>= 60%).
+ * True when the confidence represents a recommended-execution trade (>= 60%).
  */
 export function isRecommendedTier(tier: ConfidenceTier | string | null | undefined): boolean {
   if (!tier) return false;
   const active = normalizeTier(tier);
   return CONFIDENCE_TIER_TO_NUMBER[active] >= RECOMMENDED_CONFIDENCE_FLOOR;
+}
+
+/**
+ * True when a numeric confidence value is at or above the recommended floor.
+ */
+export function isRecommendedConfidence(confidence: number): boolean {
+  return confidence >= RECOMMENDED_CONFIDENCE_FLOOR;
 }

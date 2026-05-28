@@ -83,7 +83,7 @@ import type { RegimeSnapshot } from '../services/regime-oracle';
 // CCIP-2026-0512A RAW-DATA DOCTRINE: rrSuccessTracker import removed.
 // The service remains available for dashboards but is forbidden from the
 // coordinator prompt pipeline.
-import { VALID_CONFIDENCE_TIERS, tierToNumber, CONFIDENCE_TIER_TO_NUMBER, deriveContinuousConfidence } from '../config/confidence-tier';
+import { numberToTier } from '../config/confidence-tier';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
@@ -263,13 +263,9 @@ export interface AlphaDecision {
   tp2Price?: number; // Full profit target (standard TP)
   tp2Reasoning?: string; // Alpha's explanation for TP2 placement
   confidence: number;
-  // CCIP-2026-0413-CONFIDENCE-TEXT: Alpha's original text tier (e.g. "confident", "high").
-  // The numeric `confidence` field is derived from this via CONFIDENCE_TIER_TO_NUMBER.
-  // Alpha never sees numbers — this is what he actually said.
+  // CCIP-2026-0528A: Display tier derived from numeric confidence via numberToTier().
   confidence_tier?: string;
-  // CCIP-2026-0510C: Continuous confidence (0-100) inside the tier's band.
-  // Blends (100 - Q5_failure_probability) and (100 - counter_thesis_probability)
-  // so two "confident" reads no longer collapse to the same 65.
+  // CCIP-2026-0528A: Alpha's direct numeric confidence (1-99). This IS the confidence.
   confidence_continuous?: number;
   reasoning: string;
   omega_summary: string;
@@ -2726,7 +2722,7 @@ SCAN CONTEXT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${streakContextLine}
 
-SCHEMA NOTE — confidence_tier permitted values: no_read, confident, very_confident, extremely_confident. Legacy tiers (low, cautious, moderate, high, very_high, extreme) are schema violations.
+SCHEMA NOTE — "confidence" is an integer 1-99 representing your genuine probability estimate that this trade wins. Output a DIFFERENT number for each trade based on your actual conviction. This same number goes in trade_geometry.probability.
 
 HARD BLOCK CONDITIONS (the only conditions that produce NO_TRADE automatically):
 ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}
@@ -2905,14 +2901,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
 
       const content = response.choices[0]?.message?.content || '{}';
 
-      // CCIP-2026-0413-CONFIDENCE-TEXT: Raw response instrumentation.
-      // Alpha now outputs confidence_tier (text) not trade_confidence (integer).
-      // Detect: (1) Alpha reverting to a numeric confidence field (schema violation),
-      //         (2) Alpha outputting an unrecognized tier string,
-      //         (3) short token counts indicating degenerate anchoring behavior.
+      // CCIP-2026-0528A: Raw response instrumentation.
+      // Alpha now outputs confidence as a direct integer (1-99).
       try {
-        const rawTierMatch = content.match(/"confidence_tier"\s*:\s*"([^"]+)"/);
-        const rawNumericConfidenceMatch = content.match(/"trade_confidence"\s*:\s*(\d+)/);
+        const rawConfidenceMatch = content.match(/"confidence"\s*:\s*(\d+)/);
         const rawActionMatch = content.match(/"action"\s*:\s*"([^"]+)"/);
         const cachedTokens = (response.usage as any)?.prompt_tokens_details?.cached_tokens ?? 'unknown';
         const totalPromptTokens = response.usage?.prompt_tokens ?? 'unknown';
@@ -2920,20 +2912,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
           ? Math.round((cachedTokens / totalPromptTokens) * 100)
           : 'unknown';
         const completionTokens = response.usage?.completion_tokens ?? 'unknown';
-        const rawTier = rawTierMatch?.[1];
+        const rawConfVal = rawConfidenceMatch?.[1];
         const rawAction = rawActionMatch?.[1];
         const initialFinishReason = response.choices[0]?.finish_reason ?? 'unknown';
         console.log(
           `[Alpha Raw Response] symbol=${marketContext.symbol} action=${rawAction ?? 'MISSING'} ` +
-          `confidence_tier=${rawTier ?? 'MISSING'} finish_reason=${initialFinishReason} ` +
+          `confidence=${rawConfVal ?? 'MISSING'} finish_reason=${initialFinishReason} ` +
           `cache=${cacheHitPct}% (${cachedTokens}/${totalPromptTokens} tokens cached) ` +
           `completion_tokens=${completionTokens}`
         );
-        // CCIP-CACHE-BUST-ALARM-2026-04-15: If cache hit > 5% on an alpha_coordination call,
-        // the transport-layer fingerprint is not working. This is the leading indicator of
-        // degenerate abbreviated completions. Fire a high-severity alarm immediately so it
-        // is impossible to miss in logs. The fingerprint is injected in openai-client.ts
-        // injectCacheBustFingerprint() — investigate there if this alarm fires.
         if (typeof cacheHitPct === 'number' && cacheHitPct > 5) {
           console.error(
             `[Alpha CACHE ALARM] DEGENERATE SCAN RISK: symbol=${marketContext.symbol} ` +
@@ -2941,22 +2928,6 @@ Return PURE JSON only — all required fields from the schema in my system promp
             `The transport-layer cache-bust fingerprint (openai-client.ts injectCacheBustFingerprint) ` +
             `is not defeating OpenAI's KV-prefix cache. Completion tokens=${completionTokens}. ` +
             `Abbreviated degenerate outputs are likely. Investigate immediately.`
-          );
-        }
-        if (rawNumericConfidenceMatch && !rawTierMatch) {
-          console.warn(
-            `[Alpha Raw Response] CCIP-2026-0413 SCHEMA_VIOLATION: Alpha output a numeric trade_confidence=${rawNumericConfidenceMatch[1]} ` +
-            `instead of confidence_tier text for ${marketContext.symbol}. ` +
-            `This means the model is ignoring the prompt schema update. ` +
-            `Cache hit=${cacheHitPct}%. completion_tokens=${completionTokens}. ` +
-            `Check prompt cache staleness — prompt may need a cache-busting change.`
-          );
-        }
-        if (rawTier && !VALID_CONFIDENCE_TIERS.has(rawTier)) {
-          console.warn(
-            `[Alpha Raw Response] CCIP-2026-0413 UNRECOGNIZED_TIER: Alpha output confidence_tier="${rawTier}" ` +
-            `for ${marketContext.symbol} — not a valid tier. Valid: ${[...VALID_CONFIDENCE_TIERS].join(', ')}. ` +
-            `Will resolve to confidence=0 (system failure bucket). completion_tokens=${completionTokens}.`
           );
         }
 
@@ -3214,10 +3185,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
               regime: regimeSnapshot?.category || 'unknown',
               liquidityContext: parsedJSON.market_narrative || undefined,
               confidenceBand: (() => {
-                const tierNum = parsedJSON.confidence_tier
-                  ? (CONFIDENCE_TIER_TO_NUMBER[parsedJSON.confidence_tier as keyof typeof CONFIDENCE_TIER_TO_NUMBER] ?? 0)
-                  : (parsedJSON.trade_confidence ?? 0);
-                return tierNum > 70 ? 'strong' as const : tierNum > 50 ? 'medium' as const : 'weak' as const;
+                const confNum = typeof parsedJSON.confidence === 'number' ? parsedJSON.confidence : 0;
+                return confNum > 70 ? 'strong' as const : confNum > 50 ? 'medium' as const : 'weak' as const;
               })(),
               thesisSummary: marketThesisText.substring(0, 100)
             }
@@ -3436,12 +3405,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
             typeof dForGate.takeProfit === 'number' && Number.isFinite(dForGate.takeProfit);
           const thesisOk =
             typeof dForGate.thesis === 'string' && (dForGate.thesis as string).trim().length > 0;
-          const confidenceTierOk =
-            typeof dForGate.confidence_tier === 'string' &&
-            (dForGate.confidence_tier as string).trim().length > 0;
+          const confidenceOk =
+            typeof dForGate.confidence === 'number' && dForGate.confidence > 0;
 
           const tradeDecisionComplete =
-            (hasDirectionalAction && entryOk && slOk && tpOk && thesisOk && confidenceTierOk) ||
+            (hasDirectionalAction && entryOk && slOk && tpOk && thesisOk && confidenceOk) ||
             (hasNoTradeAction && thesisOk);
 
           if (tradeDecisionComplete) {
@@ -3526,7 +3494,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
                 `Return ONLY a JSON object whose "answer_sheet" property contains ALL of the missing keys with ` +
                 `genuine values derived from the same reasoning that produced your previous decision. ` +
                 `Do not restate fields that were already present. Do not change your action, entry, stopLoss, ` +
-                `takeProfit, or confidence_tier. The response MUST conform to the AlphaDecision schema.`
+                `takeProfit, or confidence. The response MUST conform to the AlphaDecision schema.`
             }
           ];
 
@@ -3896,9 +3864,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
           }).catch(() => {});
 
           const dMut = decision as Record<string, unknown>;
-          const priorTier = dMut.confidence_tier;
-          const priorContinuous = dMut.confidence_continuous;
+          const priorConfidence = dMut.confidence;
           dMut.confidence_tier = 'low_quality';
+          dMut.confidence = 40;
+          dMut.confidence_continuous = 40;
           dMut.block_reason = blockReason;
           dMut.decision_origin = 'SYSTEM_LEDGER_INTEGRITY_OVERRIDE';
 
@@ -3906,17 +3875,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
           // or push_confirmation, that choice stands — it's his timing
           // preference, not a system override.
 
-          const q5Raw = (decision as any)?.answer_sheet?.failure_probability ?? (decision as any)?.answer_sheet?.Q5_failure_probability;
-          const counterRaw = (decision as any)?.counter_thesis_probability;
-          const q5Fail = typeof q5Raw === 'number' ? q5Raw : null;
-          const rewardProb = typeof counterRaw === 'number'
-            ? Math.max(0, Math.min(100, 100 - counterRaw))
-            : null;
-          const recomputed = deriveContinuousConfidence('low_quality', q5Fail, rewardProb);
-          dMut.confidence_continuous = recomputed;
-          (decision as any).confidence = recomputed;
           console.info(
-            `[Alpha Coordinator] CCIP-2026-0511Z integrity recompute: tier ${String(priorTier)} -> low_quality, continuous ${String(priorContinuous)} -> ${recomputed}`
+            `[Alpha Coordinator] CCIP-2026-0528A integrity override: confidence ${String(priorConfidence)} -> 40 (low_quality)`
           );
         }
 
@@ -4549,59 +4509,35 @@ Return PURE JSON only — all required fields from the schema in my system promp
         throw new Error(`[CCIP-2026-0333] Alpha returned invalid action "${action}". Expected BUY | SELL | NO_TRADE.`);
       }
 
-      // CCIP-2026-0413-CONFIDENCE-TEXT: Confidence conversion boundary.
-      // Alpha outputs confidence_tier (text). Convert to numeric for all downstream consumers.
-      // Alpha never sees numbers — the tier-to-number mapping is internal only.
-      const rawTier = parsed.confidence_tier as string | undefined;
-      const confidenceTier = rawTier && VALID_CONFIDENCE_TIERS.has(rawTier) ? rawTier : null;
-      const tradeConfidence = confidenceTier
-        ? tierToNumber(confidenceTier)
-        : (parsed.trade_confidence ?? parsed.confidence ?? 0);
-
-      // CCIP-2026-0518A: Use trade_geometry.probability as Alpha's confidence.
-      // Fallback chain: trade_geometry.probability → (100 - failure_probability) → tier midpoint.
+      // CCIP-2026-0528A: Alpha now outputs confidence as a direct integer (1-99).
+      // Fallback chain: top-level confidence → trade_geometry.probability → (100 - failure_probability) → 50.
+      const rawConfidence = typeof parsed.confidence === 'number' ? parsed.confidence : null;
       const tradeGeomProbRaw = parsed?.answer_sheet?.trade_geometry?.probability;
-      const failureProbRaw = parsed?.answer_sheet?.failure_probability ?? parsed?.answer_sheet?.Q5_failure_probability;
-      // CCIP-2026-0526C: Normalize decimal probabilities (0.6 means 60%, not 1%)
+      const failureProbRaw = parsed?.answer_sheet?.failure_probability;
       const tradeGeomProb = typeof tradeGeomProbRaw === 'number' && tradeGeomProbRaw > 0 && tradeGeomProbRaw < 1
         ? tradeGeomProbRaw * 100
         : tradeGeomProbRaw;
+
       let tradeConfidenceContinuous: number;
-      if (typeof tradeGeomProb === 'number' && tradeGeomProb > 0 && tradeGeomProb <= 100) {
+      if (typeof rawConfidence === 'number' && rawConfidence > 0 && rawConfidence <= 100) {
+        tradeConfidenceContinuous = Math.round(rawConfidence);
+      } else if (typeof tradeGeomProb === 'number' && tradeGeomProb > 0 && tradeGeomProb <= 100) {
         tradeConfidenceContinuous = Math.round(tradeGeomProb);
       } else if (typeof failureProbRaw === 'number' && failureProbRaw >= 0) {
         tradeConfidenceContinuous = Math.round(Math.max(0, Math.min(100, 100 - failureProbRaw)));
       } else {
-        tradeConfidenceContinuous = tradeConfidence;
+        tradeConfidenceContinuous = 50;
       }
 
-      // CCIP-2026-0516: Confidence resolution log.
+      // Derive display tier from the numeric confidence
+      const confidenceTier = numberToTier(tradeConfidenceContinuous);
+      const tradeConfidence = tradeConfidenceContinuous;
+
       console.log(
         `[Alpha Parse] symbol=${symbol} action=${parsed.action} ` +
-        `confidence_tier=${rawTier ?? 'MISSING'} ` +
-        `continuous=${tradeConfidenceContinuous} ` +
-        `(source: ${typeof tradeGeomProb === 'number' ? `trade_geometry.probability=${tradeGeomProb}` : typeof failureProbRaw === 'number' ? `100-failure_probability=${failureProbRaw}` : 'tier_midpoint'})`
+        `confidence=${tradeConfidenceContinuous} derived_tier=${confidenceTier} ` +
+        `(source: ${typeof rawConfidence === 'number' ? `top-level=${rawConfidence}` : typeof tradeGeomProb === 'number' ? `trade_geometry.probability=${tradeGeomProb}` : typeof failureProbRaw === 'number' ? `100-failure_probability=${failureProbRaw}` : 'default_50'})`
       );
-
-      // CCIP-2026-0413: Detect schema violation — Alpha output a number instead of a tier.
-      if (!rawTier && (parsed.trade_confidence != null || parsed.confidence != null)) {
-        console.warn(
-          `[Alpha Parse] CCIP-2026-0413 SCHEMA_VIOLATION for ${symbol}: ` +
-          `Alpha omitted confidence_tier and fell back to numeric confidence=${parsed.trade_confidence ?? parsed.confidence}. ` +
-          `The prompt schema requires confidence_tier text. ` +
-          `This may indicate the model is using a stale cached prompt. Check completion_tokens in [Alpha Raw Response] log.`
-        );
-      }
-
-      // CCIP-2026-0413: Detect unrecognized tier string — Alpha invented a word.
-      if (rawTier && !VALID_CONFIDENCE_TIERS.has(rawTier)) {
-        console.warn(
-          `[Alpha Parse] CCIP-2026-0413 UNRECOGNIZED_TIER for ${symbol}: ` +
-          `Alpha returned confidence_tier="${rawTier}" which is not in the valid tier set. ` +
-          `Resolving to confidence=0 (system failure bucket). ` +
-          `Valid tiers: ${[...VALID_CONFIDENCE_TIERS].join(', ')}.`
-        );
-      }
 
       // CCIP-2026-0422H: Alpha sovereignty — no rescue, no conversion, no sentinel injection.
       //
