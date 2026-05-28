@@ -1927,6 +1927,7 @@ noise_floor: ${noiseFloorPips.toFixed(1)} pips
         const tfHigh = Math.max(...recentPrimary.map(c => c.high));
         const tfLow = Math.min(...recentPrimary.map(c => c.low));
         const tfRangePips = (tfHigh - tfLow) / pipInfo.pipValue;
+        const maxM5CandleRangePips = Math.max(...recentPrimary.map(c => (c.high - c.low) / pipInfo.pipValue));
 
         const lastCandle = recentPrimary[recentPrimary.length - 1];
         const lastBody = Math.abs(lastCandle.close - lastCandle.open) / pipInfo.pipValue;
@@ -2106,6 +2107,7 @@ ${primaryLines.join('\n')}
 
 ${primaryTfConfig.label} STRUCTURE SUMMARY:
 - ${primaryTfConfig.label} Range: ${tfRangePips.toFixed(1)} pips (High: ${tfHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${tfLow.toFixed(pipInfo.decimalPlaces)})
+- max_single_m5_candle_range_pips=${maxM5CandleRangePips.toFixed(1)}
 - Consecutive same-direction ${primaryTfConfig.label} candles: ${consecutiveSameDir}
 - Last ${primaryTfConfig.label} candle: body=${lastBody.toFixed(1)}p upper_wick=${lastUpperWick.toFixed(1)}p lower_wick=${lastLowerWick.toFixed(1)}p
 ${emaContextBlock}
@@ -2177,6 +2179,13 @@ ${htfConfig.label} candles unavailable. Data unavailable — non-blocking.
         const htfHigh = Math.max(...recentHtf.map(c => c.high));
         const htfLow = Math.min(...recentHtf.map(c => c.low));
         const htfRangePips = (htfHigh - htfLow) / pipInfo.pipValue;
+        const h1TrueRanges = recentHtf.map((c, i) => {
+          const prevClose = i > 0 ? recentHtf[i - 1].close : c.open;
+          return Math.max(c.high - c.low, Math.abs(c.high - prevClose), Math.abs(c.low - prevClose));
+        });
+        const h1AtrPips = h1TrueRanges.length > 0
+          ? (h1TrueRanges.reduce((sum, tr) => sum + tr, 0) / h1TrueRanges.length) / pipInfo.pipValue
+          : 0;
 
         const lastHtfCandle = recentHtf[recentHtf.length - 1];
         const prevHtfCandle = recentHtf.length >= 2 ? recentHtf[recentHtf.length - 2] : lastHtfCandle;
@@ -2237,6 +2246,7 @@ ${htfLines.join('\n')}
 
 ${htfConfig.label} RAW READINGS (last ${htfConfig.candleCount} candles):
 - range_pips=${htfRangePips.toFixed(1)}
+- h1_atr_pips=${h1AtrPips.toFixed(1)}
 - window_high=${htfHigh.toFixed(pipInfo.decimalPlaces)}
 - window_low=${htfLow.toFixed(pipInfo.decimalPlaces)}
 - consecutive_same_direction_candles=${htfConsecutive}

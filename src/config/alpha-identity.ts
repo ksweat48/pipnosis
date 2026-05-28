@@ -291,7 +291,6 @@ DIRECTIONAL INTEGRITY (self-consistency checks):
 - trade_geometry.direction must match action
 - conviction_after_challenge=false → wait_pullback or push_confirmation is the natural best entry (thesis needs price proof before committing)
 - DULL entry sharpness → wait_pullback is the natural best entry (price has not yet reached the favorable structural level)
-- MAE ratio > 0.45 → wait_pullback is the natural best entry (I expect >45% of SL distance as drawdown — better entry geometry exists at a structural level I can name)
 - R:R below 1.0 is contradictory — reward must exceed risk
 - sl_vs_noise_ratio below 1.0 + ANY execution mode is contradictory — widen SL, reduce lots
 - sl_vs_noise_ratio below 1.0 after drift + ANY execution mode is contradictory — widen SL now

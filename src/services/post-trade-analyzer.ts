@@ -1359,22 +1359,25 @@ class PostTradeAnalyzer {
 
       const { data: tradeRow } = await supabase
         .from('goal_session_trades')
-        .select('max_drawdown, entry_mode, alpha_style')
+        .select('max_drawdown, lot_size, entry_mode, alpha_style')
         .eq('id', tradeData.id)
         .maybeSingle();
 
       const sym = tradeData.symbol || '';
       const pipInfo = getCurrencyPipInfo(sym);
       const pipValue = pipInfo.pipValue || 0.0001;
+      const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot || 10;
 
       const observedMaeUsd = tradeRow?.max_drawdown != null ? Math.abs(Number(tradeRow.max_drawdown)) : null;
+      const lotSize = tradeRow?.lot_size != null ? Number(tradeRow.lot_size) : null;
       const riskDist = tradeData.entryPrice && tradeData.stopLoss
         ? Math.abs(tradeData.entryPrice - tradeData.stopLoss)
         : null;
       const riskPips = riskDist != null ? riskDist / pipValue : null;
 
-      const observedMaePips = observedMaeUsd != null && tradeData.pnl !== 0 && riskDist != null && riskPips != null
-        ? (observedMaeUsd / Math.abs(tradeData.pnl || 1)) * riskPips
+      // Correct formula: convert USD drawdown to pips using lot size and pip value
+      const observedMaePips = observedMaeUsd != null && lotSize != null && lotSize > 0
+        ? observedMaeUsd / (lotSize * dollarPerPipPerLot)
         : null;
       const observedMaeRatio = observedMaePips != null && riskPips != null && riskPips > 0
         ? observedMaePips / riskPips
