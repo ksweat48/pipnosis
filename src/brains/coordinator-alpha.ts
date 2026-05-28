@@ -84,7 +84,7 @@ import type { RegimeSnapshot } from '../services/regime-oracle';
 // The service remains available for dashboards but is forbidden from the
 // coordinator prompt pipeline.
 import { numberToTier } from '../config/confidence-tier';
-import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
+// CCIP-2026-0528B: formatRiskProfileForLLM removed — prescriptive teaching (Entry Urgency, Target Speed) violated Alpha Autonomy Doctrine
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
@@ -940,20 +940,12 @@ monitor-required opportunities and surfaced to the user. The schema set is ident
 REMINDER: "entry_mode" must be a top-level key in your JSON response.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
+    // CCIP-2026-0528B: Removed pre-scored Risk Score/Confidence verdicts and English
+    // reasoning narrative. Alpha receives only raw position-sizing inputs.
     let riskContext = '';
     const riskAssessment = riskResultLong || riskResultShort;
     if (riskAssessment) {
-      riskContext = `\nPROFESSIONAL RISK ASSESSMENT (Advisory):\n`;
-      riskContext += `Risk Score: ${riskAssessment.riskScore.toFixed(0)}/100 | Confidence: ${riskAssessment.confidenceScore.toFixed(0)}/100\n`;
-      riskContext += `Recommended Lot Size: ${riskAssessment.recommendedLotSize.toFixed(2)} lots\n`;
-      riskContext += `Adjusted Risk: ${(riskAssessment.adjustedRiskPercent * 100).toFixed(2)}%\n`;
-      if (riskAssessment.criticalWarnings.length > 0) {
-        riskContext += `WARNINGS:\n`;
-        riskAssessment.criticalWarnings.slice(0, 3).forEach((w: string) => {
-          riskContext += `  - ${w}\n`;
-        });
-      }
-      riskContext += `Reasoning: ${riskAssessment.overallReasoning}\n`;
+      riskContext = `\nrisk_lot_size=${riskAssessment.recommendedLotSize.toFixed(2)} risk_pct=${(riskAssessment.adjustedRiskPercent * 100).toFixed(2)}%\n`;
     }
 
     const correlationExposure: DualArenaWalls['correlationExposure'] = (riskResultLong || riskResultShort) ? {
@@ -1004,20 +996,10 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
 
     // Build goal context with RISK PROFILE STRATEGY (if trading with a goal)
     let goalContextText = '';
-    let riskProfileText = '';
     if (goalContext && goalContext.hasGoal) {
-      const riskPercent = goalContext.riskPercent || 5;
-      const recentATR = extractATRValue(marketContext.atr) || 60; // Extract value with fallback
-
-      // CCIP-ALPHA-HUNTER-LAW: Alpha ALWAYS hunts with HIGH/AGGRESSIVE profile.
-      // The user's riskMode (derived from dollar risk) controls position sizing ONLY.
-      // Alpha's entry urgency, timeframe preference, and entry type weights are permanently
-      // set to HIGH — immediate entry urgency, M5/M15 timeframes, breakout/momentum at 0.9.
-      // Passing the user's riskMode here was architecturally fatal: it made Alpha conservative
-      // on sessions where users risked low dollar amounts. Alpha is a hunter always.
-      riskProfileText = formatRiskProfileForLLM('high');
-
-      goalContextText = `\nGOAL: $${goalContext.currentBalance.toFixed(0)} -> +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\n${riskProfileText}\n`;
+      // CCIP-2026-0528B: Removed prescriptive risk profile teaching (Entry Urgency,
+      // Target Speed, setups preferred). Alpha decides how to hunt. Only raw numbers.
+      goalContextText = `\nGOAL: balance=$${goalContext.currentBalance.toFixed(0)} target=+$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}%) progress=$${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} remaining=$${goalContext.remainingGoal.toFixed(0)} risk_pct=${(goalContext.riskPercent || 5)}%\n`;
     }
 
     // Build intelligence context
@@ -1953,10 +1935,18 @@ noise_floor: ${noiseFloorPips.toFixed(1)} pips
         // "INSIDE/BELOW the wick range" framing.
 
         // ═══════════════════════════════════════════════════════════════════
-        // MICRO_INTRADAY M5 MOVE PHASE & SWEEP ADVISORY
-        // CCIP-2026-0513L-MOVE-PHASE-SEALING: English verdicts removed. Raw
-        // numeric codes only per Sealed-Prompt Doctrine. Alpha classifies
-        // phase and sweep polarity from raw measurements.
+        // MICRO_INTRADAY M5 WINDOW DISPLACEMENT & SWEEP READINGS
+        // CCIP-2026-0528B: Fixed move_phase_code to measure TRUE window
+        // displacement (high-to-price and price-to-low) instead of resetting
+        // on every opposing candle during consolidation. Previous algorithm
+        // used last_candle_body direction to find swing origin — a single
+        // green candle in consolidation would reset measurement to "fresh"
+        // even after a 100+ pip displacement.
+        //
+        // New approach: measure displacement from WINDOW EXTREMES. This is
+        // honest — Alpha sees how far price has traveled within the visible
+        // window regardless of micro-consolidation candle colors.
+        //
         //   move_phase_code: 0=fresh (<0.75x ATR), 1=developing (0.75-1.5x), 2=exhausted (>1.5x)
         //   last_candle_body: +1 (last candle closed up), -1 (closed down), 0 (flat)
         //   sweep_of_high_detected / sweep_of_low_detected: raw booleans
@@ -1965,33 +1955,38 @@ noise_floor: ${noiseFloorPips.toFixed(1)} pips
         if (atrForStopLoss > 0) {
           const m5AtrPips = (atrForStopLoss / pipInfo.pipValue);
 
-          // CCIP-2026-0527A: Renamed from leg_direction to last_candle_body. This code
-          // measures only whether the LAST M5 candle closed up or down — NOT structural leg direction.
-          let swingOriginPriceM5 = recentPrimary[0].close;
           const legDirCode = lastCandle.close > lastCandle.open ? 1 : lastCandle.close < lastCandle.open ? -1 : 0;
-          for (let i = recentPrimary.length - 2; i >= 0; i--) {
-            const cDirCode = recentPrimary[i].close > recentPrimary[i].open ? 1 : recentPrimary[i].close < recentPrimary[i].open ? -1 : 0;
-            if (cDirCode !== legDirCode && cDirCode !== 0) {
-              swingOriginPriceM5 = legDirCode === 1 ? recentPrimary[i].low : recentPrimary[i].high;
-              break;
-            }
-          }
-          const distFromSwingPipsM5 = Math.abs(marketContext.price - swingOriginPriceM5) / pipInfo.pipValue;
-          const atrTraveledM5window = m5AtrPips > 0 ? distFromSwingPipsM5 / m5AtrPips : 0;
 
+          // CCIP-2026-0528B: Measure displacement from WINDOW EXTREMES.
+          // Price relative to the high and low of the entire 30-candle window.
+          const windowHighPrice = Math.max(...recentPrimary.map(c => c.high));
+          const windowLowPrice = Math.min(...recentPrimary.map(c => c.low));
+          const currentPrice = marketContext.price;
+
+          const distFromWindowHighPips = (windowHighPrice - currentPrice) / pipInfo.pipValue;
+          const distFromWindowLowPips = (currentPrice - windowLowPrice) / pipInfo.pipValue;
+          const windowHighAtrMultiple = m5AtrPips > 0 ? distFromWindowHighPips / m5AtrPips : 0;
+          const windowLowAtrMultiple = m5AtrPips > 0 ? distFromWindowLowPips / m5AtrPips : 0;
+
+          // The true displacement is whichever side price has traveled further from.
+          // If price is 3 ATR below the window high, the bearish displacement is 3 ATR
+          // regardless of how many green consolidation candles appeared since.
+          const maxDisplacementAtrMultiple = Math.max(windowHighAtrMultiple, windowLowAtrMultiple);
+
+          // Also check M15 anchors for broader context (2.5h M15 window)
           const hasMicroM15Anchor = m15SwingHighMicro > 0 && m15SwingLowMicro > 0;
-          const m15AnchorOrigin = hasMicroM15Anchor
-            ? (legDirCode === -1 ? m15SwingHighMicro : m15SwingLowMicro)
+          const m15HighDistPips = hasMicroM15Anchor
+            ? (m15SwingHighMicro - currentPrice) / pipInfo.pipValue
             : 0;
-          const m15AnchorDistPips = hasMicroM15Anchor
-            ? Math.abs(marketContext.price - m15AnchorOrigin) / pipInfo.pipValue
+          const m15LowDistPips = hasMicroM15Anchor
+            ? (currentPrice - m15SwingLowMicro) / pipInfo.pipValue
             : 0;
-          const m15AnchorATRMultiple = hasMicroM15Anchor && m5AtrPips > 0
-            ? m15AnchorDistPips / m5AtrPips
-            : 0;
-          const atrTraveledFinal = hasMicroM15Anchor && m15AnchorATRMultiple > atrTraveledM5window
-            ? m15AnchorATRMultiple
-            : atrTraveledM5window;
+          const m15HighAtrMultiple = hasMicroM15Anchor && m5AtrPips > 0 ? m15HighDistPips / m5AtrPips : 0;
+          const m15LowAtrMultiple = hasMicroM15Anchor && m5AtrPips > 0 ? m15LowDistPips / m5AtrPips : 0;
+          const m15MaxDisplacement = Math.max(m15HighAtrMultiple, m15LowAtrMultiple);
+
+          // Use the larger of M5 window displacement or M15 anchor displacement
+          const atrTraveledFinal = Math.max(maxDisplacementAtrMultiple, m15MaxDisplacement);
 
           const movePhaseCode = atrTraveledFinal < 0.75 ? 0 : atrTraveledFinal < 1.5 ? 1 : 2;
 
@@ -2037,28 +2032,29 @@ noise_floor: ${noiseFloorPips.toFixed(1)} pips
           microIntradayMovePhaseContext = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M5 MOVE PHASE & SWEEP READINGS (${marketContext.symbol}) — RAW
+M5 WINDOW DISPLACEMENT & SWEEP READINGS (${marketContext.symbol}) — RAW
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 m5_atr_pips=${m5AtrPips.toFixed(1)}
-atr_traveled_multiple=${atrTraveledFinal.toFixed(2)}
-atr_traveled_pips=${(atrTraveledFinal * m5AtrPips).toFixed(1)}
+window_high_to_price_pips=${distFromWindowHighPips.toFixed(1)}
+window_high_to_price_atr=${windowHighAtrMultiple.toFixed(2)}
+price_to_window_low_pips=${distFromWindowLowPips.toFixed(1)}
+price_to_window_low_atr=${windowLowAtrMultiple.toFixed(2)}
+max_displacement_atr=${atrTraveledFinal.toFixed(2)}
 move_phase_code=${movePhaseCode}
 last_candle_body=${legDirCode}
 m15_anchor_known=${hasMicroM15Anchor}
-m15_anchor_origin=${hasMicroM15Anchor ? m15AnchorOrigin.toFixed(pipInfo.decimalPlaces) : 'N/A'}
-m15_anchor_dist_pips=${hasMicroM15Anchor ? m15AnchorDistPips.toFixed(1) : 'N/A'}
-m5_window_dist_pips=${distFromSwingPipsM5.toFixed(1)}
+m15_high=${hasMicroM15Anchor ? m15SwingHighMicro.toFixed(pipInfo.decimalPlaces) : 'N/A'}
+m15_low=${hasMicroM15Anchor ? m15SwingLowMicro.toFixed(pipInfo.decimalPlaces) : 'N/A'}
+m15_high_dist_pips=${hasMicroM15Anchor ? m15HighDistPips.toFixed(1) : 'N/A'}
+m15_low_dist_pips=${hasMicroM15Anchor ? m15LowDistPips.toFixed(1) : 'N/A'}
 sweep_of_high_detected=${sweepOfHighDetected}
 sweep_of_low_detected=${sweepOfLowDetected}
 sweep_candles_ago=${sweepCandlesAgo}
 sweep_reversal_confirmed=${sweepReversalConfirmed}
 most_recent_extreme_break_code=${mostRecentExtremeBreakCode}
-MANDATORY JSON FIELD — Include in your response:
-  "m5_move_phase_code": ${movePhaseCode}
-  "m5_atr_traveled": ${atrTraveledFinal.toFixed(2)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] M5 phase_code=${movePhaseCode} last_candle=${legDirCode} atr_x=${atrTraveledFinal.toFixed(2)} sweep_high=${sweepOfHighDetected} sweep_low=${sweepOfLowDetected} reversal=${sweepReversalConfirmed} extreme_break=${mostRecentExtremeBreakCode}`);
+          console.log(`[Alpha Coordinator] M5 phase_code=${movePhaseCode} high_dist=${distFromWindowHighPips.toFixed(1)}p(${windowHighAtrMultiple.toFixed(2)}x) low_dist=${distFromWindowLowPips.toFixed(1)}p(${windowLowAtrMultiple.toFixed(2)}x) max_disp=${atrTraveledFinal.toFixed(2)}x sweep_high=${sweepOfHighDetected} sweep_low=${sweepOfLowDetected}`);
         }
 
         // CCIP-2026-0527A: EMA SIGNAL DENSITY FIX. Previously 6 correlated ±1 codes
@@ -2107,11 +2103,11 @@ ${primaryTfConfig.label} STRUCTURE SUMMARY:
 - Consecutive same-direction ${primaryTfConfig.label} candles: ${consecutiveSameDir}
 - Last ${primaryTfConfig.label} candle: body=${lastBody.toFixed(1)}p upper_wick=${lastUpperWick.toFixed(1)}p lower_wick=${lastLowerWick.toFixed(1)}p
 ${emaContextBlock}
-${primaryTfConfig.label} STRUCTURAL EVIDENCE (pre-computed from same window):
-- BOS BULL (last close > prior high): ${primaryBOSBull ? 'YES' : 'NO'}
-- BOS BEAR (last close < prior low): ${primaryBOSBear ? 'YES' : 'NO'}
-- SWEEP WICK BULL (lower wick ≥1.5x body in last 2 candles): ${primarySweepWickBull ? 'YES' : 'NO'}
-- SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 candles): ${primarySweepWickBear ? 'YES' : 'NO'}
+${primaryTfConfig.label} CANDLE READINGS (last 2 candles):
+- engulfed_prior_high=${primaryBOSBull}
+- engulfed_prior_low=${primaryBOSBear}
+- prominent_lower_wick=${primarySweepWickBull}
+- prominent_upper_wick=${primarySweepWickBear}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] ${primaryTfConfig.label} Primary TF: ${recentPrimary.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${tfRangePips.toFixed(1)} pips`);
@@ -2246,10 +2242,10 @@ ${htfConfig.label} RAW READINGS (last ${htfConfig.candleCount} candles):
 - window_high=${htfHigh.toFixed(pipInfo.decimalPlaces)}
 - window_low=${htfLow.toFixed(pipInfo.decimalPlaces)}
 - consecutive_same_direction_candles=${htfConsecutive}
-- bos_bull=${htfBOSBull}
-- bos_bear=${htfBOSBear}
-- sweep_wick_bull=${htfSweepWickBull}
-- sweep_wick_bear=${htfSweepWickBear}
+- engulfed_prior_high=${htfBOSBull}
+- engulfed_prior_low=${htfBOSBear}
+- prominent_lower_wick=${htfSweepWickBull}
+- prominent_upper_wick=${htfSweepWickBear}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] ${htfConfig.label} Direction TF: ${recentHtf.length} candles, close_vs_prev=${htfCloseVsPrevCode}, range ${htfRangePips.toFixed(1)} pips`);
@@ -2359,10 +2355,10 @@ M15 RAW READINGS (last ${recentM15Dir.length} candles):
 - window_low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}
 - consecutive_same_direction_candles=${m15DirConsecutive}
 - last_candle_rejection_wick=${m15DirRejectionWick}
-- bos_bull=${m15DirBOSBull}
-- bos_bear=${m15DirBOSBear}
-- sweep_wick_bull=${m15DirSweepWickBull}
-- sweep_wick_bear=${m15DirSweepWickBear}
+- engulfed_prior_high=${m15DirBOSBull}
+- engulfed_prior_low=${m15DirBOSBear}
+- prominent_lower_wick=${m15DirSweepWickBull}
+- prominent_upper_wick=${m15DirSweepWickBear}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.log(`[Alpha Coordinator] M15 Direction (MICRO_INTRADAY): ${recentM15Dir.length} candles, close_vs_prev=${m15CloseVsPrevCode}, BOS_BULL=${m15DirBOSBull} BOS_BEAR=${m15DirBOSBear}, High=${m15SwingHighMicro.toFixed(pipInfo.decimalPlaces)} Low=${m15SwingLowMicro.toFixed(pipInfo.decimalPlaces)}`);
@@ -2739,10 +2735,10 @@ ${briefing.briefingText}
 
 ${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${momentumTrajectoryContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
-EXECUTION ANCHORS (price/ATR/spread already in briefing above — these are execution-only rules):
-- Entry/SL/TP price anchor: ${(marketContext.livePrice ?? marketContext.price).toFixed(pipInfoForLegend.decimalPlaces)}
-- Volatility guidance: ${volatilityRegime.recommendation}
-- Minimum viable SL: ${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips (1.5x spread — SL below this is hard-blocked)
+EXECUTION ANCHORS:
+- price_anchor=${(marketContext.livePrice ?? marketContext.price).toFixed(pipInfoForLegend.decimalPlaces)}
+- vol_ratio_atr20_atr100=${volatilityRegime.ratio.toFixed(2)}
+- min_sl_pips=${getMinSlDistancePips(marketContext.symbol).toFixed(1)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LAYER 4 — RAW CANDLE EVIDENCE (Interpret through macro lens above)
@@ -2763,25 +2759,9 @@ Actions: BUY (bullish edge), SELL (bearish edge), NO_TRADE (no structural edge o
 When analyzing multiple pairs, execute the best opportunity. Scanner re-evaluates every cycle.
 BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
-TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY) — DISPLACEMENT TARGETS:
-You choose ALL profit targets. No pre-computed ceiling exists. TP placement is driven entirely by where the displacement exhausts.
-Process: (1) Identify the displacement trigger. (2) Name the structural magnet price will sprint toward. (3) Place TP there. (4) Calculate the R:R that results.
-
-MICRO_INTRADAY uses TWO take-profits. TP1 captures the first structural fill on the sprint path. TP2 captures where the displacement exhausts (the structural magnet).
-Minimum R:R 1.0:1 net of spread applies to TP2. Trades should resolve within 30-120 minutes — if the target requires longer, it is too far.
-
-MANDATORY PRE-SUBMISSION GEOMETRY VERIFICATION (execute this as the final step before outputting JSON):
-  Step A: Calculate my SL distance in pips — abs(entry - stopLoss).
-  Step B: Verify SL distance >= minimum viable SL shown above (${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips for ${marketContext.symbol}). If my SL distance is below this floor, the position cannot survive the spread — widen the SL to the next structural level that clears this floor. If no structural anchor exists at or beyond the floor, I output NO_TRADE.
-  Step C: Calculate my TP2 distance in pips — abs(tp2 - entry).
-  Step D: Verify TP2 distance >= SL distance. If TP2 distance < SL distance, I have constructed a direction, not a trade. I select the next structural level further from entry that satisfies TP2 >= SL distance. If no such level exists after a genuine structural search, I output NO_TRADE with the specific structural reason.
-  EURUSD example (Step B): Minimum SL = 3.0 pips. If my structural SL is at 2.8 pips, I widen to the next structural extreme that is >= 3.0 pips. I do NOT submit a 2.8 pip SL — it will be hard-blocked before execution.
-  Geometry example (Step D): SL is 57 pips. My TP2 must be >= 57 pips. A TP2 of 50 pips with a 57-pip SL = 0.88:1 = not a trade.
-
-- MICRO_INTRADAY: ONE take-profit. Minimum R:R 1.0:1.
-  "takeProfit" = Where the displacement EXHAUSTS — the structural magnet price is sprinting toward (M5 swing extreme, equal highs/lows cluster, untouched liquidity pool, or FVG fill zone). This is WHERE the sprint ends. MANDATORY. Do NOT fabricate TP by pointing at an M15 structural wall — name the M5 exhaustion point where the displacement energy runs out.
-  M15 shows you the displacement narrative. M5 shows you where the sprint lands. The destination is always the M5 structural magnet.
-  Document the displacement trigger and the structural magnet.
+TAKE-PROFIT: Alpha sole authority. No pre-computed ceiling.
+Minimum R:R 1.0:1 net of spread. Minimum SL distance: ${getMinSlDistancePips(marketContext.symbol).toFixed(1)} pips (${marketContext.symbol}).
+SL distance < minimum = hard-blocked. TP distance < SL distance = geometry invalid (rr_planned_ratio < 1.0).
 
 ${entryModePromptSection}
 

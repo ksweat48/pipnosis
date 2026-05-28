@@ -98,6 +98,12 @@ const IDENTITY_FORBIDDEN = [
   { pattern: /\babstain\b/i, label: 'Abstain language (0514G)' },
   { pattern: /\bno\s+setup\b/i, label: 'No-setup language (0514G)' },
   { pattern: /\bskip\s+the\s+trade\b/i, label: 'Skip-the-trade language (0514G)' },
+  // CCIP-2026-0528B: Identity teaching removal. Block reintroduction of
+  // pattern-recognition teaching (how to identify reversal vs continuation),
+  // numbered dimension checklists, and directional integrity self-check procedures.
+  { pattern: /\bI\s+recognize\s+this\s+when\b/i, label: 'Pattern-recognition teaching language (0528B)' },
+  { pattern: /\bDIMENSIONS\s+I\s+CONSIDER\s+ON\s+EVERY\s+SCAN\b/i, label: 'Numbered dimensions checklist header (0528B)' },
+  { pattern: /\bDISPLACEMENT\s+CLASSIFICATION\b/i, label: 'Displacement classification teaching block (0528B)' },
 ];
 
 // ─── 0512A: Raw-Data Doctrine guard for prompt-producing files ───────────────
@@ -249,6 +255,18 @@ const RAW_DATA_FORBIDDEN = [
   { pattern: /ema20_vs_ema50=\$\{/, label: 'Individual ema20_vs_ema50 code in prompt (0527A — use ema_trend_composite)' },
   { pattern: /\bVolume\s+Profile\s*:\s*\$\{/, label: 'Volume Profile English word injection (0527A — use volumeRatio numeric)' },
   { pattern: /\bleg_direction=\$\{/, label: 'leg_direction mislabel in prompt (0527A — renamed to last_candle_body)' },
+  // CCIP-2026-0528B: Data integrity fixes. Block reintroduction of mislabeled
+  // BOS detection (was measuring candle engulfment), uppercase YES/NO verdicts
+  // in M5 structural evidence, and TP procedural Steps A-D.
+  { pattern: /\bBOS\s+BULL\b/, label: 'BOS BULL mislabel in prompt (0528B — renamed to engulfed_prior_high)' },
+  { pattern: /\bBOS\s+BEAR\b/, label: 'BOS BEAR mislabel in prompt (0528B — renamed to engulfed_prior_low)' },
+  { pattern: /\bsweep_wick_bull\b/, label: 'sweep_wick_bull mislabel in prompt (0528B — renamed to prominent_lower_wick)' },
+  { pattern: /\bsweep_wick_bear\b/, label: 'sweep_wick_bear mislabel in prompt (0528B — renamed to prominent_upper_wick)' },
+  { pattern: /\bStep\s+[A-D]\s*:/i, label: 'TP procedural Steps A-D teaching block (0528B)' },
+  { pattern: /MANDATORY\s+PRE-SUBMISSION\s+GEOMETRY\s+VERIFICATION/i, label: 'Mandatory geometry verification procedural block (0528B)' },
+  { pattern: /Volatility\s+guidance\s*:/i, label: 'Volatility guidance English label in prompt (0528B — use vol_ratio numeric)' },
+  { pattern: /\[HIGH\]/, label: '[HIGH] verdict label in prompt (0528B)' },
+  { pattern: /formatRiskProfileForLLM/, label: 'formatRiskProfileForLLM teaching injection (0528B)' },
 ];
 
 // CCIP-2026-0513J SEALED-PROMPT DOCTRINE strict rules — only applied to

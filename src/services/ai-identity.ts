@@ -142,13 +142,15 @@ export function getPlatformStreakModifier(score: PlatformScore): number {
  * This function owns only the factual observation string.
  */
 export function buildStreakContext(score: PlatformScore): string {
+  // CCIP-2026-0528B: Removed prescriptive advisory text ("Prioritise setup quality").
+  // Raw streak numbers only. Alpha decides what streaks mean for his trading.
   if (score.consecutive_wins >= PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT) {
-    return `Platform streak context: ${score.consecutive_wins} consecutive platform wins — recent execution has been well-aligned with market conditions.`;
+    return `platform_streak=+${score.consecutive_wins}`;
   }
 
   if (score.consecutive_losses >= PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT) {
-    return `Platform streak context: ${score.consecutive_losses} consecutive platform losses — recent execution has faced adverse conditions. Prioritise setup quality over trade frequency.`;
+    return `platform_streak=-${score.consecutive_losses}`;
   }
 
-  return `Platform streak context: no significant streak — platform is in a neutral execution phase.`;
+  return `platform_streak=0`;
 }

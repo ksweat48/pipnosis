@@ -199,7 +199,7 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
   const wickRatio = snapshot ? computeWickRatio(snapshot.candles.slice(-5)) : 0;
 
   const spreadStr = intel.spreadPips !== undefined
-    ? ` | SPREAD:${intel.spreadPips.toFixed(1)}p${intel.spreadPips > intel.atr * 0.15 ? '[HIGH]' : ''}`
+    ? ` | SPREAD:${intel.spreadPips.toFixed(1)}p`
     : '';
   lines.push(`${intel.symbol} | PRICE:${formatPrice(intel.price)} | ATR:${formatPrice(intel.atr)}(${intel.atrPercent.toFixed(2)}%,${atrAvgRatio.toFixed(2)}x avg)${spreadStr}`);
 
