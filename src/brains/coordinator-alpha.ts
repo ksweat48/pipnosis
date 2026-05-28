@@ -994,12 +994,10 @@ REMINDER: "entry_mode" must be a top-level key in your JSON response.
     const volatilityRegime = this.detectVolatilityRegime(marketContext);
     const stopQuality = this.calculateStopQualityScore(votes.omega8, null);
 
-    // Build goal context with RISK PROFILE STRATEGY (if trading with a goal)
+    // CCIP-2026-0528C: Communicate per-trade risk budget. Alpha decides profit targets via R:R.
     let goalContextText = '';
     if (goalContext && goalContext.hasGoal) {
-      // CCIP-2026-0528B: Removed prescriptive risk profile teaching (Entry Urgency,
-      // Target Speed, setups preferred). Alpha decides how to hunt. Only raw numbers.
-      goalContextText = `\nGOAL: balance=$${goalContext.currentBalance.toFixed(0)} target=+$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}%) progress=$${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} remaining=$${goalContext.remainingGoal.toFixed(0)} risk_pct=${(goalContext.riskPercent || 5)}%\n`;
+      goalContextText = `\nRISK: balance=$${goalContext.currentBalance.toFixed(0)} risk_per_trade=$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}%) risk_pct=${(goalContext.riskPercent || 5)}%\n`;
     }
 
     // Build intelligence context

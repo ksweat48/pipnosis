@@ -170,14 +170,10 @@ class SmartGoalSessionManager {
     console.log('[Smart Goal] Creating session with settings:', {
       sessionId,
       multi_trade_enabled: multiTradeEnabled,
-      target: config.goalAmount,
+      risk_budget: config.dollarRisk,
+      risk_per_trade: multiTradeEnabled ? Math.round((config.dollarRisk || 0) / 3) : config.dollarRisk,
       trade_style: tradeStyleDisplayName,
-      dollar_risk: config.dollarRisk,
       risk_mode_legacy: config.riskMode,
-      tp1_target: dualTargets.tp1,
-      tp2_target: sessionTP2,
-      tp2_suppressed: isScalpStyle ? 'CCIP: Scalp trades use TP1 only' : false,
-      tp_reasoning: dualTargets.reasoning,
     });
 
     // SSOT: Compute and store risk_percentage at session creation time.
@@ -233,10 +229,9 @@ class SmartGoalSessionManager {
     await this.startLiveEngine(sessionId, userId, config, accountBalance, multiTradeEnabled);
 
     const styleInfo = config.tradeStyle ? ` • Style: ${config.tradeStyle}` : '';
-    const riskInfo = config.dollarRisk ? ` • Risk: $${config.dollarRisk}/trade` : ` • Risk Mode: ${effectiveRiskMode}`;
-    console.log(`[Smart Goal] Created session ${sessionId}: Target $${config.goalAmount}${styleInfo}${riskInfo}`);
-    console.log(`[Smart Goal] Strategy: ${breakDown.targetTradeCount === 1 ? 'ONE premium trade' : `${breakDown.targetTradeCount} trades if needed`}`);
-    console.log(`[Smart Goal] ✅ LIVE DEMO MODE - All trades use real price monitoring with visible SL/TP`);
+    const riskInfo = config.dollarRisk ? ` • Risk Budget: $${config.dollarRisk}` : ` • Risk Mode: ${effectiveRiskMode}`;
+    console.log(`[Smart Goal] Created session ${sessionId}: ${riskInfo}${styleInfo} (multi=${multiTradeEnabled})`);
+    console.log(`[Smart Goal] ✅ Each trade runs independently to its own TP/SL`);
 
     return session;
   }
@@ -260,18 +255,11 @@ class SmartGoalSessionManager {
     customInstructions?: string,
     cardSignal?: Record<string, unknown>
   ): SmartGoalConfig {
-    // Extract goal amount from prompt if present, otherwise use reasonable default
-    const lower = prompt.toLowerCase();
-    const dollarMatch = lower.match(/\$?\s*(\d+(?:\.\d+)?)/);
-
-    // 🛡️ INTELLIGENT ROUNDING: Round goal to nearest dollar for internal calculations
-    // UI can show cents, but calculations work with whole dollars to prevent precision issues
-    let goalAmount = dollarMatch ? parseFloat(dollarMatch[1]) : dollarRisk * 2; // Default to 2x the risk
-    goalAmount = Math.round(goalAmount); // Round to nearest dollar
-
-    if (dollarMatch && goalAmount !== parseFloat(dollarMatch[1])) {
-      console.log(`[Smart Goal] Rounded goal from $${parseFloat(dollarMatch[1]).toFixed(2)} to $${goalAmount.toFixed(2)} for calculation stability`);
-    }
+    // CCIP-2026-0528C: The dollar amount from the user is their RISK BUDGET, not a profit target.
+    // Alpha decides profit targets per-trade based on R:R geometry.
+    // target_value in the DB is set to a high sentinel so it never triggers auto-close.
+    // The real risk budget is stored in dollarRisk and used for lot sizing only.
+    const goalAmount = dollarRisk * 10; // Sentinel: effectively infinite so goal_achieved never triggers
 
     // STEP 1: Detect symbols from prompt (highest priority)
     const promptSymbols = extractSymbolsFromPrompt(prompt);
@@ -683,21 +671,16 @@ class SmartGoalSessionManager {
 
         // Send comprehensive session startup message
         const effectiveRiskMode = config.riskMode || 'medium';
-        const strategyMessage = `🎯 Goal Session Started!\\n` +
-          `💰 Target: $${config.goalAmount} in ${config.timeframe}\\n` +
-          `📊 Strategy: ${breakDown.targetTradeCount} trades averaging $${breakDown.avgProfitPerTrade.toFixed(2)} each\\n` +
-          `🛡️ Risk Mode: ${effectiveRiskMode.toUpperCase()} (max $${breakDown.maxProfitPerTrade.toFixed(2)} per trade)\\n` +
-          `🎯 Alpha executes on structural edge — no confidence gate\\n` +
+        const riskPerTrade = multiTradeEnabled ? Math.round((config.dollarRisk || 0) / 3) : config.dollarRisk;
+        const strategyMessage = `🎯 Session Started!\\n` +
+          `💰 Risk Budget: $${config.dollarRisk}${multiTradeEnabled ? ` ($${riskPerTrade}/trade across up to 3 trades)` : '/trade'}\\n` +
+          `🛡️ Risk Mode: ${effectiveRiskMode.toUpperCase()}\\n` +
+          `🎯 Alpha decides profit targets per-trade based on R:R geometry\\n` +
           `\\n🔍 Monitoring: ${config.watchlist.join(', ')}\\n` +
           `⚡ Analyzing markets every minute for optimal entries\\n` +
           `🧠 Autonomous Pipnosis Alpha: GPT-4o-mini creating dynamic strategies\\n` +
-          `📈 All trades will have visible SL/TP on charts (Live Demo Mode)\\n` +
-          `\\n🤖 The AI is analyzing:\\n` +
-          `   • Market structure & regime (trend/range/breakout conditions)\\n` +
-          `   • Smart money concepts (BOS, ChoCh, liquidity zones)\\n` +
-          `   • Adversarial patterns (stop hunts, fake breakouts)\\n` +
-          `   • Its own memory & playbook of proven strategies\\n` +
-          `\\n📊 Strategy plans will be shared as the AI makes decisions in real-time`;
+          `📈 All trades will have visible SL/TP on charts\\n` +
+          `\\n📊 Each trade runs independently to its own TP or SL`;
 
         await SystemTableRPCWrapper.createGoalAIConversation(
           userId,

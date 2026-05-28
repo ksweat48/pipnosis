@@ -1013,9 +1013,15 @@ class GoalSessionLiveEngine {
         .eq('status', 'closed');
 
       const currentProgress = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
-      const targetGoal = sessionData?.target_value || 200;
-      const remainingGoal = targetGoal - currentProgress;
-      const goalPercentage = (remainingGoal / config.initialBalance) * 100;
+      // CCIP-2026-0528C: target_value is a sentinel (risk_budget * 10) — not a real profit target.
+      // The meaningful number for Alpha is the per-trade risk budget (config.dollarRisk / maxConcurrentTrades).
+      const isMultiTrade = config.multiTradeMode ?? (config.maxConcurrentTrades > 1);
+      const riskPerTrade = config.dollarRisk
+        ? (isMultiTrade ? config.dollarRisk / config.maxConcurrentTrades : config.dollarRisk)
+        : (config.initialBalance * getRiskPercentage(config.riskMode) / 100);
+      const targetGoal = riskPerTrade; // Alpha's context: how much is risked per trade
+      const remainingGoal = targetGoal; // Each trade is independent — always the full per-trade risk
+      const goalPercentage = (riskPerTrade / config.initialBalance) * 100;
 
       // ═══════════════════════════════════════════════════════════════════
       // CCIP COMPLIANT: Market-Aware Goal Feasibility Estimation (SSOT)
@@ -1730,11 +1736,15 @@ class GoalSessionLiveEngine {
       const stopPips = calculatePipDistance(selectedSymbol, decision.entry, decision.stopLoss);
       const takeProfitPips = calculatePipDistance(selectedSymbol, decision.entry, decision.takeProfit);
 
-      // Determine base risk percent (either from dollar risk or risk mode)
+      // CCIP-2026-0528C: Per-trade risk division in multi-trade mode.
+      // User's total risk budget is divided equally among the number of trades Alpha finds.
+      // e.g., $1500 budget with 3 trades = $500 risk per trade.
       let baseRiskPercent: number;
       if (config.dollarRisk) {
-        // Convert dollar risk to percentage of account
-        baseRiskPercent = (config.dollarRisk / config.initialBalance) * 100;
+        const tradesInThisCycle = selectedWinners.length || 1;
+        const isMultiTrade = config.multiTradeMode ?? (config.maxConcurrentTrades > 1);
+        const riskPerTrade = isMultiTrade ? config.dollarRisk / tradesInThisCycle : config.dollarRisk;
+        baseRiskPercent = (riskPerTrade / config.initialBalance) * 100;
       } else {
         baseRiskPercent = getRiskPercentage(config.riskMode);
       }
@@ -3489,12 +3499,15 @@ Your decision keeps you in control of your risk and prevents runaway trading.
   }
 
   /**
-   * Check if continuation dialog should be shown after trade closes
-   * Only in single-trade mode and only if goal is NOT met
+   * CCIP-2026-0528C: Check session state after trade closes.
+   *
+   * Multi-trade mode: each trade runs independently to its own TP/SL.
+   * Session stops ONLY when ALL trades have resolved (no open trades remain).
+   *
+   * Single-trade mode: session stops after trade closure (legacy behavior).
    */
   private async checkContinuationAfterTradeClose(trade: SimulatedTrade): Promise<void> {
     try {
-      // Fetch current session data
       const { data: session, error: sessionError } = await supabase
         .from('goal_sessions')
         .select('multi_trade_enabled, current_progress, target_value, trades_in_session')
@@ -3506,26 +3519,39 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         return;
       }
 
-      // GOVERNANCE (2026-02-18): Even multi-trade mode stops after trade closure.
-      // No auto-scanning is permitted after any trade closes.
-      // User must explicitly start a new session to scan again.
-
-      // Check if goal is met
+      const isMultiTrade = session.multi_trade_enabled === true;
       const currentProgress = session.current_progress || 0;
-      const targetValue = session.target_value || 0;
-      const goalMet = currentProgress >= targetValue;
+      const isWin = trade.outcome === 'win';
+      const outcome = isWin ? 'WIN' : 'LOSS';
+      const emoji = isWin ? '+' : '-';
 
-      if (goalMet) {
-        // Goal achieved! Celebrate and close session
-        logger.info(LogCategory.AI_TRADING, '🎉 GOAL ACHIEVED! Stopping session');
+      if (isMultiTrade) {
+        // CCIP-2026-0528C: Multi-trade mode — each trade runs independently.
+        // Check if ANY other trades are still open in this session.
+        const { data: openTrades } = await supabase
+          .from('goal_session_trades')
+          .select('id')
+          .eq('goal_session_id', this.activeSession)
+          .eq('status', 'open');
 
-        const { goalSessionStateMachine: gsm } = await import('./coordinators/goal-session-state-machine');
-        await gsm.transition(this.activeSession!, 'goal_achieved', {
-          reason: 'Goal target reached',
-          triggeredBy: 'goal-session-live-engine',
-        });
+        const remainingOpenTrades = openTrades?.length || 0;
 
-        // Calculate session stats for celebration message
+        if (remainingOpenTrades > 0) {
+          // Other trades still running — do NOT stop the session.
+          logger.info(LogCategory.AI_TRADING, `Trade closed (${outcome}). ${remainingOpenTrades} trade(s) still open — session continues.`);
+
+          await this.sendAIMessage(
+            `${emoji === '+' ? '✅' : '❌'} Trade closed: ${trade.symbol} ${trade.direction?.toUpperCase() || ''}\n\n` +
+            `P&L: ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}\n` +
+            `Session P&L: $${currentProgress.toFixed(2)}\n` +
+            `${remainingOpenTrades} trade${remainingOpenTrades > 1 ? 's' : ''} still running to their own TP/SL.`
+          );
+          return;
+        }
+
+        // All trades resolved — session complete.
+        logger.info(LogCategory.AI_TRADING, `All trades resolved. Session complete. Final P&L: $${currentProgress.toFixed(2)}`);
+
         const stats = localSessionMemory.getSessionStatistics(`live-${this.activeSession}`);
         const duration = stats ? Math.floor((Date.now() - Date.parse(stats.startTime)) / 60000) : 0;
         const durationText = duration < 60
@@ -3533,43 +3559,36 @@ Your decision keeps you in control of your risk and prevents runaway trading.
           : `${Math.floor(duration / 60)}h ${duration % 60}m`;
 
         await this.sendAIMessage(
-          `🎉 🎯 🎉 GOAL ACHIEVED! 🎉 🎯 🎉\n\n` +
-          `✨ Congratulations! You've successfully reached your goal!\n\n` +
-          `💰 Target: $${targetValue.toFixed(2)}\n` +
-          `✅ Achieved: $${currentProgress.toFixed(2)}\n` +
-          `📊 Total Trades: ${stats?.totalTrades || 0}\n` +
-          `🎯 Win Rate: ${stats ? ((stats.winningTrades / stats.totalTrades) * 100).toFixed(0) : 0}%\n` +
-          `⏱️ Duration: ${durationText}\n\n` +
-          `🏆 This achievement has been logged in your records!\n` +
-          `💪 Session complete - great trading!`
+          `All trades resolved!\n\n` +
+          `Session P&L: ${currentProgress >= 0 ? '+' : ''}$${currentProgress.toFixed(2)}\n` +
+          `Total Trades: ${stats?.totalTrades || session.trades_in_session || 0}\n` +
+          `Duration: ${durationText}\n\n` +
+          `Session complete. Start a new session when you're ready to trade again.`
         );
 
-        // Stop the session
+        const { goalSessionStateMachine: gsm } = await import('./coordinators/goal-session-state-machine');
+        await gsm.transition(this.activeSession!, 'stopped', {
+          reason: 'All trades resolved — session complete',
+          triggeredBy: 'goal-session-live-engine:checkContinuationAfterTradeClose',
+        });
+
         this.stopSession();
         return;
       }
 
-      // GOVERNANCE (2026-02-18): After trade closure, session MUST stop.
-      // Scanning can only be re-initiated by user starting a new session.
-      // This prevents unauthorized auto-trading after SL/TP/manual close.
-      const remainingAmount = targetValue - currentProgress;
-      const isWin = trade.outcome === 'win';
-      const outcome = isWin ? 'WIN' : 'LOSS';
-      const emoji = isWin ? '✅' : '❌';
-
-      logger.info(LogCategory.AI_TRADING, `GOVERNANCE: Trade closed (${outcome}). Stopping session - user must start new session to scan again.`);
+      // Single-trade mode: stop session after trade closure (legacy governance).
+      logger.info(LogCategory.AI_TRADING, `GOVERNANCE: Trade closed (${outcome}). Stopping session — single-trade mode.`);
 
       await this.sendAIMessage(
-        `${emoji} Trade closed: ${trade.symbol} ${trade.direction?.toUpperCase() || ''}\n\n` +
-        `💰 P&L: ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}\n` +
-        `📊 Progress: $${currentProgress.toFixed(2)} / $${targetValue.toFixed(2)}\n` +
-        `🎯 Remaining: $${remainingAmount.toFixed(2)} to goal\n\n` +
+        `${emoji === '+' ? '✅' : '❌'} Trade closed: ${trade.symbol} ${trade.direction?.toUpperCase() || ''}\n\n` +
+        `P&L: ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}\n` +
+        `Session P&L: $${currentProgress.toFixed(2)}\n\n` +
         `Session complete. Start a new session when you're ready to trade again.`
       );
 
       const { goalSessionStateMachine: gsm } = await import('./coordinators/goal-session-state-machine');
       await gsm.transition(this.activeSession!, 'stopped', {
-        reason: `Trade closed (${trade.outcome}) - session auto-stopped per governance policy`,
+        reason: `Trade closed (${trade.outcome}) — session auto-stopped (single-trade mode)`,
         triggeredBy: 'goal-session-live-engine:checkContinuationAfterTradeClose',
       });
 
