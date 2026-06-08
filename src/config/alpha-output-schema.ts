@@ -212,7 +212,9 @@ const ANSWER_SHEET_PROPERTIES: Record<string, Record<string, unknown>> = {
   // ═══════════════════════════════════════════════════════════════════
   // TP GEOMETRY
   // CCIP-2026-0518D: tp_crowd_awareness records where crowd TPs cluster
+  // CCIP-2026-0529A: tp_fill_confidence — Alpha's honest fill probability
   // ═══════════════════════════════════════════════════════════════════
+  tp_fill_confidence: { type: 'integer' },
   tp_crowd_awareness: { type: ['string', 'null'] },
 
   // ═══════════════════════════════════════════════════════════════════
